@@ -643,3 +643,18 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - Regression: check-self-review began ignoring `user_id` in the 2026-08-19 H1 Route Guard rewrite (`QRkUvs24DkcC3WBW`).
 - 403 capability errors still surface via the interceptor, not the English workflow string.
 - Live registered=2 / sessions=4 were already present before this PUT.
+
+## 2026-08-20 — H1 pre-flight (re-verification, read-only)
+
+**What was done:**
+- Re-verified the full launch baseline against live: period/scope, Auth Guard identity, workflow and webhook counts, frontend symlink, certificate, archive and epe_2026 counts, invite id=4. All 11 values matched.
+- Re-verified the six 2026-08-20 server rules against live `workflow_entity` definitions with quoted fragments (my-profile sealing, evaluation-details ownership, check-self-review gated selector, criteria level-text stripping, score-correction capability, employees/my-manager predicate+flags+coefficient), plus one safe live probe of verify-invite (Russian message).
+- Closed the Part 3 gap: read-only C-level behavior proven from live SQL + deployed bundle `20260820T154749Z` — `AND ${actorCanEvaluate}` empties `/api/employees` server-side; sidebar «Команда», dashboard CTAs, and self-review form all absent client-side; submit double-closed by capability guard. **Was already correct — no fix, no PUT, no deploy.**
+- Listed registrations (2: Alexander id=2, Jemal id=47) and sessions (4 rows, 2 users). Nothing deleted, no mail.
+- Committed the working tree after a file-by-file secrets/data review: `92ba7cc` backend exports+generators+scripts+infra, `911e3bd` frontend+tests (`npm test` re-run 182/182), `090871b` docs. Added closed rows BUG-024…027 to `bugs.md`.
+- Report: `docs/PREFLIGHT_H1_2026-08-2x.md`. **Verdict: H1 can be activated — yes.**
+
+**Notes / Gotchas:**
+- The employees `can_evaluate` predicate was in the 15:46 PUT all along (generator line 1440); only the proof was missing.
+- Report-only leftovers: empty «Мои задачи» box for the read-only trio; matrix correction inputs 403 via interceptor for them; `level_0_desc` outside the stripped list (empty today on both c_level_only rows).
+- Constraints held: Auth Guard `2026-08-18T16:34:30.674Z`/inactive re-read at finish; H1 still draft/false; sessions still 4; archive untouched.
