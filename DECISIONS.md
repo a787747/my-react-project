@@ -1,0 +1,439 @@
+# Architecture Decisions
+
+This is the single architecture decision register for EPE. [`PROJECT_DECISIONS.md`](./PROJECT_DECISIONS.md) is a pointer only.
+
+## Overview
+Evaluation Portal is an employee performance review application with role-based workflows for employees, managers, HR, C-level users, and administrators.
+
+## Tech Stack
+- Frontend: React 19, Vite 7, Tailwind CSS 3
+- Backend: n8n webhooks
+- Database: PostgreSQL, schema `performance_db`
+- Legacy frontend deployment: `http://135.232.120.40:8080`
+- Production origin: `https://epe.sedamedical.com` on host `92.51.45.147`
+
+## Conventions
+- Keep API endpoint definitions centralized and environment-driven.
+- Use fully qualified PostgreSQL table names under `performance_db`.
+- Separate page presentation, reusable components, and data hooks.
+- Record architectural decisions and operational discoveries here.
+
+---
+
+## Decisions
+
+### 2026-08-12 — Recovery before feature development
+
+**Context:**
+The project was previously in production, but the configured backend is unavailable and the current state of the legacy server and database is unknown.
+
+**Decision:**
+Recover and document the existing system before changing features or scoring priorities. Infrastructure inspection must begin read-only, followed by verified backups before service changes or database migrations.
+
+**Rationale:**
+- Existing production data may still be present.
+- Starting or upgrading n8n without inventory and backups can trigger incompatible migrations.
+- Product work cannot be validated while the backend is unavailable.
+
+**Pattern:**
+1. Inventory services, versions, volumes, environment configuration, and logs.
+2. Back up PostgreSQL, n8n workflows, credentials, and deployment configuration.
+3. Reproduce the system in a controlled environment.
+4. Restore health checks and then validate business workflows.
+
+**Files:**
+- `PLAN.md` — phased revival plan.
+- `PROGRESS.md` — initial health-check evidence.
+
+---
+
+### 2026-08-12 — Local-only change policy
+
+**Context:**
+The revival starts with a large uncommitted working tree, and the user requested repository-local documentation.
+
+**Decision:**
+Keep all work local unless the user explicitly asks to commit, push, deploy, or modify the remote server.
+
+**Rationale:**
+This preserves the current project state and avoids accidental production changes while the baseline is still being reconstructed.
+
+**Pattern:**
+- Document work in the repository.
+- Verify changes locally.
+- Request explicit authorization before external or Git mutations.
+
+**Files:**
+- `PLAN.md`
+- `PROGRESS.md`
+- `DECISIONS.md`
+
+---
+
+### 2026-08-12 — Credentials are environment-only
+
+**Context:**
+The n8n workflow export utility contained an API key directly in source code.
+
+**Decision:**
+All service credentials must be supplied through ignored environment variables or a managed secret store. Source files and example environment files may contain variable names and placeholders only.
+
+**Rationale:**
+Credentials in source can leak through Git history, archives, logs, or copied project folders even when the current repository is private or the credential has expired.
+
+**Pattern:**
+- Read credentials from environment variables.
+- Fail before network access when required credentials are absent.
+- Never print credentials in logs or error messages.
+- Rotate any credential that may have been exposed.
+
+**Files:**
+- `dump_n8n.py` — reads n8n connection settings from environment variables.
+- `.env.example` — documents placeholders only.
+- `bugs.md` — records the resolved defect.
+
+---
+
+### 2026-08-18 — Organisation import identity and evaluation scope
+
+**Context:**
+The HR export contains 88 unique emails but omits Employee ID for 29 people.
+The organisational tree also cannot express read-only executives and
+period-specific H1 exclusions using only `users.role` and `manager_id`.
+
+**Decision:**
+- Match and idempotently upsert users by normalized company email.
+- Use names only to resolve and validate `Reports to`.
+- Keep the three Lab department strings as separate units.
+- Keep `work_category=project` and `is_project_participant=true` aligned under
+  the approved department/title rules.
+- Store permanent evaluation direction with `can_evaluate` and
+  `can_be_evaluated`.
+- Store campaign-specific eligibility in a period-participation table when the
+  period is created.
+
+**Rationale:**
+- Email is the only complete stable key in the export.
+- Project criteria are selected by `is_project_participant` in the current
+  application.
+- The reporting hierarchy and evaluation graph are different business
+  relationships.
+- A permanent user flag would incorrectly exclude post-H1 hires from H2.
+
+**Pattern:**
+1. Validate all identity, grade, department, and manager references before SQL.
+2. Insert missing rows and update only distinct values.
+3. Keep password hashes outside organisation import updates.
+4. Prove reruns with zero changes to rows, links, and sequence states.
+5. Fingerprint the read-only source before and after every import.
+
+**Files:**
+- `scripts/import_epe_2026.py`
+- `docs/IMPORT_2026-08-18.md`
+
+---
+
+### 2026-08-18 — Live-authority JWT and reusable n8n guard
+
+**Context:**
+The React client already sends bearer tokens, but n8n trusted client-supplied
+IDs and stored plaintext passwords. Role and evaluation capabilities can
+change during a campaign.
+
+**Decision:**
+- JWTs contain only `sub`, `iss`, `aud`, `iat`, `exp`, and `jti`.
+- Token lifetime is four hours with no refresh token.
+- Every protected request resolves role, capabilities, token version, and
+  session state from `epe_2026`.
+- Authentication uses one execute-workflow guard.
+- Passwords use scrypt; reset tokens are one-time and stored only as hashes.
+- Password reset increments `token_version` and revokes all sessions.
+- EPE uses a dedicated Postgres credential; the shared credential remains
+  unchanged for archived foreign workflows.
+
+**Rationale:**
+- Live authorization makes promotions, demotions, and capability changes
+  immediate.
+- Four hours limits the theft window while frontend draft persistence and an
+  expiry warning protect form work.
+- Session rows let password reset invalidate JWTs without adding an
+  authorization claim.
+- A single guard prevents route-by-route authorization drift.
+
+**Pattern:**
+1. Verify JWT signature and exact claims.
+2. Join `auth_sessions` to the live user and compare token versions.
+3. Check required roles and capabilities in the guard.
+4. Ignore client identity fields and use `guard.identity.id`.
+5. Keep authentication workflows inactive until HTTPS exists.
+
+**Files:**
+- `scripts/build_auth_workflows.py`
+- `n8n_workflows/auth_core/`
+- `migrations/011_add_authentication_core.sql`
+- `docs/AUTHENTICATION_CORE_2026-08-18.md`
+
+---
+
+### 2026-08-18 — Pin the current n8n image by registry digest
+
+The running n8n 1.121.3 image is pinned as
+`n8nio/n8n@sha256:0a65e6e5995c19e0cf7e83d6b08ffa6c1898e8a53ff1658e6e7b22e68576c673`
+instead of using `latest` or the mutable `1.121.3` tag. The current
+`1.121.3` tag resolves to a different local image ID than the running
+container, so recreating from that tag would not reproduce the reviewed
+runtime.
+
+This intentionally freezes n8n security and base-image updates. Revisit the
+pin when the n8n backend is rewritten in Phase 3; until then, any image change
+requires backups, migration review, and full workflow/credential verification.
+
+---
+
+### 2026-08-19 — One HTTPS origin through Caddy
+
+**Context:**
+The portal was served from an Azure Windows VM over HTTP while n8n was public
+on another HTTP origin. This required CORS, exposed bearer tokens and
+passwords, and made frontend deploys depend on RDP.
+
+**Decision:**
+- Serve the React SPA and n8n `/webhook/*` from
+  `https://epe.sedamedical.com`.
+- Run pinned Caddy in the `epe-proxy` Compose project.
+- Build the frontend with the relative API base `/webhook`.
+- Block direct public access to n8n port 5678.
+- Keep the n8n editor available only through the local SSH tunnel.
+- Leave the Azure portal untouched as a fallback.
+
+**Rationale:**
+- One origin removes CORS and needs one certificate.
+- Relative API URLs remain correct across frontend releases.
+- Caddy provides automatic certificate issuance and renewal.
+- Atomic static releases remove RDP from the normal deploy path.
+
+**Pattern:**
+1. Verify DNS before ACME.
+2. Validate Caddy configuration before starting it.
+3. Store certificates in named persistent volumes.
+4. Deploy timestamped frontend releases and switch a relative symlink.
+5. Keep direct backend ports filtered and verify from an external host.
+
+**Files:**
+- `infra/Caddyfile`
+- `infra/caddy-compose.yml`
+- `infra/epe-firewall.sh`
+- `scripts/deploy_epe_frontend.sh`
+- `docs/TLS_CUTOVER_2026-08-19.md`
+
+---
+
+### D-0819-1 — Annual aggregation of H1 and H2
+
+Rating (feedback, 1–10, per source): annual = arithmetic mean of the periods in which the person was in scope; one period → that period's value.
+Bonus allocation index: annual = SUM of the period indices (pro-rata for people in scope in one half only).
+Self-review is never aggregated and never feeds the index.
+Open dependency: which number was used in December 2025 (manager card vs admin matrix) — CALCULATION_MAP question 2.
+
+---
+
+### D-0819-2 — H1 guarded route policy
+
+- `hr/evaluation-status` is restricted to HR, admin, and C-level; the general dashboard degrades without the company-wide status response.
+- Score-coefficient writes are admin-only before/after a campaign and unavailable while any period is active.
+- Subjects never receive `private_comment`; upward evaluations also hide evaluator identity.
+- Admin and all C-level users, including the three read-only C-level users, are exempt from self-review.
+- `(subject, evaluator, source, period)` uniqueness is enforced; duplicate submit is rejected and changes use `update-evaluation`.
+- The production period constraints are reconciled through an idempotent migration; `c_level_direct` remains deferred with the matrix.
+- The three `periods*` routes join the guarded launch surface. Period reads allow HR/admin/C-level; create and activate are admin-only. After acceptance on 2026-08-19, the full launch-route set is left active immediately; evaluation-period state is controlled separately.
+- `work_category` is the H1 canonical project/general field; save-user synchronizes `is_project_participant` and classification freezes after the first active-period evaluation.
+
+---
+
+### 2026-08-19 — H1 guarded route and period policy
+
+**Context:**
+The legacy n8n routes trusted client IDs, had no ownership checks, and could
+not safely assign repeated half-year evaluations to a period. Project/general
+classification also had two fields that the admin UI could desynchronise.
+
+**Decision:**
+- Every launch route resolves actor identity through the unchanged live-identity guard.
+- Route SQL enforces ownership, active-period participation, and source-specific
+  evaluation graph rules.
+- Non-self uniqueness is `(subject, evaluator, source, period)`; duplicate
+  submit is rejected and changes use guarded update.
+- Score coefficients and project/general classification freeze after campaign
+  submissions begin.
+- `work_category` is canonical for H1 and atomically determines
+  `is_project_participant`.
+- Subjects do not receive private comments or upward evaluator identity.
+- Guarded period read/create/activate routes join the active launch surface.
+
+**Rationale:**
+- Client IDs are presentation inputs, not authority.
+- Period-aware uniqueness prevents H1 from overwriting H2 or annual rows.
+- Freezing money inputs preserves one scoring basis for the campaign.
+- Keeping n8n for H1 meets the deadline without accepting the legacy trust model.
+
+**Pattern:**
+1. Run the reusable guard before route logic and use `guard.identity.id`.
+2. Reassert ownership in the mutation statement, not only in a prior read.
+3. Require both `is_active=true` and `status='active'`.
+4. Disable n8n execution-data persistence on authentication and guarded routes.
+5. Restore evaluations/sessions to zero after acceptance.
+
+**Files:**
+- `scripts/build_route_guard_workflows.py`
+- `migrations/012_reconcile_evaluation_period_constraints.sql`
+- `n8n_workflows/route_guard_h1/`
+- `tests/routeGuardWorkflows.test.js`
+- `docs/ROUTE_GUARD_H1_2026-08-19.md`
+
+---
+
+### D-0820-1 — Campaign views use period scope, not the org tree
+
+Campaign employee lists (`GET /api/employees`), manager task completion, and
+HR status denominators include only `evaluation_period_participants.is_in_scope`
+for the single period that is both `is_active` and `status='active'`.
+
+When no such period exists, those campaign views return an empty list and
+`campaign_active=false`. They do not fall back to the organisation tree.
+Admin user management and other non-campaign screens stay unfiltered.
+
+---
+
+### D-0820-2 — Manager/subordinate writes store the mean of score rows
+
+On submit and update for manager/subordinate (and upward) paths, the stored
+`calculated_score` is the plain average of that evaluation's stored score rows.
+The client `final_score` is ignored. Grade values outside 1–10 are rejected
+with 4xx and no row is written. Self-review `weighted_score` is unchanged.
+No schema change.
+
+---
+
+### D-0820-3 — Pre-auth resend cooldown and invite throttle
+
+`POST /api/send-verification-code`: 60-second cooldown per email. A second
+request inside the window returns `error_code=resend_cooldown` and
+`retry_after_seconds`. This does not block a legitimate employee; they wait
+one minute.
+
+`GET /api/verify-invite`: originally 30 requests / 5 minutes / client IP
+(see D-0820-5 for the H1 raise). Counted in `auth_login_attempts` under
+`epe-throttle:verify-invite:<ip>`. No other pre-auth behaviour changes
+in the launch-prep pass.
+
+---
+
+### D-0820-4 — Shared registration link for H1 waves
+
+H1 invitations use one reusable invite token (the unused token already in
+`invite_tokens`, plus the Admin → Periods control). Per-wave tokens are not
+worth it now. BUG-008 stays open as a known audit-trail issue if a second
+admin is added later.
+
+---
+
+### D-0820-5 — verify-invite NAT burst limit for 26 Aug
+
+`GET /api/verify-invite` is 600 requests / 5 minutes / client IP. The 601st
+returns `error_code=RATE_LIMITED`. Chosen so ~89 people on one office NAT
+can open the shared link in the same five minutes without the 30-cap from
+D-0820-3. The 60-second per-email resend cooldown is unchanged.
+
+Live `API: Register` still marks the invite `is_used=true` on first success;
+that is not a rate limit and was not changed here. See
+`docs/THROTTLE_RAISE_2026-08-20.md`.
+
+---
+
+### D-0820-6 — Shared invite token is reusable for H1
+
+`POST /api/register` must not set `invite_tokens.is_used` and must not
+require `is_used=false`. Expiry (`expires_at`) stays. The live shared
+token (id=4) is base64url; register accepts `[A-Za-z0-9_-]{16,128}` so
+that token and UUID tokens both validate. Gates remain: email in
+`users`, verified unexpired code, `password_hash IS NULL`. See
+`docs/SHARED_INVITE_2026-08-20.md`.
+
+---
+
+### D-0820-7 — `c_level_direct` enabled for H1
+
+Alexander: C-level management may write `evaluation_source=c_level_direct`
+on the launch submit route for H1; the evaluations-matrix GET is active.
+Stored number is the same plain `AVG` as manager/subordinate (HANDOVER §4).
+Actor role `admin` or `c_level`; evaluator is the token actor. 2025 stored
+no `c_level_direct` rows — admin acted at C-level via `score_corrections`.
+Admin-as-writer is implemented to match that practice; confirm if it should
+narrow to role `c_level` only. See `docs/CLEVEL_DIRECT_ENABLE_2026-08-2x.md`.
+
+---
+
+### 2026-08-20 — Client drafts reuse one localStorage helper
+
+**Context:**
+Dress rehearsal: only the manager→subordinate modal survived refresh.
+Self-review is one-shot.
+
+**Decision:**
+Reuse `getEvaluationDraftKey(evaluatorId, subjectId)` / 7-day expiry.
+Self-review key is `(userId, userId)`. Upward is `(userId, managerId)`.
+Logout/401 still do not sweep draft keys.
+
+**Rationale:**
+Same helper, same expiry, same 401 survival the manager modal already had.
+
+**Files:**
+- `src/utils/evaluationDrafts.js`
+- `src/hooks/useSelfReview.js`
+- `src/pages/ManagerEvaluation.jsx`
+- `docs/DRAFTS_UX_2026-08-2x.md`
+
+---
+
+### D-0820-8 — No outbound mail except Alexander, unless he confirms
+
+Executors must not send mail to anyone except `alexander@sedamedical.com`
+without Alexander naming that recipient in the same conversation. Covers
+n8n `send-verification-code`, password-reset mail, and SMTP tests. A brief
+that asks for an emailed proof is not confirmation. If the proof needs a
+code and no mailbox is named, stop and ask.
+
+Triggered after verification codes went to Alina Naubatova and Alp-Arslan
+Mametnazar during the shared-invite proof (`docs/SHARED_INVITE_2026-08-20.md`)
+without a named-mailbox go-ahead.
+
+---
+
+## 2026-08-20 week decisions (one line each)
+
+### D-0820-6 — Shared token reusable
+`POST /api/register` does not set `invite_tokens.is_used`; token id=4 stays reusable until expiry.
+
+### D-0820-7 — `c_level_direct` enabled for H1
+Writers are role `admin` or `c_level`; evaluator is the token actor; stored number is the same plain AVG as manager.
+
+### D-0820-9 — Corrections bind to ACTIVE period only
+Score-correction writes require `is_active=true AND status='active'`; otherwise 409 `NO_ACTIVE_PERIOD`.
+
+### D-0820-10 — `mid_level` = subject's manager's manager
+A mid-level correction is accepted only when the actor is `users.manager_id` of the subject's manager (`skip_level_id`).
+
+### D-0820-11 — Company-wide reporting audience
+Company-wide results are admin + c_level; HR keeps `hr/evaluation-status` and the employee table, not analytics / all-evaluations / matrix.
+
+### D-0820-12 — Final cell averages manager + mid? + c_level?
+`mean(manager_score, mid_level_correction?, c_level_correction?)` — mid_level counts; no manager_score → empty cell.
+
+### D-0820-13 — `detail_type` is a real filter
+Allowed: `all` / `self` / `received_from_manager` / `from_subordinates` / `gave_to_manager` / `gave_to_subordinates`; unknown → 422 `INVALID_QUERY`.
+
+### D-0820-14 — H1 stays active through September calibration
+Do not close H1 on 31 Aug evening; leave it `active` until calibration week is done, then close it.
+
+### D-0820-15 — Drafts persist in localStorage, no logout sweep for H1
+All three forms use `epe:evaluation-draft:{evaluator}:{subject}`; logout/401 remove only `user` and `token`.
