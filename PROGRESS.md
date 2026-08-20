@@ -625,3 +625,21 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - `errorHandler.js` discards the server message for 401/403/429, so `NOT_IN_SCOPE`, `ROLE_FORBIDDEN` and `CAPABILITY_FORBIDDEN` all reach users as `Доступ запрещен. Недостаточно прав`.
 - Read-only C-level (Cem/Hemra/Mekan) are blocked from evaluation forms by `can_evaluate=false`, but `API: Score Correction` never checks that flag — they can write `c_level` corrections.
 - Nothing was fixed this session; the document is factual material for the architect's HR-level assessment.
+
+## 2026-08-20 — Pre-launch visibility & user-facing correctness
+
+**What was done:**
+- Committed workflow/generator baseline (`2375005`) before editing.
+- Server-side: gated `user_id` on check-self-review; sealed non-self scores/comments on my-profile; evaluation-details ownership (evaluator / admin / c_level / own self-review); employees payload gained three completion flags + `actor_is_in_scope`; c_level_only level texts stripped below admin/c_level; score-correction requires `can_evaluate`; `grade_coefficient` hidden below admin/c_level; Russian 400/404/409/422 strings.
+- Frontend: dashboard flags from `/api/employees`; out-of-scope notice (exact copy); confirmation reminder; details-modal copy; per-criterion self-review comments in the manager modal.
+- Proof on throwaway DB `epe_prelaunch_20260820_1328` + isolated n8n `:25679`. `npm test` 182/182. PUT 21 workflows; frontend `20260820T154749Z`.
+
+**Results:**
+- Live H1 still `draft,false`. Evaluations 0. Auth Guard `updatedAt=2026-08-18T16:34:30.674Z`. 33 active / 58 total. 2025 fingerprint `21d323b0…` unchanged.
+- `/api/employees` remains direct-reports-only for every role including admin/c_level (no silent narrowing; matrix still covers c_level_direct beyond that list).
+- Full report: `docs/PRELAUNCH_FIXES_2026-08-2x.md`.
+
+**Notes / Gotchas:**
+- Regression: check-self-review began ignoring `user_id` in the 2026-08-19 H1 Route Guard rewrite (`QRkUvs24DkcC3WBW`).
+- 403 capability errors still surface via the interceptor, not the English workflow string.
+- Live registered=2 / sessions=4 were already present before this PUT.
