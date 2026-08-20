@@ -35,7 +35,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $('Webhook').first().json.body;\n\nconst email = body.email?.toLowerCase().trim();\nconst code = body.code?.trim();\n\nif (!email || !code) {\n  throw new Error('Email and code are required');\n}\n\nif (code.length !== 6 || !/^\\d+$/.test(code)) {\n  throw new Error('Invalid code format');\n}\n\nconst safeEmail = email.replace(/'/g, \"''\");\n\nreturn {\n  json: {\n    email: email,\n    safe_email: safeEmail,\n    code: code\n  }\n};"
+        "jsCode": "const body = $('Webhook').first().json.body;\n\nconst email = body.email?.toLowerCase().trim();\nconst code = body.code?.trim();\n\nif (!email || !code) {\n  throw new Error('Укажите email и код подтверждения');\n}\n\nif (code.length !== 6 || !/^\\d+$/.test(code)) {\n  throw new Error('Код должен состоять из шести цифр');\n}\n\nconst safeEmail = email.replace(/'/g, \"''\");\n\nreturn {\n  json: {\n    email: email,\n    safe_email: safeEmail,\n    code: code\n  }\n};"
       },
       "id": "5a7538c9-cfa6-40dd-a61d-05b81f278a9a",
       "name": "Validate Input",
@@ -70,7 +70,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const results = $input.all();\nconst codeRecord = results.length > 0 ? results[0].json : null;\nconst inputData = $('Validate Input').first().json;\n\nif (!codeRecord || !codeRecord.id) {\n  throw new Error('No valid verification code found. Please request a new code.');\n}\n\n// Проверяем количество попыток (макс 5)\nif (codeRecord.attempts >= 5) {\n  throw new Error('Too many attempts. Please request a new code.');\n}\n\n// Проверяем код\nif (codeRecord.code !== inputData.code) {\n  // Увеличиваем счетчик попыток\n  return {\n    json: {\n      ...inputData,\n      code_id: codeRecord.id,\n      is_valid: false,\n      attempts: codeRecord.attempts + 1\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...inputData,\n    code_id: codeRecord.id,\n    is_valid: true\n  }\n};"
+        "jsCode": "const results = $input.all();\nconst codeRecord = results.length > 0 ? results[0].json : null;\nconst inputData = $('Validate Input').first().json;\n\nif (!codeRecord || !codeRecord.id) {\n  throw new Error('Действующий код не найден. Запросите новый код.');\n}\n\n// Проверяем количество попыток (макс 5)\nif (codeRecord.attempts >= 5) {\n  throw new Error('Превышено число попыток. Запросите новый код.');\n}\n\n// Проверяем код\nif (codeRecord.code !== inputData.code) {\n  // Увеличиваем счетчик попыток\n  return {\n    json: {\n      ...inputData,\n      code_id: codeRecord.id,\n      is_valid: false,\n      attempts: codeRecord.attempts + 1\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...inputData,\n    code_id: codeRecord.id,\n    is_valid: true\n  }\n};"
       },
       "id": "1abdc184-ab70-46e7-b207-ba4c485963b8",
       "name": "Verify Code",
@@ -145,7 +145,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const inputData = $('Verify Code').first().json;\n\nreturn {\n  json: {\n    success: true,\n    verified: true,\n    message: 'Email verified successfully',\n    data: {\n      email: inputData.email\n    }\n  }\n};"
+        "jsCode": "const inputData = $('Verify Code').first().json;\n\nreturn {\n  json: {\n    success: true,\n    verified: true,\n    message: 'Email успешно подтверждён',\n    data: {\n      email: inputData.email\n    }\n  }\n};"
       },
       "id": "3c40b5f3-f21f-4943-b21a-cdc6c07cfaac",
       "name": "Success Response",
@@ -158,7 +158,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const inputData = $('Verify Code').first().json;\nconst remaining = 5 - inputData.attempts;\n\nreturn {\n  json: {\n    success: false,\n    verified: false,\n    message: 'Invalid code. ' + remaining + ' attempts remaining.',\n    data: {\n      email: inputData.email,\n      attempts_remaining: remaining\n    }\n  }\n};"
+        "jsCode": "const inputData = $('Verify Code').first().json;\nconst remaining = 5 - inputData.attempts;\n\nreturn {\n  json: {\n    success: false,\n    verified: false,\n    message: 'Неверный код. Осталось попыток: ' + remaining + '.',\n    data: {\n      email: inputData.email,\n      attempts_remaining: remaining\n    }\n  }\n};"
       },
       "id": "5649313b-9e24-450e-a4de-ecc1d1490aa0",
       "name": "Fail Response",

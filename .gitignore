@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Environment files
+.env
+.env.local
+.env.production
+
+# Incident backups (may contain PII and password hashes)
+backups/
+infra/n8n-container-inspect-*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -24,3 +33,8 @@ dist-ssr
 *.sw?
 
 build
+dist.zip
+__pycache__/
+# Claude Code
+.claude/scratchpad.md
+.claude/sessions/

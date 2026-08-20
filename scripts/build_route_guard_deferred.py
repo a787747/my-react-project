@@ -688,7 +688,7 @@ if (!userId) {{
   return {{
     json: {{
       http_status: 422,
-      body: {{ success: false, error: 'INVALID_QUERY', message: 'user_id is required' }},
+      body: {{ success: false, error: 'INVALID_QUERY', message: 'Необходимо указать сотрудника' }},
     }},
   }};
 }}
@@ -699,7 +699,7 @@ if (!allowed.includes(detailType)) {{
       body: {{
         success: false,
         error: 'INVALID_QUERY',
-        message: 'detail_type must be one of: ' + allowed.join(', '),
+        message: 'Тип детализации должен быть одним из: ' + allowed.join(', '),
       }},
     }},
   }};
@@ -1400,7 +1400,7 @@ if (!row) {
   return {
     json: {
       http_status: 404,
-      body: { success: false, error: 'NOT_FOUND', message: 'Actor not found' },
+      body: { success: false, error: 'NOT_FOUND', message: 'Пользователь не найден' },
     },
   };
 }
@@ -1411,7 +1411,7 @@ if (role === 'manager' && !row.has_manager_subordinates) {
       body: {
         success: false,
         error: 'OWNERSHIP_FORBIDDEN',
-        message: 'You must have manager subordinates to access this feature',
+        message: 'Эта функция доступна только руководителю руководителей',
       },
     },
   };
@@ -1905,7 +1905,7 @@ if (!Number.isFinite(subjectId) || !Number.isFinite(criteriaId) || !Number.isFin
       body: {{
         success: false,
         error: 'INVALID_BODY',
-        message: 'subject_id, criteria_id and correction_score are required',
+        message: 'Укажите сотрудника, критерий и корректирующую оценку',
       }},
     }},
   }};
@@ -1917,7 +1917,7 @@ if (correctionScore < 1 || correctionScore > 10) {{
       body: {{
         success: false,
         error: 'GRADE_OUT_OF_RANGE',
-        message: 'correction_score must be between 1 and 10',
+        message: 'Корректирующая оценка должна быть от 1 до 10',
       }},
     }},
   }};
@@ -1959,7 +1959,7 @@ if (!row) {
   return {
     json: {
       http_status: 404,
-      body: { success: false, error: 'NOT_FOUND', message: 'Subject not found' },
+      body: { success: false, error: 'NOT_FOUND', message: 'Сотрудник не найден' },
     },
   };
 }
@@ -1970,7 +1970,7 @@ if (!row.period_id) {
       body: {
         success: false,
         error: 'NO_ACTIVE_PERIOD',
-        message: 'Score corrections bind only to the active evaluation period',
+        message: 'Корректировка доступна только в активном периоде оценки',
       },
     },
   };
@@ -1988,7 +1988,7 @@ if (correctionLevel === 'none') {
       body: {
         success: false,
         error: 'OWNERSHIP_FORBIDDEN',
-        message: 'You can only correct scores if you are the manager of the subject\\'s manager, or admin/C-level',
+        message: 'Корректировка доступна руководителю руководителя, администратору или C-level',
       },
     },
   };
@@ -2058,7 +2058,7 @@ def build_score_correction(credential_id: str, guard_workflow_id: str) -> dict[s
               "responseMode": "responseNode", "options": {}},
              type_version=2.1, webhook_id="score-correction-webhook"),
         node("sc-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
-             [-480, 0], {"jsCode": guard_input_js(["admin", "c_level", "manager"])}),
+             [-480, 0], {"jsCode": guard_input_js(["admin", "c_level", "manager"], "can_evaluate")}),
         run_guard_node("sc-run-guard", "Run Auth Guard", [-250, 0], guard_workflow_id),
         node("sc-validate", "Validate Input", "n8n-nodes-base.code",
              [0, 0], {"jsCode": CORR_VALIDATE}),
@@ -2105,7 +2105,7 @@ if (action !== 'get' && action !== 'save' && action !== 'delete') {{
   return {{
     json: {{
       http_status: 422,
-      body: {{ success: false, error: 'INVALID_ACTION', message: 'action must be get, save, or delete' }},
+      body: {{ success: false, error: 'INVALID_ACTION', message: 'Действие должно быть get, save или delete' }},
     }},
   }};
 }}
@@ -2198,7 +2198,7 @@ if (activePeriod) {
       body: {
         success: false,
         error: 'ACTIVE_PERIOD_EXISTS',
-        message: `Cannot modify criteria while period "${activePeriod.name}" is active`,
+        message: `Нельзя менять критерии во время активного периода «${activePeriod.name}»`,
       },
     },
   };
@@ -2300,7 +2300,7 @@ if (activePeriod) {
       body: {
         success: false,
         error: 'ACTIVE_PERIOD_EXISTS',
-        message: `Cannot modify grade coefficients while period "${activePeriod.name}" is active`,
+        message: `Нельзя менять коэффициенты грейдов во время активного периода «${activePeriod.name}»`,
       },
     },
   };

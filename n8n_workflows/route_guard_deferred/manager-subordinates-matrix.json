@@ -131,7 +131,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const prev = $('Build Access Query').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.id !== undefined);\nconst role = prev.role;\nif (!row) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'NOT_FOUND', message: 'Actor not found' },\n    },\n  };\n}\nif (role === 'manager' && !row.has_manager_subordinates) {\n  return {\n    json: {\n      http_status: 403,\n      body: {\n        success: false,\n        error: 'OWNERSHIP_FORBIDDEN',\n        message: 'You must have manager subordinates to access this feature',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    actor_id: prev.actor_id,\n    role,\n  },\n};"
+        "jsCode": "const prev = $('Build Access Query').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.id !== undefined);\nconst role = prev.role;\nif (!row) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'NOT_FOUND', message: 'Пользователь не найден' },\n    },\n  };\n}\nif (role === 'manager' && !row.has_manager_subordinates) {\n  return {\n    json: {\n      http_status: 403,\n      body: {\n        success: false,\n        error: 'OWNERSHIP_FORBIDDEN',\n        message: 'Эта функция доступна только руководителю руководителей',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    actor_id: prev.actor_id,\n    role,\n  },\n};"
       },
       "id": "mm-verify",
       "name": "Verify Access",

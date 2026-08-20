@@ -34,7 +34,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const webhook = $('Webhook').first().json;\nconst query = webhook.query || {};\nconst headers = webhook.headers || {};\nconst token = query.token;\n\nif (!token) {\n  return {\n    json: {\n      success: false,\n      valid: false,\n      message: 'Token is required'\n    }\n  };\n}\n\nconst forwarded = String(\n  headers['x-forwarded-for'] || headers['x-real-ip'] || headers['X-Forwarded-For'] || ''\n).split(',')[0].trim();\nconst ip = /^[0-9a-fA-F.:]+$/.test(forwarded) ? forwarded : 'unknown';\n\nreturn {\n  json: {\n    token: token,\n    safe_ip: ip.replace(/'/g, '')\n  }\n};"
+        "jsCode": "const webhook = $('Webhook').first().json;\nconst query = webhook.query || {};\nconst headers = webhook.headers || {};\nconst token = query.token;\n\nif (!token) {\n  return {\n    json: {\n      success: false,\n      valid: false,\n      message: 'Не указан токен приглашения'\n    }\n  };\n}\n\nconst forwarded = String(\n  headers['x-forwarded-for'] || headers['x-real-ip'] || headers['X-Forwarded-For'] || ''\n).split(',')[0].trim();\nconst ip = /^[0-9a-fA-F.:]+$/.test(forwarded) ? forwarded : 'unknown';\n\nreturn {\n  json: {\n    token: token,\n    safe_ip: ip.replace(/'/g, '')\n  }\n};"
       },
       "id": "bed4ddff-290d-47ed-a2bf-9aa1ba9c3c9f",
       "name": "Extract Token",
@@ -69,7 +69,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const result = $input.first().json;\nconst throttleCount = Number(result && result.throttle_count);\nif (Number.isFinite(throttleCount) && throttleCount > 600) {\n  return {\n    json: {\n      success: false,\n      valid: false,\n      error_code: 'RATE_LIMITED',\n      message: 'Too many requests. Try again in a few minutes.'\n    }\n  };\n}\n\nif (!result || !result.id) {\n  return {\n    json: {\n      success: true,\n      valid: false,\n      message: 'Token is invalid or expired'\n    }\n  };\n}\n\nreturn {\n  json: {\n    success: true,\n    valid: true,\n    data: {\n      token_id: result.id,\n      expires_at: result.expires_at\n    },\n    message: 'Token is valid'\n  }\n};"
+        "jsCode": "const result = $input.first().json;\nconst throttleCount = Number(result && result.throttle_count);\nif (Number.isFinite(throttleCount) && throttleCount > 600) {\n  return {\n    json: {\n      success: false,\n      valid: false,\n      error_code: 'RATE_LIMITED',\n      message: 'Слишком много запросов. Повторите попытку через несколько минут.'\n    }\n  };\n}\n\nif (!result || !result.id) {\n  return {\n    json: {\n      success: true,\n      valid: false,\n      message: 'Ссылка-приглашение недействительна или срок её действия истёк'\n    }\n  };\n}\n\nreturn {\n  json: {\n    success: true,\n    valid: true,\n    data: {\n      token_id: result.id,\n      expires_at: result.expires_at\n    },\n    message: 'Ссылка-приглашение действительна'\n  }\n};"
       },
       "id": "b561d625-9ca9-4b40-8d45-49c5bf72c6f2",
       "name": "Format Response",

@@ -1,0 +1,23 @@
+name: epe-proxy
+
+services:
+  caddy:
+    image: caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/www/epe:/srv/epe:ro
+      - epe_caddy_data:/data
+      - epe_caddy_config:/config
+
+volumes:
+  epe_caddy_data:
+    name: epe_proxy_caddy_data
+  epe_caddy_config:
+    name: epe_proxy_caddy_config

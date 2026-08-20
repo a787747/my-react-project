@@ -1,0 +1,32 @@
+{
+	email alexander@sedamedical.com
+}
+
+epe.sedamedical.com {
+	encode zstd gzip
+
+	@api path /webhook /webhook/*
+	handle @api {
+		reverse_proxy host.docker.internal:5678
+	}
+
+	handle {
+		root * /srv/epe/current
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Content-Security-Policy "object-src 'none'; frame-ancestors 'self'; base-uri 'self'"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

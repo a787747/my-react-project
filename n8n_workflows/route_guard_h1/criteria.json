@@ -82,7 +82,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst criteria = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, data: criteria },\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst canSeeCLevelTexts = ['admin', 'c_level'].includes(String(guard.identity.role || ''));\nconst levelTextFields = Array.from({ length: 10 }, (_, index) => `level_${index + 1}_desc`);\nconst criteria = $input.all()\n  .map(item => item.json)\n  .filter(item => item.id !== undefined)\n  .map(row => {\n    const criterion = { ...row };\n    const isCLevelOnly = row.c_level_only === true || row.c_level_only === 't';\n    if (isCLevelOnly && !canSeeCLevelTexts) {\n      levelTextFields.forEach(field => delete criterion[field]);\n    }\n    return criterion;\n  });\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, data: criteria },\n  },\n};"
       },
       "id": "criteria-format",
       "name": "Format Response",

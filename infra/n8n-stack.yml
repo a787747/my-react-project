@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+  n8n:
+    image: n8nio/n8n@sha256:0a65e6e5995c19e0cf7e83d6b08ffa6c1898e8a53ff1658e6e7b22e68576c673
+    restart: unless-stopped
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_DATABASE: postgres
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_USER: admin
+      DB_POSTGRESDB_PASSWORD: ${DB_POSTGRESDB_PASSWORD}
+      GENERIC_TIMEZONE: Europe/Moscow
+      TZ: Europe/Moscow
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      WEBHOOK_URL: https://epe.sedamedical.com/
+      VUE_APP_URL_BASE_API: https://epe.sedamedical.com/
+      N8N_SECURE_COOKIE: false
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      NODE_FUNCTION_ALLOW_EXTERNAL: jsonwebtoken
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: false
+      JWT_SIGNING_SECRET: ${JWT_SIGNING_SECRET}
+      EPE_FRONTEND_URL: ${EPE_FRONTEND_URL}
+    ports:
+      - target: 5678
+        published: 5678
+        protocol: tcp
+        mode: host
+    networks:
+      - n8n_default
+
+networks:
+  n8n_default:
+    external: true

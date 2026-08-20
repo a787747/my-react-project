@@ -479,7 +479,7 @@ if (!input.input_valid || !row.user_id || row.password_hash) {
       http_status: 400,
       body: {
         success: false,
-        message: 'Registration link or verification code is invalid',
+        message: 'Ссылка для регистрации или код подтверждения недействительны',
       },
     },
   };
@@ -551,7 +551,7 @@ return {
         http_status: 200,
         body: {
           success: true,
-          message: 'Registration successful! You can now login.',
+          message: 'Регистрация завершена. Теперь вы можете войти в систему.',
           data: {
             user_id: row.id,
             full_name: row.full_name,
@@ -564,7 +564,7 @@ return {
         http_status: prepared.http_status || 400,
         body: prepared.body || {
           success: false,
-          message: 'Registration link or verification code is invalid',
+          message: 'Ссылка для регистрации или код подтверждения недействительны',
         },
       },
 };
@@ -967,7 +967,7 @@ if (!input.input_valid || !row.reset_id || !row.user_id) {
       http_status: 400,
       body: {
         success: false,
-        message: 'Reset link is invalid or expired',
+        message: 'Ссылка для сброса пароля недействительна или истекла',
       },
     },
   };
@@ -1036,14 +1036,14 @@ return {
         http_status: 200,
         body: {
           success: true,
-          message: 'Password reset successful. Please sign in again.',
+          message: 'Пароль изменён. Войдите в систему снова.',
         },
       }
     : {
         http_status: prepared.http_status || 400,
         body: prepared.body || {
           success: false,
-          message: 'Reset link is invalid or expired',
+          message: 'Ссылка для сброса пароля недействительна или истекла',
         },
       },
 };
@@ -1351,8 +1351,8 @@ const request = $input.first().json;
 return {
   json: {
     authorization: request.headers?.authorization || '',
-    required_roles: ['admin', 'c_level', 'manager'],
-    required_capability: 'can_evaluate',
+    required_roles: [],
+    required_capability: '',
     request,
   },
 };
@@ -1362,14 +1362,33 @@ EMPLOYEES_SQL = r"""
 const guard = $input.first().json;
 if (!guard.ok) return { json: guard };
 const actorId = Number(guard.identity.id);
+const actorCanEvaluate = guard.identity.can_evaluate === true || guard.identity.can_evaluate === 't';
 return {
   json: {
     ...guard,
     sql: `
-      WITH active_period AS (
-        SELECT id FROM performance_db.evaluation_periods
-        WHERE is_active = true AND status = 'active'
+      WITH current_period AS (
+        SELECT id, status, is_active
+        FROM performance_db.evaluation_periods
+        WHERE (is_active = true AND status = 'active')
+           OR status = 'draft'
+        ORDER BY
+          CASE WHEN is_active = true AND status = 'active' THEN 0 ELSE 1 END,
+          start_date DESC NULLS LAST,
+          id DESC
         LIMIT 1
+      ),
+      active_period AS (
+        SELECT id
+        FROM current_period
+        WHERE is_active = true AND status = 'active'
+      ),
+      actor_scope AS (
+        SELECT epp.is_in_scope
+        FROM current_period cp
+        LEFT JOIN performance_db.evaluation_period_participants epp
+          ON epp.period_id = cp.id
+         AND epp.user_id = ${actorId}
       ),
       scoped AS (
         SELECT
@@ -1383,7 +1402,30 @@ return {
           users.has_subordinates,
           departments.name AS department_name,
           grades.code AS grade_code,
-          grades.coefficient AS grade_coefficient
+          grades.coefficient AS grade_coefficient,
+          EXISTS (
+            SELECT 1
+            FROM performance_db.evaluations self_eval
+            WHERE self_eval.subject_id = users.id
+              AND self_eval.is_self_evaluation = true
+              AND self_eval.period_id = ap.id
+          ) AS has_self_review,
+          EXISTS (
+            SELECT 1
+            FROM performance_db.evaluations upward_eval
+            WHERE upward_eval.evaluator_id = users.id
+              AND upward_eval.subject_id = ${actorId}
+              AND upward_eval.evaluation_source = 'subordinate'
+              AND upward_eval.period_id = ap.id
+          ) AS has_evaluated_manager,
+          EXISTS (
+            SELECT 1
+            FROM performance_db.evaluations actor_eval
+            WHERE actor_eval.evaluator_id = ${actorId}
+              AND actor_eval.subject_id = users.id
+              AND actor_eval.is_self_evaluation = false
+              AND actor_eval.period_id = ap.id
+          ) AS evaluated_by_actor
         FROM performance_db.users users
         LEFT JOIN performance_db.departments departments
           ON users.department_id = departments.id
@@ -1395,9 +1437,18 @@ return {
          AND epp.user_id = users.id
          AND epp.is_in_scope = true
         WHERE users.manager_id = ${actorId}
+          AND ${actorCanEvaluate}
+          AND COALESCE((SELECT is_in_scope FROM actor_scope), false)
       )
       SELECT
         EXISTS(SELECT 1 FROM active_period) AS campaign_active,
+        (SELECT id FROM current_period) AS current_period_id,
+        (SELECT status FROM current_period) AS current_period_status,
+        CASE
+          WHEN EXISTS(SELECT 1 FROM current_period)
+          THEN COALESCE((SELECT is_in_scope FROM actor_scope), false)
+          ELSE NULL
+        END AS actor_is_in_scope,
         COALESCE(
           (SELECT json_agg(row_to_json(scoped) ORDER BY scoped.full_name) FROM scoped),
           '[]'::json
@@ -1428,7 +1479,16 @@ if (typeof employees === 'string') {
   try { employees = JSON.parse(employees); } catch { employees = []; }
 }
 if (!Array.isArray(employees)) employees = [];
+const canSeeGradeCoefficient = ['admin', 'c_level'].includes(String(guard.identity.role || ''));
+employees = employees.map(employee => {
+  const safeEmployee = { ...employee };
+  if (!canSeeGradeCoefficient) delete safeEmployee.grade_coefficient;
+  return safeEmployee;
+});
 const campaignActive = row.campaign_active === true || row.campaign_active === 't';
+const actorIsInScope = row.actor_is_in_scope === null || row.actor_is_in_scope === undefined
+  ? null
+  : row.actor_is_in_scope === true || row.actor_is_in_scope === 't';
 
 return {
   json: {
@@ -1437,6 +1497,9 @@ return {
       success: true,
       actor_user_id: guard.identity.id,
       campaign_active: campaignActive,
+      current_period_id: row.current_period_id || null,
+      current_period_status: row.current_period_status || null,
+      actor_is_in_scope: actorIsInScope,
       data: employees,
     },
   },

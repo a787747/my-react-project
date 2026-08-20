@@ -175,7 +175,19 @@ if (!guard.ok) {
     },
   };
 }
-const criteria = $input.all().map(item => item.json).filter(item => item.id !== undefined);
+const canSeeCLevelTexts = ['admin', 'c_level'].includes(String(guard.identity.role || ''));
+const levelTextFields = Array.from({ length: 10 }, (_, index) => `level_${index + 1}_desc`);
+const criteria = $input.all()
+  .map(item => item.json)
+  .filter(item => item.id !== undefined)
+  .map(row => {
+    const criterion = { ...row };
+    const isCLevelOnly = row.c_level_only === true || row.c_level_only === 't';
+    if (isCLevelOnly && !canSeeCLevelTexts) {
+      levelTextFields.forEach(field => delete criterion[field]);
+    }
+    return criterion;
+  });
 return {
   json: {
     http_status: 200,
@@ -220,7 +232,7 @@ def build_criteria(credential_id: str, guard_workflow_id: str) -> dict[str, Any]
 
 # ── 2. GET api/get-my-manager — API: Get My Manager ──────────────────────────
 # Response: {success, has_manager, manager: {id, full_name, email, job_title, role,
-#   has_subordinates, department_name, grade_code, grade_coefficient,
+#   has_subordinates, department_name, grade_code, grade_coefficient (admin/c_level only),
 #   has_evaluated_manager, last_evaluation_score, previous_scores[]}}
 
 MY_MANAGER_BUILD = """
@@ -301,6 +313,7 @@ if (!rows.length) {
   return { json: { http_status: 200, body: { success: true, has_manager: false, manager: null } } };
 }
 const m = rows[0];
+const canSeeGradeCoefficient = ['admin', 'c_level'].includes(String(guard.identity.role || ''));
 let previousScores = m.previous_scores;
 if (typeof previousScores === 'string') {
   try { previousScores = JSON.parse(previousScores); } catch { previousScores = []; }
@@ -320,7 +333,7 @@ return {
         has_subordinates: m.has_subordinates,
         department_name: m.department_name,
         grade_code: m.grade_code,
-        grade_coefficient: m.grade_coefficient,
+        ...(canSeeGradeCoefficient ? { grade_coefficient: m.grade_coefficient } : {}),
         has_evaluated_manager: m.has_evaluated_manager || false,
         last_evaluation_score: m.last_evaluation_score,
         previous_scores: previousScores || [],
@@ -366,7 +379,7 @@ def build_get_my_manager(credential_id: str, guard_workflow_id: str) -> dict[str
 
 # ── 3. GET api/my-profile — API: My Profile V5 (Fixed Empty) ─────────────────
 # Response: {success, has_evaluations, evaluations: [...], stats: {...}}
-# Actor is subject. For evaluation_source='subordinate', redact evaluator id/name/title.
+# Actor is subject. Non-self evaluation content is sealed; subordinate evaluator identity is redacted.
 
 MY_PROFILE_BUILD = """
 const guard = $('Run Auth Guard').first().json;
@@ -432,27 +445,34 @@ if (!data.length) {
   };
 }
 
-// Per D3: redact evaluator identity for subordinate-source evaluations (actor is subject)
-const evaluations = data.map(row => ({
-  evaluation_id: row.evaluation_id,
-  calculated_score: row.calculated_score,
-  weighted_score: row.weighted_score,
-  updated_at: row.updated_at,
-  is_self_evaluation: row.is_self_evaluation,
-  evaluation_source: row.evaluation_source,
-  period_name: row.period_name,
-  start_date: row.start_date,
-  end_date: row.end_date,
-  evaluator_name: row.evaluation_source === 'subordinate' ? null : row.evaluator_name,
-  evaluator_title: row.evaluation_source === 'subordinate' ? null : row.evaluator_title,
-}));
+const evaluations = data.map(row => {
+  const isSelfEvaluation = row.is_self_evaluation === true || row.is_self_evaluation === 't';
+  const evaluation = {
+    evaluation_id: row.evaluation_id,
+    updated_at: row.updated_at,
+    is_self_evaluation: isSelfEvaluation,
+    evaluation_source: row.evaluation_source,
+    period_name: row.period_name,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    evaluator_name: row.evaluation_source === 'subordinate' ? null : row.evaluator_name,
+    evaluator_title: row.evaluation_source === 'subordinate' ? null : row.evaluator_title,
+  };
+  if (isSelfEvaluation) {
+    evaluation.score = row.calculated_score;
+    evaluation.calculated_score = row.calculated_score;
+    evaluation.weighted_score = row.weighted_score;
+  }
+  return evaluation;
+});
 
-const scores = evaluations
+const selfEvaluations = evaluations.filter(e => e.is_self_evaluation);
+const scores = selfEvaluations
   .map(e => e.calculated_score)
   .filter(s => s !== null && s !== undefined);
 const total = evaluations.length;
 const avg = scores.length ? parseFloat((scores.reduce((a, b) => a + Number(b), 0) / scores.length).toFixed(2)) : null;
-const latest = evaluations[0];
+const latestSelf = selfEvaluations[0];
 
 return {
   json: {
@@ -464,9 +484,9 @@ return {
       stats: {
         total_evaluations: total,
         average_score: avg,
-        latest_score: latest?.calculated_score ?? null,
-        latest_period: latest?.period_name ?? null,
-        latest_date: latest?.updated_at ?? null,
+        latest_score: latestSelf?.calculated_score ?? null,
+        latest_period: latestSelf?.period_name ?? null,
+        latest_date: latestSelf?.updated_at ?? null,
       },
     },
   },
@@ -599,7 +619,7 @@ def build_check_evaluated(credential_id: str, guard_workflow_id: str) -> dict[st
 
 # ── 5. GET api/check-self-review — API: Check Self Review ────────────────────
 # Response: {has_self_review, evaluation_id, score, date, evaluated_criteria_ids, grades, comments}
-# Actor self; missing user_id param never errors.
+# user_id may select a direct report for their manager, or any subject for admin/c_level.
 
 CHECK_SELF_REVIEW_BUILD = """
 const guard = $('Run Auth Guard').first().json;
@@ -611,15 +631,35 @@ if (!guard.ok) {
     },
   };
 }
-// Actor is always the subject; body/query user_id is ignored for auth.
 const actorId = Number(guard.identity.id);
+const actorRole = String(guard.identity.role || '');
+const request = guard.request || {};
+const parsedRequestedId = parseInt(request.query?.user_id || request.body?.user_id, 10);
+const requestedId = Number.isFinite(parsedRequestedId) && parsedRequestedId > 0
+  ? parsedRequestedId
+  : actorId;
+const privileged = ['admin', 'c_level'].includes(actorRole);
 return {
   json: {
     ok: true,
     sql: `
+      WITH selected_subject AS (
+        SELECT CASE
+          WHEN ${requestedId} = ${actorId} THEN ${actorId}
+          WHEN ${privileged} THEN ${requestedId}
+          WHEN EXISTS (
+            SELECT 1
+            FROM performance_db.users target
+            WHERE target.id = ${requestedId}
+              AND target.manager_id = ${actorId}
+          ) THEN ${requestedId}
+          ELSE ${actorId}
+        END AS subject_id
+      )
       SELECT
         e.id,
         e.calculated_score,
+        e.general_comment,
         e.updated_at,
         COALESCE(
           ARRAY_AGG(es.criteria_id) FILTER (WHERE es.criteria_id IS NOT NULL),
@@ -636,12 +676,12 @@ return {
           '{}'::jsonb
         ) AS comments
       FROM performance_db.evaluations e
+      JOIN selected_subject ss ON ss.subject_id = e.subject_id
       JOIN performance_db.evaluation_periods p
         ON p.id = e.period_id AND p.is_active = true AND p.status = 'active'
       LEFT JOIN performance_db.evaluation_scores es ON es.evaluation_id = e.id
-      WHERE e.subject_id = ${actorId}
-        AND e.is_self_evaluation = true
-      GROUP BY e.id, e.calculated_score, e.updated_at
+      WHERE e.is_self_evaluation = true
+      GROUP BY e.id, e.calculated_score, e.general_comment, e.updated_at
       ORDER BY e.updated_at DESC
       LIMIT 1
     `,
@@ -668,6 +708,7 @@ if (!rows.length) {
         has_self_review: false,
         evaluation_id: null,
         score: null,
+        general_comment: null,
         grades: {},
         comments: {},
       },
@@ -686,6 +727,7 @@ return {
       has_self_review: true,
       evaluation_id: review.id,
       score: review.calculated_score,
+      general_comment: review.general_comment,
       date: review.updated_at,
       evaluated_criteria_ids: review.evaluated_criteria_ids || [],
       grades,
@@ -757,7 +799,7 @@ if (source !== 'manager' && source !== 'subordinate' && source !== 'c_level_dire
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'INVALID_SOURCE', message: 'evaluation_source must be manager, subordinate, or c_level_direct' },
+      body: { success: false, error: 'INVALID_SOURCE', message: 'Источник оценки должен быть manager, subordinate или c_level_direct' },
     },
   };
 }
@@ -765,7 +807,7 @@ if (source === 'c_level_direct' && actorRole !== 'c_level' && actorRole !== 'adm
   return {
     json: {
       http_status: 403,
-      body: { success: false, error: 'ROLE_FORBIDDEN', message: 'c_level_direct requires c_level or admin role' },
+      body: { success: false, error: 'ROLE_FORBIDDEN', message: 'Оценка c_level_direct доступна только администратору или C-level' },
     },
   };
 }
@@ -775,7 +817,7 @@ if (!Number.isFinite(rawSubjectId) || rawSubjectId < 1) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'INVALID_SUBJECT', message: 'subject_id must be a positive integer' },
+      body: { success: false, error: 'INVALID_SUBJECT', message: 'Идентификатор сотрудника должен быть положительным целым числом' },
     },
   };
 }
@@ -783,7 +825,7 @@ if (rawSubjectId === actorId) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'SELF_EVALUATION_FORBIDDEN', message: 'Use /api/self-review-submit for self-evaluations' },
+      body: { success: false, error: 'SELF_EVALUATION_FORBIDDEN', message: 'Для самооценки используйте форму самооценки' },
     },
   };
 }
@@ -848,7 +890,7 @@ if (!validation.period_id) {
       body: {
         success: false,
         error: 'SCOPE_MISMATCH',
-        message: 'Subject or actor is not in scope in an active period, or relationship constraint is not satisfied',
+        message: 'Сотрудник или оценщик вне охвата активного периода либо связь между ними не разрешена',
       },
     },
   };
@@ -857,7 +899,7 @@ if (!validation.can_evaluate) {
   return {
     json: {
       http_status: 403,
-      body: { success: false, error: 'CANNOT_EVALUATE', message: 'Actor does not have the can_evaluate capability' },
+      body: { success: false, error: 'CANNOT_EVALUATE', message: 'У вас нет права проводить оценку' },
     },
   };
 }
@@ -868,7 +910,7 @@ if (validation.is_duplicate) {
       body: {
         success: false,
         error: 'DUPLICATE_EVALUATION',
-        message: 'Evaluation already exists for this evaluator/subject/source/period tuple. Use /api/update-evaluation.',
+        message: 'Такая оценка уже отправлена в текущем периоде',
       },
     },
   };
@@ -891,7 +933,7 @@ if (!gradeEntries.length) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'NO_GRADES', message: 'grades must contain at least one entry' },
+      body: { success: false, error: 'NO_GRADES', message: 'Необходимо указать хотя бы одну оценку' },
     },
   };
 }
@@ -899,10 +941,10 @@ for (const [cId, sv] of gradeEntries) {
   const criteriaId = parseInt(cId, 10);
   const scoreValue = parseInt(sv, 10);
   if (!Number.isFinite(criteriaId) || criteriaId < 1) {
-    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Invalid criteria_id: ${cId}` } } };
+    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Некорректный идентификатор критерия: ${cId}` } } };
   }
   if (!Number.isFinite(scoreValue) || scoreValue < 1 || scoreValue > 10) {
-    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Score for criteria ${cId} must be an integer between 1 and 10` } } };
+    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Оценка по критерию ${cId} должна быть целым числом от 1 до 10` } } };
   }
 }
 
@@ -958,7 +1000,7 @@ if (!rows.length) {
   return {
     json: {
       http_status: 409,
-      body: { success: false, error: 'DUPLICATE_EVALUATION', message: 'Evaluation already exists (concurrent submission).' },
+      body: { success: false, error: 'DUPLICATE_EVALUATION', message: 'Такая оценка уже была отправлена' },
     },
   };
 }
@@ -1036,7 +1078,7 @@ if (!Number.isFinite(rawEvalId) || rawEvalId < 1) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'INVALID_EVALUATION_ID', message: 'evaluation_id must be a positive integer' },
+      body: { success: false, error: 'INVALID_EVALUATION_ID', message: 'Идентификатор оценки должен быть положительным целым числом' },
     },
   };
 }
@@ -1074,7 +1116,7 @@ if (!check.id) {
   return {
     json: {
       http_status: 404,
-      body: { success: false, error: 'NOT_FOUND', message: 'Evaluation not found or does not belong to you' },
+      body: { success: false, error: 'NOT_FOUND', message: 'Оценка не найдена или недоступна вам' },
     },
   };
 }
@@ -1082,7 +1124,7 @@ if (check.period_status === 'closed') {
   return {
     json: {
       http_status: 403,
-      body: { success: false, error: 'PERIOD_CLOSED', message: 'Cannot modify evaluation: the evaluation period is closed' },
+      body: { success: false, error: 'PERIOD_CLOSED', message: 'Нельзя изменить оценку: период уже закрыт' },
     },
   };
 }
@@ -1102,7 +1144,7 @@ if (!gradeEntries.length) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'NO_GRADES', message: 'grades must contain at least one entry' },
+      body: { success: false, error: 'NO_GRADES', message: 'Необходимо указать хотя бы одну оценку' },
     },
   };
 }
@@ -1110,10 +1152,10 @@ for (const [cId, sv] of gradeEntries) {
   const criteriaId = parseInt(cId, 10);
   const scoreValue = parseInt(sv, 10);
   if (!Number.isFinite(criteriaId) || criteriaId < 1) {
-    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Invalid criteria_id: ${cId}` } } };
+    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Некорректный идентификатор критерия: ${cId}` } } };
   }
   if (!Number.isFinite(scoreValue) || scoreValue < 1 || scoreValue > 10) {
-    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Score for criteria ${cId} must be an integer between 1 and 10` } } };
+    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Оценка по критерию ${cId} должна быть целым числом от 1 до 10` } } };
   }
 }
 
@@ -1185,7 +1227,7 @@ if (!rows.length) {
   return {
     json: {
       http_status: 403,
-      body: { status: 'error', message: 'Update not permitted: evaluation does not belong to you or the period is now closed' },
+      body: { status: 'error', message: 'Изменение недоступно: оценка вам не принадлежит или период уже закрыт' },
     },
   };
 }
@@ -1299,7 +1341,7 @@ if (finalScore === null || finalScore === undefined || finalScore === '' || !Num
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'INVALID_SCORE', message: 'final_score must be a valid number' },
+      body: { success: false, error: 'INVALID_SCORE', message: 'Итоговая оценка должна быть числом' },
     },
   };
 }
@@ -1307,7 +1349,7 @@ if (finalScoreNum < 1 || finalScoreNum > 10) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'SCORE_OUT_OF_RANGE', message: 'final_score must be between 1 and 10 inclusive' },
+      body: { success: false, error: 'SCORE_OUT_OF_RANGE', message: 'Итоговая оценка должна быть от 1 до 10' },
     },
   };
 }
@@ -1319,7 +1361,7 @@ if (body.weighted_score !== undefined && body.weighted_score !== null && body.we
     return {
       json: {
         http_status: 422,
-        body: { success: false, error: 'INVALID_WEIGHTED_SCORE', message: 'weighted_score must be a finite non-negative number' },
+        body: { success: false, error: 'INVALID_WEIGHTED_SCORE', message: 'Взвешенная оценка должна быть конечным неотрицательным числом' },
       },
     };
   }
@@ -1363,7 +1405,7 @@ if (!check.period_id) {
   return {
     json: {
       http_status: 403,
-      body: { success: false, error: 'NOT_IN_SCOPE', message: 'No active period or actor is not in scope' },
+      body: { success: false, error: 'NOT_IN_SCOPE', message: 'Вы вне охвата текущего периода оценки' },
     },
   };
 }
@@ -1371,7 +1413,7 @@ if (check.is_duplicate) {
   return {
     json: {
       http_status: 409,
-      body: { success: false, error: 'DUPLICATE_SELF_REVIEW', message: 'Self-review already exists for this period' },
+      body: { success: false, error: 'DUPLICATE_SELF_REVIEW', message: 'Самооценка за этот период уже отправлена' },
     },
   };
 }
@@ -1393,7 +1435,7 @@ if (!gradeEntries.length) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'NO_GRADES', message: 'grades must contain at least one entry' },
+      body: { success: false, error: 'NO_GRADES', message: 'Необходимо указать хотя бы одну оценку' },
     },
   };
 }
@@ -1401,10 +1443,10 @@ for (const [cId, sv] of gradeEntries) {
   const criteriaId = parseInt(cId, 10);
   const scoreValue = parseInt(sv, 10);
   if (!Number.isFinite(criteriaId) || criteriaId < 1) {
-    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Invalid criteria_id: ${cId}` } } };
+    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Некорректный идентификатор критерия: ${cId}` } } };
   }
   if (!Number.isFinite(scoreValue) || scoreValue < 1 || scoreValue > 10) {
-    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Score for criteria ${cId} must be an integer between 1 and 10` } } };
+    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Оценка по критерию ${cId} должна быть целым числом от 1 до 10` } } };
   }
 }
 
@@ -1456,7 +1498,7 @@ if (!rows.length) {
   return {
     json: {
       http_status: 409,
-      body: { success: false, error: 'DUPLICATE_SELF_REVIEW', message: 'Self-review already exists (concurrent submission).' },
+      body: { success: false, error: 'DUPLICATE_SELF_REVIEW', message: 'Самооценка за этот период уже была отправлена' },
     },
   };
 }
@@ -1515,7 +1557,7 @@ def build_self_review_submit(credential_id: str, guard_workflow_id: str) -> dict
 
 # ── 9. GET api/evaluation-details — API: Get Evaluation Details FIXED ─────────
 # Response: {status:'success', evaluation: EvaluationHeader, scores: ScoreRow[]}
-# private_comment null for subject viewers; evaluator identity null for subject on subordinate source.
+# Only evaluator, admin/c_level, or the subject of their own self-review may read details.
 
 EVAL_DETAILS_QUERY = """
 const guard = $('Run Auth Guard').first().json;
@@ -1535,11 +1577,11 @@ if (!Number.isFinite(rawEvalId) || rawEvalId < 1) {
   return {
     json: {
       http_status: 400,
-      body: { status: 'error', message: 'evaluation_id is required and must be a positive integer' },
+      body: { status: 'error', message: 'Идентификатор оценки обязателен и должен быть положительным целым числом' },
     },
   };
 }
-const privileged = ['admin', 'hr', 'c_level'].includes(actorRole);
+const privileged = ['admin', 'c_level'].includes(actorRole);
 return {
   json: {
     ok: true,
@@ -1583,7 +1625,7 @@ return {
         AND (
           ${privileged}
           OR e.evaluator_id = ${actorId}
-          OR e.subject_id = ${actorId}
+          OR (e.subject_id = ${actorId} AND e.is_self_evaluation = true)
         )
     `,
   },
@@ -1598,7 +1640,7 @@ if (prev.http_status) {
 const items = $input.all().map(item => item.json);
 if (!items.length || !items[0].evaluation_id) {
   return {
-    json: { http_status: 404, body: { status: 'error', message: 'Evaluation not found' } },
+    json: { http_status: 404, body: { status: 'error', message: 'Оценка не найдена или недоступна вам' } },
   };
 }
 const first = items[0];
@@ -2064,7 +2106,7 @@ if (activePeriod) {
       body: {
         success: false,
         error: 'ACTIVE_PERIOD_EXISTS',
-        message: `Cannot modify score coefficients while period "${activePeriod.name}" is active`,
+        message: `Нельзя менять коэффициенты во время активного периода «${activePeriod.name}»`,
       },
     },
   };
@@ -2076,7 +2118,7 @@ if (!Array.isArray(criteria) || !criteria.length) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'INVALID_BODY', message: 'criteria must be a non-empty array' },
+      body: { success: false, error: 'INVALID_BODY', message: 'Список критериев не должен быть пустым' },
     },
   };
 }
@@ -2088,7 +2130,7 @@ for (const crit of criteria) {
     return {
       json: {
         http_status: 422,
-        body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Invalid criteria id: ${crit.id}` },
+        body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Некорректный идентификатор критерия: ${crit.id}` },
       },
     };
   }
@@ -2097,7 +2139,7 @@ for (const crit of criteria) {
     return {
       json: {
         http_status: 422,
-        body: { success: false, error: 'INVALID_WEIGHT', message: `Invalid weight for criteria ${criteriaId}` },
+        body: { success: false, error: 'INVALID_WEIGHT', message: `Некорректный вес критерия ${criteriaId}` },
       },
     };
   }
@@ -2112,7 +2154,7 @@ for (const crit of criteria) {
           body: {
             success: false,
             error: 'INVALID_COEFFICIENT',
-            message: `Invalid coefficient at level ${level} for criteria ${criteriaId}`,
+            message: `Некорректный коэффициент уровня ${level} для критерия ${criteriaId}`,
           },
         },
       };
@@ -2568,7 +2610,7 @@ if (!VALID_WORK_CATEGORIES.includes(workCategory)) {
       body: {
         success: false,
         error: 'INVALID_WORK_CATEGORY',
-        message: `work_category must be one of: ${VALID_WORK_CATEGORIES.join(', ')} (H1 restriction)`,
+        message: `Категория работы должна быть одной из: ${VALID_WORK_CATEGORIES.join(', ')}`,
       },
     },
   };
@@ -2578,7 +2620,7 @@ if (!VALID_ROLES.includes(role)) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'INVALID_ROLE', message: `role must be one of: ${VALID_ROLES.join(', ')}` },
+      body: { success: false, error: 'INVALID_ROLE', message: `Роль должна быть одной из: ${VALID_ROLES.join(', ')}` },
     },
   };
 }
@@ -2588,12 +2630,12 @@ const jobTitle = String(body.job_title || '').trim();
 
 if (!fullName || fullName.length > 150) {
   return {
-    json: { http_status: 422, body: { success: false, error: 'INVALID_NAME', message: 'full_name is required (max 150 chars)' } },
+    json: { http_status: 422, body: { success: false, error: 'INVALID_NAME', message: 'Укажите имя сотрудника длиной не более 150 символов' } },
   };
 }
 if (!email || email.length > 150) {
   return {
-    json: { http_status: 422, body: { success: false, error: 'INVALID_EMAIL', message: 'email is required (max 150 chars)' } },
+    json: { http_status: 422, body: { success: false, error: 'INVALID_EMAIL', message: 'Укажите email длиной не более 150 символов' } },
   };
 }
 
@@ -2667,7 +2709,7 @@ if (!prev.is_new && check && check.old_category && check.old_category !== prev.w
         body: {
           success: false,
           error: 'CLASSIFICATION_FROZEN',
-          message: 'Cannot change work_category: classification is frozen for the active period once any evaluation has been submitted',
+          message: 'Нельзя изменить категорию работы после первой отправленной оценки активного периода',
         },
       },
     };
@@ -2846,19 +2888,19 @@ const rawType = String(body.period_type || 'half_year').trim();
 const VALID_TYPES = ['half_year', 'annual'];
 
 if (!name || name.length > 100) {
-  return { json: { http_status: 422, body: { success: false, error: 'INVALID_NAME', message: 'name is required (max 100 chars)' } } };
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_NAME', message: 'Укажите название периода длиной не более 100 символов' } } };
 }
 if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(startDate)) {
-  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE', message: 'start_date must be YYYY-MM-DD' } } };
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE', message: 'Дата начала должна быть в формате ГГГГ-ММ-ДД' } } };
 }
 if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(endDate)) {
-  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE', message: 'end_date must be YYYY-MM-DD' } } };
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE', message: 'Дата окончания должна быть в формате ГГГГ-ММ-ДД' } } };
 }
 if (endDate <= startDate) {
-  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE_RANGE', message: 'end_date must be after start_date' } } };
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE_RANGE', message: 'Дата окончания должна быть позже даты начала' } } };
 }
 if (!VALID_TYPES.includes(rawType)) {
-  return { json: { http_status: 422, body: { success: false, error: 'INVALID_TYPE', message: `period_type must be half_year or annual` } } };
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_TYPE', message: 'Тип периода должен быть half_year или annual' } } };
 }
 
 const safeName = name.replace(/'/g, "''");
@@ -2954,7 +2996,7 @@ if (!Number.isFinite(periodId) || periodId < 1) {
   return {
     json: {
       http_status: 422,
-      body: { success: false, error: 'INVALID_PERIOD_ID', message: 'period_id must be a positive integer' },
+      body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' },
     },
   };
 }
@@ -2993,7 +3035,7 @@ if (check && check.has_evaluations) {
       body: {
         success: false,
         error: 'ACTIVE_PERIOD_HAS_EVALUATIONS',
-        message: `Cannot deactivate period "${check.current_active_name}": it already has evaluations`,
+        message: `Нельзя деактивировать период «${check.current_active_name}»: в нём уже есть оценки`,
       },
     },
   };
@@ -3033,7 +3075,7 @@ if (!row) {
   return {
     json: {
       http_status: 404,
-      body: { status: 'error', message: 'Period not found or is already closed' },
+      body: { status: 'error', message: 'Период не найден или уже закрыт' },
     },
   };
 }
