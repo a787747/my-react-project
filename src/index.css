@@ -2,8 +2,414 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background-color: #F8FAFC;
-  color: #0F172A;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+/* ===== CSS CUSTOM PROPERTIES (Design Tokens) ===== */
+:root {
+  /* Brand Colors */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  
+  /* Semantic Colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+  
+  /* Surface Colors */
+  --color-surface-base: #ffffff;
+  --color-surface-raised: #f8fafc;
+  --color-surface-overlay: #f1f5f9;
+  
+  /* Text Colors */
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;
+  --color-text-disabled: #94a3b8;
+  
+  /* Border Colors */
+  --color-border-light: #e2e8f0;
+  --color-border-default: #cbd5e1;
+  --color-border-focus: #6366f1;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  
+  /* Border Radius */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  
+  /* Transitions */
+  --transition-fast: 150ms;
+  --transition-normal: 200ms;
+  --transition-slow: 300ms;
+  
+  /* Sidebar */
+  --sidebar-width: 16rem;
+  --sidebar-width-collapsed: 4.5rem;
+}
+
+/* ===== BASE STYLES ===== */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  
+  body {
+    @apply bg-surface-raised text-slate-900;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+    font-variation-settings: 'opsz' 32;
+  }
+  
+  /* Improved focus states for accessibility */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2;
+  }
+  
+  /* Remove default focus outline, we use focus-visible */
+  *:focus {
+    outline: none;
+  }
+  
+  /* Headings */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display font-bold tracking-tight text-slate-900;
+  }
+  
+  h1 { @apply text-3xl md:text-4xl; }
+  h2 { @apply text-2xl md:text-3xl; }
+  h3 { @apply text-xl md:text-2xl; }
+  h4 { @apply text-lg md:text-xl; }
+  
+  /* Links */
+  a {
+    @apply text-brand-600 hover:text-brand-700 transition-colors duration-150;
+  }
+  
+  /* Code */
+  code {
+    @apply font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded;
+  }
+  
+  /* Selection */
+  ::selection {
+    @apply bg-brand-100 text-brand-900;
+  }
+}
+
+/* ===== COMPONENT STYLES ===== */
+@layer components {
+  /* Button Base */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 
+           font-semibold rounded-xl 
+           transition-all duration-200 
+           focus-visible:ring-2 focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed
+           active:scale-[0.98];
+  }
+  
+  .btn-sm { @apply px-3 py-1.5 text-sm; }
+  .btn-md { @apply px-4 py-2.5 text-sm; }
+  .btn-lg { @apply px-6 py-3 text-base; }
+  
+  .btn-primary {
+    @apply bg-brand-600 text-white 
+           hover:bg-brand-700 
+           shadow-sm hover:shadow-brand
+           focus-visible:ring-brand-500;
+  }
+  
+  .btn-secondary {
+    @apply bg-white text-slate-700 
+           border border-slate-200 
+           hover:bg-slate-50 hover:border-slate-300
+           focus-visible:ring-slate-500;
+  }
+  
+  .btn-success {
+    @apply bg-success-600 text-white 
+           hover:bg-success-700 
+           shadow-sm hover:shadow-success
+           focus-visible:ring-success-500;
+  }
+  
+  .btn-danger {
+    @apply bg-danger-600 text-white 
+           hover:bg-danger-700 
+           shadow-sm hover:shadow-danger
+           focus-visible:ring-danger-500;
+  }
+  
+  .btn-ghost {
+    @apply bg-transparent text-slate-600 
+           hover:bg-slate-100 hover:text-slate-900
+           focus-visible:ring-slate-500;
+  }
+  
+  /* Card Styles */
+  .card {
+    @apply bg-white rounded-2xl border border-slate-200/60 shadow-sm;
+  }
+  
+  .card-elevated {
+    @apply bg-white rounded-2xl shadow-md hover:shadow-card-hover transition-shadow duration-300;
+  }
+  
+  .card-interactive {
+    @apply bg-white rounded-2xl border border-slate-200/60 shadow-sm
+           hover:shadow-lg hover:border-slate-300
+           transition-all duration-200 cursor-pointer;
+  }
+  
+  /* Input Styles */
+  .input {
+    @apply w-full px-4 py-2.5 
+           bg-white border border-slate-300 rounded-xl
+           text-slate-900 placeholder:text-slate-400
+           transition-all duration-200
+           hover:border-slate-400
+           focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
+  }
+  
+  .input-error {
+    @apply border-danger-300 bg-danger-50
+           focus:border-danger-500 focus:ring-danger-500/20;
+  }
+  
+  .input-success {
+    @apply border-success-300 bg-success-50
+           focus:border-success-500 focus:ring-success-500/20;
+  }
+  
+  /* Select Styles */
+  .select {
+    @apply input appearance-none bg-no-repeat bg-right pr-10;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.75rem center;
+    background-size: 1.25rem;
+  }
+  
+  /* Label Styles */
+  .label {
+    @apply block text-sm font-medium text-slate-700 mb-1.5;
+  }
+  
+  /* Badge Styles */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 
+           text-xs font-semibold rounded-full;
+  }
+  
+  .badge-primary { @apply bg-brand-100 text-brand-700; }
+  .badge-success { @apply bg-success-100 text-success-700; }
+  .badge-warning { @apply bg-warning-100 text-warning-700; }
+  .badge-danger { @apply bg-danger-100 text-danger-700; }
+  .badge-info { @apply bg-info-100 text-info-700; }
+  .badge-neutral { @apply bg-slate-100 text-slate-700; }
+  
+  /* Score Zone Styles */
+  .score-critical {
+    @apply bg-danger-50 border-danger-200 text-danger-800;
+  }
+  
+  .score-low {
+    @apply bg-warning-50 border-warning-200 text-warning-800;
+  }
+  
+  .score-normal {
+    @apply bg-info-50 border-info-200 text-info-800;
+  }
+  
+  .score-high {
+    @apply bg-success-50 border-success-200 text-success-800;
+  }
+  
+  /* Skeleton Loading */
+  .skeleton {
+    @apply bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200 
+           bg-[length:200%_100%] animate-shimmer rounded;
+  }
+  
+  .skeleton-text {
+    @apply skeleton h-4 w-full;
+  }
+  
+  .skeleton-title {
+    @apply skeleton h-6 w-3/4;
+  }
+  
+  .skeleton-avatar {
+    @apply skeleton w-10 h-10 rounded-full;
+  }
+  
+  .skeleton-card {
+    @apply skeleton h-32 w-full rounded-xl;
+  }
+  
+  /* Modal Backdrop */
+  .modal-backdrop {
+    @apply fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-modal-backdrop;
+  }
+  
+  /* Tooltip */
+  .tooltip {
+    @apply absolute z-tooltip px-2 py-1 text-xs font-medium 
+           text-white bg-slate-900 rounded-md shadow-lg
+           opacity-0 invisible transition-all duration-200
+           group-hover:opacity-100 group-hover:visible;
+  }
+}
+
+/* ===== UTILITY CLASSES ===== */
+@layer utilities {
+  /* Text Gradient */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-600 to-purple-600;
+  }
+  
+  /* Truncate multiple lines */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  /* Hide scrollbar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Custom scrollbar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.slate.300') transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.slate.300');
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: theme('colors.slate.400');
+  }
+  
+  /* Glass effect */
+  .glass {
+    @apply bg-white/80 backdrop-blur-md border border-white/20;
+  }
+  
+  /* Safe area for mobile */
+  .safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes slide-in-toast {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in-toast 0.3s ease-out;
+}
+
+/* Page transition */
+.page-enter {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+/* Stagger animation for lists */
+.stagger-item {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: staggerFadeIn 0.3s ease-out forwards;
+}
+
+@keyframes staggerFadeIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom range slider */
+input[type="range"] {
+  @apply w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  @apply appearance-none w-5 h-5 bg-brand-600 rounded-full 
+         shadow-md cursor-pointer transition-transform duration-150
+         hover:scale-110 active:scale-95;
+}
+
+input[type="range"]::-moz-range-thumb {
+  @apply w-5 h-5 bg-brand-600 rounded-full border-0
+         shadow-md cursor-pointer transition-transform duration-150
+         hover:scale-110 active:scale-95;
+}
+
+input[type="range"]:focus::-webkit-slider-thumb {
+  @apply ring-2 ring-brand-500 ring-offset-2;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
 }

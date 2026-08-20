@@ -1,94 +1,164 @@
-import { useEffect, useState } from 'react';
-import axios from 'axios';
-import { Settings, Save, Loader2, ListPlus, ToggleLeft, ToggleRight, Edit3, Plus, Check, Trash2 } from 'lucide-react';
+/**
+ * AdminSettings - Страница управления критериями оценки
+ * 
+ * Назначение: Просмотр, создание, редактирование и удаление критериев оценки
+ * Доступ: admin, c_level
+ * 
+ * Использует компоненты:
+ * - CriteriaTable - таблица критериев
+ * - LoadingSpinner - индикатор загрузки
+ * 
+ * Использует хуки:
+ * - useCriteria - загрузка и управление критериями
+ */
 
-const API_MANAGE_CRITERIA = 'http://92.51.45.147:5678/webhook/manage-criteria';
+import React, { useState } from 'react';
+import { ListPlus, Plus, User, Users, Shield, Trash2 } from 'lucide-react';
+import apiClient from '../api/client';
+import { API_ENDPOINTS } from '../config/api';
+import logger from '../utils/logger';
+
+// Компоненты
+import { LoadingSpinner, Toast, PeriodBanner } from '../components/common';
+import CriteriaTable from '../components/admin/CriteriaTable';
+import ClearTestEvaluationsModal from '../components/admin/ClearTestEvaluationsModal';
+
+// Хуки
+import { useCriteria } from '../hooks/useCriteria';
+
+// Константы
+import { TARGET_AUDIENCES } from '../config/constants';
+
+// Начальное состояние формы для нового критерия
+const getInitialFormState = (criterion = null) => {
+  if (criterion) {
+    return {
+      ...criterion,
+      level_0_desc: criterion.level_0_desc || '',
+      level_1_desc: criterion.level_1_desc || '',
+      level_2_desc: criterion.level_2_desc || '',
+      level_3_desc: criterion.level_3_desc || '',
+      level_4_desc: criterion.level_4_desc || '',
+      level_5_desc: criterion.level_5_desc || '',
+      level_6_desc: criterion.level_6_desc || '',
+      level_7_desc: criterion.level_7_desc || '',
+      level_8_desc: criterion.level_8_desc || '',
+      level_9_desc: criterion.level_9_desc || '',
+      level_10_desc: criterion.level_10_desc || '',
+      selfassesment: criterion.selfassesment !== undefined ? criterion.selfassesment : true,
+      for_manager: criterion.for_manager !== undefined ? criterion.for_manager : true,
+      c_level_only: criterion.c_level_only !== undefined ? criterion.c_level_only : false
+    };
+  }
+  
+  return {
+    title: '',
+    description: '',
+    target_audience: 'all',
+    is_active: true,
+    selfassesment: true,
+    for_manager: true,
+    c_level_only: false,
+    level_0_desc: '',
+    level_1_desc: '',
+    level_2_desc: '',
+    level_3_desc: '',
+    level_4_desc: '',
+    level_5_desc: '',
+    level_6_desc: '',
+    level_7_desc: '',
+    level_8_desc: '',
+    level_9_desc: '',
+    level_10_desc: ''
+  };
+};
 
 const AdminSettings = () => {
-  const [criteriaList, setCriteriaList] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Хук для работы с критериями
+  const { criteriaList, period, campaignActive, loading, saveCriterion, deleteCriterion } = useCriteria();
   
-  const [editingId, setEditingId] = useState(null); 
+  // Состояние редактирования
+  const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  
+  // Состояние для очистки тестовых оценок
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [toast, setToast] = useState(null);
 
-  useEffect(() => {
-    fetchCriteria();
-  }, []);
-
-  const fetchCriteria = async () => {
-    try {
-      const response = await axios.post(API_MANAGE_CRITERIA, { action: 'get' });
-      const rawData = response.data;
-      let list = [];
-      if (rawData && rawData.data && Array.isArray(rawData.data)) {
-        list = rawData.data;
-      } else if (Array.isArray(rawData)) {
-        list = rawData;
-      }
-      setCriteriaList(list);
-    } catch (error) {
-      console.error("Ошибка:", error);
-    } finally {
-      setLoading(false);
-    }
+  // Начать редактирование критерия
+  const handleEdit = (criterion) => {
+    setEditingId(criterion.id);
+    setEditForm(getInitialFormState(criterion));
   };
 
-  const handleEdit = (crit) => {
-    setEditingId(crit.id);
-    setEditForm({ ...crit });
-  };
-
+  // Добавить новый критерий
   const handleAddNew = () => {
     setEditingId('new');
-    setEditForm({
-      title: '',
-      description: '',
-      target_audience: 'all',
-      is_active: true
-    });
+    setEditForm(getInitialFormState());
   };
 
+  // Сохранить критерий
   const handleSave = async () => {
-    try {
-      await axios.post(API_MANAGE_CRITERIA, {
-        action: 'save',
-        criteria: editForm
-      });
+    const result = await saveCriterion(editForm);
+    if (result.success) {
       setEditingId(null);
-      fetchCriteria(); 
-    } catch (error) {
-      alert("Ошибка сохранения");
+    } else {
+      alert(result.error);
     }
   };
 
-  // ФУНКЦИЯ УДАЛЕНИЯ
+  // Отменить редактирование
+  const handleCancel = () => {
+    setEditingId(null);
+  };
+
+  // Удалить критерий
   const handleDelete = async (id) => {
     if (!window.confirm("Вы уверены, что хотите удалить этот критерий? Это действие нельзя отменить.")) {
       return;
     }
-
-    try {
-      await axios.post(API_MANAGE_CRITERIA, {
-        action: 'delete',
-        criteria: { id: id }
-      });
-      fetchCriteria();
-    } catch (error) {
-      alert("Не удалось удалить. Возможно, этот критерий уже используется в оценках сотрудников.");
+    
+    const result = await deleteCriterion(id);
+    if (!result.success) {
+      alert(result.error);
     }
   };
 
-  const audiences = [
-    { id: 'all', label: 'Все сотрудники' },
-    { id: 'project', label: 'Проектная команда' },
-    { id: 'tender', label: 'Тендерный отдел' },
-    { id: 'back_office', label: 'Бэк-офис' },
-  ];
+  // Очистить тестовые оценки
+  const handleClearTestEvaluations = async () => {
+    try {
+      setIsClearing(true);
+      const response = await apiClient.post(API_ENDPOINTS.ADMIN_CLEAR_TEST_EVALUATIONS);
+      
+      if (response.data?.success || response.status === 200) {
+        setToast({
+          type: 'success',
+          message: 'Тестовые оценки успешно удалены'
+        });
+        setIsClearModalOpen(false);
+      } else {
+        throw new Error(response.data?.message || 'Ошибка при удалении оценок');
+      }
+    } catch (error) {
+      logger.error('Ошибка очистки тестовых оценок:', error);
+      setToast({
+        type: 'error',
+        message: error.userMessage || error.message || 'Не удалось удалить тестовые оценки'
+      });
+    } finally {
+      setIsClearing(false);
+    }
+  };
 
-  if (loading) return <div className="p-12 text-center">Загрузка...</div>;
+  // Состояние загрузки
+  if (loading) {
+    return <LoadingSpinner text="Загрузка критериев..." />;
+  }
 
   return (
-    <div className="max-w-6xl mx-auto pb-20">
+    <div className="max-w-6xl mx-auto p-8 pb-20">
+      {/* Header */}
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
@@ -105,132 +175,82 @@ const AdminSettings = () => {
         </button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
-            <tr>
-              <th className="p-4 border-b">Критерий / Вопрос</th>
-              <th className="p-4 border-b w-64">Для кого (Аудитория)</th>
-              <th className="p-4 border-b w-32 text-center">Статус</th>
-              <th className="p-4 border-b w-32 text-right">Действия</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {editingId === 'new' && (
-              <tr className="bg-blue-50">
-                <td className="p-4">
-                  <input 
-                    className="w-full p-2 border rounded mb-2 font-bold" 
-                    placeholder="Название критерия"
-                    value={editForm.title}
-                    onChange={e => setEditForm({...editForm, title: e.target.value})}
-                  />
-                  <textarea 
-                    className="w-full p-2 border rounded text-sm" 
-                    placeholder="Описание (подсказка)"
-                    value={editForm.description}
-                    onChange={e => setEditForm({...editForm, description: e.target.value})}
-                  />
-                </td>
-                <td className="p-4 align-top">
-                  <select 
-                    className="w-full p-2 border rounded"
-                    value={editForm.target_audience}
-                    onChange={e => setEditForm({...editForm, target_audience: e.target.value})}
-                  >
-                    {audiences.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
-                  </select>
-                </td>
-                <td className="p-4 text-center align-top">
-                   <span className="text-xs font-bold text-blue-600">NEW</span>
-                </td>
-                <td className="p-4 align-top text-right">
-                  <button onClick={handleSave} className="bg-green-600 text-white p-2 rounded hover:bg-green-700 mr-2"><Check className="w-4 h-4"/></button>
-                  <button onClick={() => setEditingId(null)} className="bg-slate-200 text-slate-600 p-2 rounded hover:bg-slate-300"><Settings className="w-4 h-4 rotate-45"/></button>
-                </td>
-              </tr>
-            )}
+      <PeriodBanner
+        period={period}
+        campaignActive={campaignActive}
+        emptyCopy="Нет активного периода — каталог можно менять."
+        draftName={null}
+      />
+      {campaignActive && (
+        <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm">
+          Сохранение и удаление критериев заморожены, пока период активен (409).
+        </div>
+      )}
 
-            {criteriaList.map((crit) => (
-              <tr key={crit.id} className={!crit.is_active ? 'opacity-50 bg-slate-50' : ''}>
-                
-                {editingId === crit.id ? (
-                  <>
-                    <td className="p-4">
-                      <input 
-                        className="w-full p-2 border rounded mb-2 font-bold" 
-                        value={editForm.title}
-                        onChange={e => setEditForm({...editForm, title: e.target.value})}
-                      />
-                      <textarea 
-                        className="w-full p-2 border rounded text-sm" 
-                        value={editForm.description || ''}
-                        onChange={e => setEditForm({...editForm, description: e.target.value})}
-                      />
-                    </td>
-                    <td className="p-4 align-top">
-                      <select 
-                        className="w-full p-2 border rounded"
-                        value={editForm.target_audience}
-                        onChange={e => setEditForm({...editForm, target_audience: e.target.value})}
-                      >
-                         {audiences.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
-                      </select>
-                    </td>
-                    <td className="p-4 text-center align-top">
-                      <button 
-                        onClick={() => setEditForm({...editForm, is_active: !editForm.is_active})}
-                        className="text-2xl"
-                      >
-                        {editForm.is_active ? <ToggleRight className="text-green-600 w-8 h-8"/> : <ToggleLeft className="text-slate-400 w-8 h-8"/>}
-                      </button>
-                    </td>
-                    <td className="p-4 align-top text-right">
-                      <button onClick={handleSave} className="bg-green-600 text-white p-2 rounded hover:bg-green-700 mr-2"><Check className="w-4 h-4"/></button>
-                      <button onClick={() => setEditingId(null)} className="bg-slate-200 text-slate-600 p-2 rounded hover:bg-slate-300">Отмена</button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="p-4">
-                      <div className="font-bold text-slate-900">{crit.title}</div>
-                      <div className="text-sm text-slate-500 mt-1">{crit.description}</div>
-                    </td>
-                    <td className="p-4">
-                      <span className={`px-2 py-1 rounded text-xs font-bold uppercase border ${
-                        crit.target_audience === 'all' ? 'bg-slate-100 text-slate-600 border-slate-200' :
-                        crit.target_audience === 'project' ? 'bg-purple-100 text-purple-700 border-purple-200' :
-                        'bg-blue-100 text-blue-700 border-blue-200'
-                      }`}>
-                        {audiences.find(a => a.id === crit.target_audience)?.label || crit.target_audience}
-                      </span>
-                    </td>
-                    <td className="p-4 text-center">
-                      {crit.is_active 
-                        ? <span className="text-green-600 text-xs font-bold flex justify-center items-center gap-1"><Check className="w-3 h-3"/> Активен</span> 
-                        : <span className="text-slate-400 text-xs font-bold">Отключен</span>}
-                    </td>
-                    <td className="p-4 text-right flex justify-end gap-2">
-                      <button onClick={() => handleEdit(crit)} className="p-2 text-slate-400 hover:text-blue-600 transition-colors" title="Редактировать">
-                        <Edit3 className="w-5 h-5" />
-                      </button>
-                      
-                      {/* КНОПКА УДАЛЕНИЯ */}
-                      <button 
-                        onClick={() => handleDelete(crit.id)} 
-                        className="p-2 text-slate-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded"
-                        title="Удалить навсегда"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Легенда */}
+      <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+        <span className="text-xs font-bold text-slate-500 mr-4">Кто оценивает:</span>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-700 mr-2">
+          <User className="w-3 h-3" /> Само — Самооценка
+        </span>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700 mr-2">
+          <Users className="w-3 h-3" /> Мен — Менеджер
+        </span>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-purple-100 text-purple-700">
+          <Shield className="w-3 h-3" /> C-lvl — C-level / Admin
+        </span>
       </div>
+
+      {/* Кнопка очистки тестовых оценок */}
+      <div className="mb-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-1">Очистка тестовых данных</h3>
+              <p className="text-sm text-gray-600">
+                Удалить все тестовые оценки всех сотрудников
+              </p>
+            </div>
+            <button
+              onClick={() => setIsClearModalOpen(true)}
+              disabled={isClearing}
+              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors"
+            >
+              <Trash2 className="w-5 h-5" />
+              {isClearing ? 'Удаление...' : 'Очистить тестовые оценки'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Таблица критериев */}
+      <CriteriaTable
+        criteria={criteriaList}
+        audiences={TARGET_AUDIENCES}
+        editingId={editingId}
+        editForm={editForm}
+        onEdit={handleEdit}
+        onFormChange={setEditForm}
+        onSave={handleSave}
+        onCancel={handleCancel}
+        onDelete={handleDelete}
+      />
+
+      {/* Модальное окно очистки тестовых оценок */}
+      <ClearTestEvaluationsModal
+        isOpen={isClearModalOpen && !isClearing}
+        onConfirm={handleClearTestEvaluations}
+        onCancel={() => !isClearing && setIsClearModalOpen(false)}
+      />
+
+      {/* Уведомления */}
+      {toast && (
+        <Toast
+          type={toast.type}
+          message={toast.message}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 };

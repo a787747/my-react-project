@@ -1,12 +1,24 @@
+/**
+ * AdminPeriods - Страница управления периодами оценки и регистрацией
+ * 
+ * Назначение: Создание, активация и управление периодами оценки.
+ *             Получение постоянной ссылки для регистрации сотрудников.
+ * Доступ: admin, c_level
+ * 
+ * Функционал:
+ * - Список всех периодов
+ * - Создание нового периода
+ * - Активация/деактивация периодов
+ * - Получение постоянной invite-ссылки для регистрации
+ */
+
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { Calendar, Plus, CheckCircle, Circle, Loader2, Save, X } from 'lucide-react';
+import apiClient from '../api/client';
+import { Calendar, Plus, CheckCircle, Circle, Loader2, Save, X, Link2, Copy, Check, UserPlus } from 'lucide-react';
+import { API_ENDPOINTS, API_BASE_URL } from '../config/api';
+import logger from '../utils/logger';
 
-const API_GET_PERIODS = 'http://92.51.45.147:5678/webhook/api/periods';
-const API_CREATE_PERIOD = 'http://92.51.45.147:5678/webhook/api/periods/create';
-const API_ACTIVATE_PERIOD = 'http://92.51.45.147:5678/webhook/api/periods/activate';
-
-const AdminPeriods = () => {
+const AdminPeriods = ({ user }) => {
   const [periods, setPeriods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(null);
@@ -20,6 +32,12 @@ const AdminPeriods = () => {
     end_date: ''
   });
 
+  // Invite token states
+  const [generatingInvite, setGeneratingInvite] = useState(false);
+  const [inviteLink, setInviteLink] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+
   useEffect(() => {
     fetchPeriods();
   }, []);
@@ -27,29 +45,34 @@ const AdminPeriods = () => {
   const fetchPeriods = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(API_GET_PERIODS);
+      const response = await apiClient.get(API_ENDPOINTS.PERIODS);
       const data = response.data.data || [];
       setPeriods(data);
     } catch (error) {
-      console.error('Ошибка загрузки периодов:', error);
+      logger.error('Ошибка загрузки периодов:', error);
     } finally {
       setLoading(false);
     }
   };
 
   const handleActivate = async (periodId) => {
+    const period = periods.find((item) => item.id === periodId);
+    if (!period || period.status === 'closed') {
+      return;
+    }
+
     if (!window.confirm('Активировать этот период? Текущий активный период будет деактивирован.')) {
       return;
     }
 
     try {
       setActivating(periodId);
-      await axios.post(API_ACTIVATE_PERIOD, {
+      await apiClient.post(API_ENDPOINTS.PERIODS_ACTIVATE, {
         period_id: periodId
       });
       await fetchPeriods();
     } catch (error) {
-      console.error('Ошибка активации:', error);
+      logger.error('Ошибка активации:', error);
       alert('Не удалось активировать период');
     } finally {
       setActivating(null);
@@ -61,15 +84,70 @@ const AdminPeriods = () => {
     
     try {
       setCreating(true);
-      await axios.post(API_CREATE_PERIOD, formData);
+      await apiClient.post(API_ENDPOINTS.PERIODS_CREATE, formData);
       setIsModalOpen(false);
       setFormData({ name: '', start_date: '', end_date: '' });
       await fetchPeriods();
     } catch (error) {
-      console.error('Ошибка создания:', error);
+      logger.error('Ошибка создания:', error);
       alert('Не удалось создать период');
     } finally {
       setCreating(false);
+    }
+  };
+
+  // Генерация invite токена
+  const handleGenerateInvite = async () => {
+    if (!user?.id) {
+      setInviteError('Ошибка: пользователь не авторизован');
+      return;
+    }
+
+    try {
+      setGeneratingInvite(true);
+      setInviteError('');
+      setInviteLink(null);
+
+      // Получаем текущий URL для frontend
+      const frontendUrl = window.location.origin;
+
+      const response = await apiClient.post(API_ENDPOINTS.CREATE_INVITE, {
+        admin_id: user.id,
+        frontend_url: frontendUrl
+      });
+
+      if (response.data.success) {
+        setInviteLink(response.data.data.registration_link);
+      } else {
+        setInviteError(response.data.message || 'Ошибка получения ссылки');
+      }
+    } catch (error) {
+      logger.error('Ошибка получения invite:', error);
+      setInviteError(error.response?.data?.message || 'Не удалось получить ссылку для регистрации');
+    } finally {
+      setGeneratingInvite(false);
+    }
+  };
+
+  // Копирование ссылки
+  const handleCopyLink = async () => {
+    if (!inviteLink) return;
+
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      logger.error('Ошибка копирования:', error);
+      // Fallback для старых браузеров
+      const textArea = document.createElement('textarea');
+      textArea.value = inviteLink;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -112,6 +190,88 @@ const AdminPeriods = () => {
         </button>
       </div>
 
+      {/* Карточка генерации ссылки для регистрации */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-emerald-100 rounded-xl">
+              <UserPlus className="w-6 h-6 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Регистрация сотрудников</h2>
+              <p className="text-sm text-gray-500">
+                Получите постоянную ссылку для регистрации и отправьте её сотрудникам
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleGenerateInvite}
+            disabled={generatingInvite}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm font-medium disabled:opacity-50"
+          >
+            {generatingInvite ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Загрузка...
+              </>
+            ) : (
+              <>
+                <Link2 className="w-4 h-4" />
+                Получить ссылку
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Ошибка */}
+        {inviteError && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            {inviteError}
+          </div>
+        )}
+
+        {/* Сгенерированная ссылка */}
+        {inviteLink && (
+          <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <p className="text-sm font-medium text-emerald-800 mb-2">
+              Постоянная ссылка для регистрации:
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={inviteLink}
+                className="flex-1 p-2.5 bg-white border border-emerald-300 rounded-lg text-sm text-gray-700 font-mono"
+              />
+              <button
+                onClick={handleCopyLink}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all ${
+                  copied 
+                    ? 'bg-green-600 text-white' 
+                    : 'bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                }`}
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Скопировано
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    Копировать
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-emerald-600 mt-2">
+              Отправьте эту ссылку на <strong>all@sedamedical.com</strong>. 
+              Сотрудники смогут зарегистрироваться только если их email уже есть в системе.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Список периодов */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {periods.length === 0 ? (
@@ -128,6 +288,7 @@ const AdminPeriods = () => {
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Название</th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Начало</th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Окончание</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">В охвате</th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">Действия</th>
                 </tr>
               </thead>
@@ -166,10 +327,17 @@ const AdminPeriods = () => {
                     <td className="px-6 py-4">
                       <div className="text-sm text-gray-600">{formatDate(period.end_date)}</div>
                     </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-700">
+                        {period.in_scope_count != null
+                          ? `${period.in_scope_count}${period.participant_count != null ? ` / ${period.participant_count}` : ''}`
+                          : '—'}
+                      </div>
+                    </td>
 
                     {/* Действия */}
                     <td className="px-6 py-4 text-right">
-                      {!period.is_active && (
+                      {!period.is_active && period.status !== 'closed' && (
                         <button
                           onClick={() => handleActivate(period.id)}
                           disabled={activating === period.id}

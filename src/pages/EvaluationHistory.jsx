@@ -1,71 +1,149 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { ClipboardList, User, Calendar, Award, TrendingUp, X, Loader2, Star } from 'lucide-react';
+/**
+ * EvaluationHistory - Страница истории проведенных оценок
+ * 
+ * Назначение: Отображение списка всех оценок, которые провел текущий пользователь
+ * Доступ: manager, admin, c_level
+ * 
+ * Использует компоненты:
+ * - EvaluationHistoryCard - карточка оценки
+ * - EvaluationHistoryModal - модальное окно деталей
+ * - LoadingSpinner - индикатор загрузки
+ * - EmptyState - пустое состояние
+ * 
+ * Использует хуки:
+ * - useEvaluationHistory - загрузка истории
+ */
 
-const API_HISTORY = 'http://92.51.45.147:5678/webhook/api/evaluation-history';
-const API_DETAILS = 'http://92.51.45.147:5678/webhook/api/evaluation-details';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ClipboardList, Users, UserCheck, Crown } from 'lucide-react';
+import apiClient from '../api/client';
+import { API_ENDPOINTS } from '../config/api';
+import logger from '../utils/logger';
+
+// Компоненты
+import { LoadingSpinner, EmptyState } from '../components/common';
+import EvaluationHistoryCard from '../components/evaluation/EvaluationHistoryCard';
+import EvaluationHistoryModal from '../components/evaluation/EvaluationHistoryModal';
+
+// Хуки
+import { useEvaluationHistory } from '../hooks/useEvaluationHistory';
 
 const EvaluationHistory = ({ user }) => {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  
-  const [selectedEvaluation, setSelectedEvaluation] = useState(null);
-  const [evaluationDetails, setEvaluationDetails] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [loadingDetails, setLoadingDetails] = useState(false);
+  // Хук для работы с историей
+  const {
+    history,
+    loading,
+    evaluationDetails,
+    loadingDetails,
+    fetchDetails,
+    clearDetails
+  } = useEvaluationHistory(user?.id);
 
+  // Состояние для проверки подчиненных
+  const [hasSubordinates, setHasSubordinates] = useState(false);
+  const [loadingSubordinates, setLoadingSubordinates] = useState(true);
+
+  // Разделяем историю на оценки подчиненных и оценки руководителя
+  const { subordinateEvaluations, managerEvaluations, totalEvaluations } = useMemo(() => {
+    const subordinate = [];
+    const manager = [];
+    
+    // Фильтруем только валидные записи с обязательными полями для отображения
+    const validHistory = history.filter(item => {
+      if (!item || !item.id) {
+        return false;
+      }
+      
+      // Проверяем, что evaluatee_name существует и не пустое
+      const hasValidName = item.evaluatee_name && 
+                           typeof item.evaluatee_name === 'string' && 
+                           item.evaluatee_name.trim() !== '';
+      
+      // Проверяем, что evaluation_date существует
+      const hasValidDate = item.evaluation_date && 
+                          (item.evaluation_date !== null && 
+                           item.evaluation_date !== '');
+      
+      // Для оценок руководителя (evaluation_source === 'subordinate')
+      if (item.evaluation_source === 'subordinate') {
+        // Должно быть хотя бы имя или дата
+        return hasValidName || hasValidDate;
+      }
+      
+      // Для оценок подчиненных (обычные оценки)
+      // Должно быть и имя, и дата для корректного отображения
+      const isValid = hasValidName && hasValidDate;
+      
+      // Логируем невалидные записи для отладки (можно удалить после исправления)
+      if (!isValid && history.length > 0) {
+        logger.warn('Отфильтрована невалидная запись оценки:', {
+          id: item.id,
+          evaluatee_name: item.evaluatee_name,
+          evaluation_date: item.evaluation_date,
+          evaluation_source: item.evaluation_source
+        });
+      }
+      
+      return isValid;
+    });
+    
+    validHistory.forEach(item => {
+      if (item.evaluation_source === 'subordinate') {
+        manager.push(item); // Оценки, которые я дал своему руководителю
+      } else {
+        subordinate.push(item); // Оценки, которые я дал подчиненным
+      }
+    });
+    
+    // Подсчитываем общее количество отображаемых оценок
+    const total = subordinate.length + manager.length;
+    
+    return { 
+      subordinateEvaluations: subordinate, 
+      managerEvaluations: manager,
+      totalEvaluations: total
+    };
+  }, [history]);
+
+  // Состояние модального окна
+  const [selectedEvaluation, setSelectedEvaluation] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Проверка наличия подчиненных
   useEffect(() => {
-    const fetchHistory = async () => {
-      if (!user) return;
+    const checkSubordinates = async () => {
+      if (!user) {
+        setLoadingSubordinates(false);
+        return;
+      }
 
       try {
-        setLoading(true);
-        const response = await axios.get(API_HISTORY, {
-          params: {
-            evaluator_id: user.id
-          }
+        setLoadingSubordinates(true);
+        const response = await apiClient.get(API_ENDPOINTS.EMPLOYEES, {
+          params: { user_id: user.id, role: user.role }
         });
-
-        const data = response.data.data || [];
-        setHistory(Array.isArray(data) ? data : []);
+        
+        const employeesData = Array.isArray(response.data) 
+          ? response.data[0]?.data || [] 
+          : response.data.data || [];
+        
+        // Фильтруем: убираем самого себя из списка
+        const subordinates = employeesData.filter(emp => emp.id !== user.id);
+        setHasSubordinates(subordinates.length > 0);
       } catch (error) {
-        console.error('Ошибка загрузки истории:', error);
+        logger.error('Ошибка проверки подчиненных:', error);
+        setHasSubordinates(false);
       } finally {
-        setLoading(false);
+        setLoadingSubordinates(false);
       }
     };
 
-    fetchHistory();
+    checkSubordinates();
   }, [user]);
 
-  const handleOpenDetails = async (evaluation) => {
-    setSelectedEvaluation(evaluation);
-    setIsModalOpen(true);
-    setLoadingDetails(true);
-
-    try {
-      const response = await axios.get(API_DETAILS, {
-        params: {
-          evaluation_id: evaluation.id
-        }
-      });
-
-      setEvaluationDetails(response.data);
-    } catch (error) {
-      console.error('Ошибка загрузки деталей:', error);
-      alert('Не удалось загрузить детали оценки');
-    } finally {
-      setLoadingDetails(false);
-    }
-  };
-
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedEvaluation(null);
-    setEvaluationDetails(null);
-  };
-
+  // Форматирование даты
   const formatDate = (dateString) => {
+    if (!dateString) return 'Дата неизвестна';
     const date = new Date(dateString);
     return date.toLocaleDateString('ru-RU', {
       day: 'numeric',
@@ -76,10 +154,45 @@ const EvaluationHistory = ({ user }) => {
     });
   };
 
-  if (loading) {
+  // Открыть детали
+  const handleOpenDetails = (evaluation) => {
+    setSelectedEvaluation(evaluation);
+    setIsModalOpen(true);
+    fetchDetails(evaluation.id);
+  };
+
+  // Закрыть модалку
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedEvaluation(null);
+    clearDetails();
+  };
+
+  // Состояние загрузки
+  if (loading || loadingSubordinates) {
+    return <LoadingSpinner text="Загрузка истории оценок..." />;
+  }
+
+  // Если нет ни подчиненных, ни оценок руководителя - показываем сообщение
+  const hasAnyEvaluations = totalEvaluations > 0;
+  if (!hasSubordinates && !hasAnyEvaluations) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-500">Загрузка...</div>
+      <div className="p-8 bg-gray-50 min-h-screen">
+        <header className="mb-8">
+          <div className="flex items-center gap-3 mb-2">
+            <ClipboardList className="w-8 h-8 text-indigo-600" />
+            <h1 className="text-3xl font-bold text-gray-900">Мои оценки</h1>
+          </div>
+        </header>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
+          <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">
+            Оценок пока нет
+          </h3>
+          <p className="text-gray-600">
+            Здесь будут ваши оценки, когда вы их проведете.
+          </p>
+        </div>
       </div>
     );
   }
@@ -90,272 +203,93 @@ const EvaluationHistory = ({ user }) => {
       <header className="mb-8">
         <div className="flex items-center gap-3 mb-2">
           <ClipboardList className="w-8 h-8 text-indigo-600" />
-          <h1 className="text-3xl font-bold text-gray-900">История оценок</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Мои оценки</h1>
         </div>
         <p className="text-gray-500">
           Все оценки, которые вы провели
           <span className="ml-2 text-indigo-600 font-medium">
-            (Всего: {history.length})
+            (Всего: {totalEvaluations})
           </span>
         </p>
       </header>
 
-      {/* История оценок */}
-      {history.length === 0 ? (
-        <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-          <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-            <ClipboardList className="w-8 h-8 text-gray-400" />
+      {/* Оценки руководителя (если есть) */}
+      {managerEvaluations.length > 0 && (
+        <div className="mb-10">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+              <Crown className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Оценки руководителя</h2>
+              <p className="text-sm text-gray-500">
+                Оценки, которые вы дали своему руководителю ({managerEvaluations.length})
+              </p>
+            </div>
           </div>
-          <h3 className="text-lg font-medium text-gray-900">История пуста</h3>
-          <p className="text-gray-500 mt-1">
-            Вы еще не провели ни одной оценки
-          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {managerEvaluations.map((item) => (
+              <EvaluationHistoryCard
+                key={item.id}
+                evaluation={item}
+                formatDate={formatDate}
+                onClick={() => handleOpenDetails(item)}
+                variant="manager"
+              />
+            ))}
+          </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {history.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => handleOpenDetails(item)}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 hover:shadow-lg hover:border-indigo-200 transition-all cursor-pointer group"
-            >
-              {/* Header карточки */}
-              <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-indigo-50 rounded-lg group-hover:bg-indigo-100 transition-colors">
-                  <User className="w-6 h-6 text-indigo-600" />
-                </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-indigo-600">
-                    {parseFloat(item.final_score).toFixed(1)}
-                  </div>
-                  <div className="text-xs text-gray-500">балл</div>
-                </div>
-              </div>
+      )}
 
-              {/* Имя сотрудника */}
-              <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                {item.evaluatee_name}
+      {/* История оценок подчиненных */}
+      {hasSubordinates && (
+        <div>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+              <Users className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Оценки подчиненных</h2>
+              <p className="text-sm text-gray-500">
+                Оценки, которые вы дали своим подчиненным ({subordinateEvaluations.length})
+              </p>
+            </div>
+          </div>
+          
+          {subordinateEvaluations.length === 0 ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
+              <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                Оценок подчиненных пока нет
               </h3>
-              <p className="text-sm text-gray-500 mb-4">{item.job_title}</p>
-
-              {/* Детали */}
-              <div className="space-y-2 mb-4">
-                <div className="flex items-center text-sm text-gray-600">
-                  <Calendar className="w-4 h-4 mr-2 text-gray-400" />
-                  {formatDate(item.evaluation_date)}
-                </div>
-                <div className="flex items-center text-sm text-gray-600">
-                  <Award className="w-4 h-4 mr-2 text-gray-400" />
-                  {item.grade_name} • {item.department_name}
-                </div>
-              </div>
-
-              {/* Период */}
-              <div className="pt-4 border-t border-gray-100">
-                <div className="flex items-center text-xs text-gray-500">
-                  <Calendar className="w-3 h-3 mr-1" />
-                  Период:
-                  <span className="ml-1 font-medium text-indigo-600">
-                    {item.period_name || 'Не указан'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Hover эффект */}
-              <div className="mt-4 text-sm text-indigo-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                Посмотреть детали →
-              </div>
+              <p className="text-gray-600">
+                Здесь будут оценки ваших подчиненных, когда вы их оцените.
+              </p>
             </div>
-          ))}
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {subordinateEvaluations.map((item) => (
+                <EvaluationHistoryCard
+                  key={item.id}
+                  evaluation={item}
+                  formatDate={formatDate}
+                  onClick={() => handleOpenDetails(item)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Модальное окно с деталями */}
-      {isModalOpen && selectedEvaluation && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            
-            {/* Header модалки */}
-            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-6 flex items-start justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
-                  <User className="w-8 h-8" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold mb-1">
-                    {selectedEvaluation.evaluatee_name}
-                  </h2>
-                  <p className="text-indigo-100 text-sm">{selectedEvaluation.job_title}</p>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-sm text-indigo-200 mb-1">
-                  {formatDate(selectedEvaluation.evaluation_date)}
-                </div>
-                <div className="flex items-center gap-2 text-sm text-indigo-100">
-                  {selectedEvaluation.period_name && (
-                    <>
-                      <span>•</span>
-                      <span className="text-indigo-600 font-medium">{selectedEvaluation.period_name}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              <button 
-                onClick={handleCloseModal}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                <X className="w-6 h-6 text-gray-400" />
-              </button>
-            </div>
-
-            {/* Body модалки */}
-            <div className="p-6">
-              {loadingDetails ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-                </div>
-              ) : evaluationDetails ? (
-                <>
-                  {/* Итоговый балл */}
-                  <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl p-6 mb-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm text-gray-600 mb-1">Итоговый балл</div>
-                        <div className="text-4xl font-bold text-indigo-600">
-                          {parseFloat(evaluationDetails.evaluation.final_score).toFixed(2)}
-                        </div>
-                      </div>
-                      <div className="p-4 bg-white/50 rounded-full">
-                        <Star className="w-12 h-12 text-indigo-600" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Информация о сотруднике */}
-                  <div className="bg-gray-50 rounded-xl p-6 mb-6">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                      <User className="w-5 h-5 text-gray-600" />
-                      Информация о сотруднике
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <div className="text-sm text-gray-500">Должность</div>
-                        <div className="font-medium text-gray-900">
-                          {evaluationDetails.evaluation.job_title || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-gray-500">Отдел</div>
-                        <div className="font-medium text-gray-900">
-                          {evaluationDetails.evaluation.department || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-gray-500">Грейд</div>
-                        <div className="font-medium text-gray-900">
-                          {evaluationDetails.evaluation.grade || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-gray-500">Категория работы</div>
-                        <div className="font-medium text-gray-900 capitalize">
-                          {evaluationDetails.evaluation.work_category || 'N/A'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Детализация по критериям */}
-                  <div className="mb-6">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                      <TrendingUp className="w-5 h-5 text-gray-600" />
-                      Детализация по критериям
-                    </h3>
-                    {evaluationDetails.scores && evaluationDetails.scores.length > 0 ? (
-                      <div className="space-y-4">
-                        {evaluationDetails.scores.map((score, index) => (
-                          <div 
-                            key={index}
-                            className="bg-white border border-gray-200 rounded-lg p-4 hover:border-indigo-200 transition-colors"
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="font-medium text-gray-900 mb-1">
-                                  {score.criteria_title}
-                                </div>
-                                {score.criteria_description && (
-                                  <div className="text-sm text-gray-500 mb-2">
-                                    {score.criteria_description}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="ml-4">
-                                <div className="text-2xl font-bold text-indigo-600">
-                                  {score.score_value}
-                                </div>
-                                <div className="text-xs text-gray-500 text-right">из 10</div>
-                              </div>
-                            </div>
-                            
-                            <div className="mt-3">
-                              <div className="w-full bg-gray-200 rounded-full h-2">
-                                <div 
-                                  className="bg-indigo-600 h-2 rounded-full transition-all"
-                                  style={{ width: `${(score.score_value / 10) * 100}%` }}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        Детальные оценки отсутствуют
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Комментарии (если есть) */}
-                  {(evaluationDetails.evaluation.general_comment || evaluationDetails.evaluation.private_comment) && (
-                    <div className="mt-6 bg-amber-50 rounded-xl p-6">
-                      <h3 className="font-semibold text-gray-900 mb-3">Комментарии</h3>
-                      
-                      {evaluationDetails.evaluation.general_comment && (
-                        <div className="mb-3">
-                          <div className="text-sm text-gray-500 mb-1">Общий комментарий:</div>
-                          <div className="text-gray-700">{evaluationDetails.evaluation.general_comment}</div>
-                        </div>
-                      )}
-                      
-                      {evaluationDetails.evaluation.private_comment && (
-                        <div>
-                          <div className="text-sm text-gray-500 mb-1">Приватный комментарий:</div>
-                          <div className="text-gray-700">{evaluationDetails.evaluation.private_comment}</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-12 text-gray-500">
-                  Не удалось загрузить детали оценки
-                </div>
-              )}
-            </div>
-
-            {/* Footer модалки */}
-            <div className="p-6 border-t border-gray-100 bg-gray-50 sticky bottom-0">
-              <button
-                onClick={handleCloseModal}
-                className="w-full py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-lg transition-colors"
-              >
-                Закрыть
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Модальное окно */}
+      <EvaluationHistoryModal
+        isOpen={isModalOpen}
+        evaluation={selectedEvaluation}
+        details={evaluationDetails}
+        loading={loadingDetails}
+        formatDate={formatDate}
+        onClose={handleCloseModal}
+      />
     </div>
   );
 };

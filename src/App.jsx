@@ -1,101 +1,331 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Sidebar from './components/Sidebar';
-import Dashboard from './pages/Dashboard';
-import AdminSettings from './pages/AdminSettings';
-import AdminUsers from './pages/AdminUsers';
-import AdminPeriods from './pages/AdminPeriods';
-import Login from './pages/Login';
-import EvaluationHistory from './pages/EvaluationHistory';
-import Profile from './pages/Profile';
-import SelfReview from './pages/SelfReview';
+/**
+ * App.jsx - Главный компонент приложения
+ * 
+ * Назначение: Маршрутизация, авторизация и layout приложения
+ * 
+ * Роутинг:
+ * - / - Dashboard (для авторизованных)
+ * - /login - Страница входа
+ * - /history - История оценок
+ * - /profile - Профиль пользователя
+ * - /self-review - Самооценка
+ * - /analytics - Аналитика (admin, c_level)
+ * - /admin/* - Админские страницы
+ * 
+ * Code Splitting:
+ * - Login загружается сразу (нужен для входа)
+ * - Остальные страницы загружаются лениво (React.lazy)
+ */
 
-// 1. Компонент для проверки прав администратора/менеджера
-const AdminRoute = ({ children, allowedRoles }) => {
-  const user = JSON.parse(localStorage.getItem('user'));
-  
-  // Если не залогинен - на логин
-  if (!user) return <Navigate to="/login" replace />;
-  
-  // Если роль пользователя есть в списке разрешенных - показываем контент
-  if (allowedRoles.includes(user.role)) {
-    return children;
+import React, { Suspense, lazy } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { UserProvider, useUser } from './context/UserContext';
+import { TaskStatusProvider } from './context/TaskStatusContext';
+import { ToastProvider } from './context/ToastContext';
+import Sidebar from './components/Sidebar';
+import SessionExpiryWarning from './components/SessionExpiryWarning';
+import { LoadingSpinner } from './components/common';
+import { canAccessAdminPanel, canViewAnalytics, isManagerOrAbove, isHR } from './utils/permissions';
+
+// Eager loading - страницы нужны сразу
+import Login from './pages/Login';
+
+// Lazy loading - страницы загружаются по требованию
+const Register = lazy(() => import('./pages/Register'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const EvaluationHistory = lazy(() => import('./pages/EvaluationHistory'));
+const Profile = lazy(() => import('./pages/Profile'));
+const SelfReview = lazy(() => import('./pages/SelfReview'));
+const Analytics = lazy(() => import('./pages/Analytics'));
+const AdminUsers = lazy(() => import('./pages/AdminUsers'));
+const AdminPeriods = lazy(() => import('./pages/AdminPeriods'));
+const AdminSettings = lazy(() => import('./pages/AdminSettings'));
+const AdminScoring = lazy(() => import('./pages/AdminScoring'));
+const AdminAllEvaluations = lazy(() => import('./pages/AdminAllEvaluations'));
+const AdminEvaluationsMatrix = lazy(() => import('./pages/AdminEvaluationsMatrix'));
+const AdminFinalScores = lazy(() => import('./pages/AdminFinalScores'));
+const BonusCalculation = lazy(() => import('./pages/BonusCalculation'));
+const ManagerEvaluation = lazy(() => import('./pages/ManagerEvaluation'));
+const ManagerSubordinatesMatrix = lazy(() => import('./pages/ManagerSubordinatesMatrix'));
+const Welcome = lazy(() => import('./pages/Welcome'));
+const HRDashboard = lazy(() => import('./pages/HRDashboard'));
+const TeamView = lazy(() => import('./pages/TeamView'));
+const AdminScoreCalculator = lazy(() => import('./pages/AdminScoreCalculator'));
+
+const ProtectedRoute = ({ children, user }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
   }
-  
-  // Иначе - редирект на главную (Dashboard)
-  return <Navigate to="/" replace />;
+  return children;
 };
 
-function App() {
-  const user = JSON.parse(localStorage.getItem('user'));
+/**
+ * AdminRoute - Доступ только для admin, c_level, hr
+ * Используется для страниц управления пользователями, периодами, настройками
+ */
+const AdminRoute = ({ children, user }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!canAccessAdminPanel(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
+/**
+ * ManagerRoute - Доступ для менеджеров и выше
+ * Используется для страницы просмотра команды (/team)
+ */
+const ManagerRoute = ({ children, user }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!isManagerOrAbove(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
+const HRRoute = ({ children, user }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!isHR(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
+/**
+ * ReportingRoute — company-wide results: admin + c_level only.
+ * HR keeps /hr/dashboard. URL access to analytics / all-evaluations / matrix is denied.
+ */
+const ReportingRoute = ({ children, user }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!canViewAnalytics(user.role)) {
+    return <Navigate to={isHR(user.role) ? '/hr/dashboard' : '/welcome'} replace />;
+  }
+  return children;
+};
+
+/**
+ * Внутренний компонент приложения, использующий контекст пользователя
+ */
+function AppContent() {
+  const { user, loading } = useUser();
+
+  // Показываем загрузку пока проверяем авторизацию
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <LoadingSpinner text="Загрузка..." />
+      </div>
+    );
+  }
 
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<Login />} />
+    <div className="flex min-h-screen bg-surface-raised">
+      {user && <Sidebar user={user} />}
+      {user && <SessionExpiryWarning />}
+      <div className={user ? 'lg:ml-64 flex-1 min-h-screen' : 'flex-1 min-h-screen'}>
+        <Suspense fallback={<LoadingSpinner text="Загрузка страницы..." />}>
+        <Routes>
+          <Route
+            path="/login"
+            element={user ? <Navigate to={user.role === 'hr' ? '/hr/dashboard' : '/welcome'} replace /> : <Login />}
+          />
+          <Route
+            path="/register"
+            element={user ? <Navigate to={user.role === 'hr' ? '/hr/dashboard' : '/welcome'} replace /> : <Register />}
+          />
+          <Route
+            path="/reset-password"
+            element={<ResetPassword />}
+          />
+          <Route
+            path="/welcome"
+            element={
+              <ProtectedRoute user={user}>
+                <Welcome />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute user={user}>
+                <Navigate to="/welcome" replace />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute user={user}>
+                <Dashboard user={user} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <ProtectedRoute user={user}>
+                <EvaluationHistory user={user} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute user={user}>
+                <Profile user={user} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/self-review"
+            element={
+              <ProtectedRoute user={user}>
+                <SelfReview user={user} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manager-evaluation"
+            element={
+              <ProtectedRoute user={user}>
+                <ManagerEvaluation user={user} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/team-scores"
+            element={
+              <ProtectedRoute user={user}>
+                <ManagerSubordinatesMatrix user={user} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <ReportingRoute user={user}>
+                <Analytics />
+              </ReportingRoute>
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={
+              <AdminRoute user={user}>
+                <AdminUsers user={user} />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/team"
+            element={
+              <ManagerRoute user={user}>
+                <TeamView user={user} />
+              </ManagerRoute>
+            }
+          />
+          <Route
+            path="/admin/periods"
+            element={
+              <AdminRoute user={user}>
+                <AdminPeriods user={user} />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/all-evaluations"
+            element={
+              <ReportingRoute user={user}>
+                <AdminAllEvaluations />
+              </ReportingRoute>
+            }
+          />
+          <Route
+            path="/admin/evaluations-matrix"
+            element={
+              <ReportingRoute user={user}>
+                <AdminEvaluationsMatrix user={user} />
+              </ReportingRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute user={user}>
+                <AdminSettings />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/scoring"
+            element={
+              <AdminRoute user={user}>
+                <AdminScoring />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/final-scores"
+            element={
+              <AdminRoute user={user}>
+                <AdminFinalScores user={user} />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/bonus-calculation"
+            element={
+              <AdminRoute user={user}>
+                <BonusCalculation user={user} />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/hr/dashboard"
+            element={
+              <HRRoute user={user}>
+                <HRDashboard />
+              </HRRoute>
+            }
+          />
+          <Route
+            path="/admin/score-calculator"
+            element={
+              <AdminRoute user={user}>
+                <AdminScoreCalculator />
+              </AdminRoute>
+            }
+          />
+        </Routes>
+        </Suspense>
+      </div>
+    </div>
+  );
+}
 
-        {/* Глобальная проверка авторизации */}
-        <Route
-          path="/*"
-          element={
-            user ? (
-              <div className="flex min-h-screen bg-slate-50">
-                {/* Передаем user в Sidebar, чтобы показать имя */}
-                <Sidebar user={user} />
-                
-                <div className="flex-1 ml-72">
-                  <div className="p-8 min-h-screen">
-                    <Routes>
-                      {/* Dashboard доступен всем авторизованным */}
-                      <Route path="/" element={<Dashboard user={user} />} />
-                      
-                      {/* История оценок доступна всем авторизованным */}
-                      <Route path="/history" element={<EvaluationHistory user={user} />} />
-                      
-                      {/* Профиль доступен всем авторизованным */}
-                      <Route path="/profile" element={<Profile user={user} />} />
-                      
-                      {/* Самооценка доступна всем авторизованным */}
-                      <Route path="/self-review" element={<SelfReview user={user} />} />
-                      
-                      {/* Управление сотрудниками: Только Admin, Manager, C-level */}
-                      <Route 
-                        path="/admin/users" 
-                        element={
-                          <AdminRoute allowedRoles={['admin', 'manager', 'c_level']}>
-                            <AdminUsers />
-                          </AdminRoute>
-                        } 
-                      />
-                      
-                      {/* Периоды оценки: Только Admin */}
-                      <Route 
-                        path="/admin/periods" 
-                        element={
-                          <AdminRoute allowedRoles={['admin']}>
-                            <AdminPeriods />
-                          </AdminRoute>
-                        } 
-                      />
-                      
-                      {/* Настройки системы: Только Admin */}
-                      <Route 
-                        path="/admin" 
-                        element={
-                          <AdminRoute allowedRoles={['admin']}>
-                            <AdminSettings />
-                          </AdminRoute>
-                        } 
-                      />
-                    </Routes>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-      </Routes>
+/**
+ * Главный компонент приложения с провайдерами
+ */
+function App() {
+  return (
+    <Router>
+      <UserProvider>
+        <TaskStatusProvider>
+          <ToastProvider>
+            <AppContent />
+          </ToastProvider>
+        </TaskStatusProvider>
+      </UserProvider>
     </Router>
   );
 }

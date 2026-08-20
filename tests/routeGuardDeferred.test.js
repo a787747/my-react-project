@@ -1,0 +1,306 @@
+/**
+ * Static analysis for generated deferred route-guard workflows.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execSync } from "node:child_process";
+import { readFileSync, readdirSync, existsSync, mkdtempSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, "..");
+const SCRIPT = join(REPO_ROOT, "scripts", "build_route_guard_deferred.py");
+const OUT_DIR = mkdtempSync(join(tmpdir(), "rg-deferred-"));
+
+execSync(`python3 "${SCRIPT}" --output-directory "${OUT_DIR}" 2>&1`, {
+  cwd: REPO_ROOT,
+});
+
+function load(filename) {
+  return JSON.parse(readFileSync(join(OUT_DIR, filename), "utf8"));
+}
+
+const EXPECTED_FILES = [
+  "evaluations-matrix.json",
+  "all-evaluations.json",
+  "evaluation-details-by-user.json",
+  "analytics.json",
+  "get-admin-data.json",
+  "manager-subordinates-matrix.json",
+  "employee-self-review.json",
+  "score-correction.json",
+  "manage-criteria.json",
+  "update-admin-data.json",
+];
+
+const EXPECTED_NAMES = {
+  "evaluations-matrix.json": "API: evaluations-matrix",
+  "all-evaluations.json": "API: All-evaluation",
+  "evaluation-details-by-user.json": "API: evaluation-details-by-user",
+  "analytics.json": "API: Analytics Dashboard - Optimized",
+  "get-admin-data.json": "API: Get Admin Data Fixed",
+  "manager-subordinates-matrix.json": "API: Manager Subordinates Matrix",
+  "employee-self-review.json": "API: Get Employee Self Review",
+  "score-correction.json": "API: Score Correction",
+  "manage-criteria.json": "API: Manage Criteria Admin V7",
+  "update-admin-data.json": "API: Update Admin Data",
+};
+
+function allNodes(wf) {
+  return wf.nodes || [];
+}
+
+function codeNodes(wf) {
+  return allNodes(wf).filter((n) => n.type === "n8n-nodes-base.code");
+}
+
+function webhookNodes(wf) {
+  return allNodes(wf).filter((n) => n.type === "n8n-nodes-base.webhook");
+}
+
+function guardCallNodes(wf) {
+  return allNodes(wf).filter((n) => n.type === "n8n-nodes-base.executeWorkflow");
+}
+
+function allJsCode(wf) {
+  return codeNodes(wf)
+    .map((n) => n.parameters?.jsCode || "")
+    .join("\n");
+}
+
+function webhookPaths(wf) {
+  return webhookNodes(wf).map((n) => ({
+    method: n.parameters?.httpMethod || "GET",
+    path: n.parameters?.path,
+  }));
+}
+
+test("all expected deferred workflow files are generated", () => {
+  for (const f of EXPECTED_FILES) {
+    assert.ok(existsSync(join(OUT_DIR, f)), `${f} should be generated`);
+  }
+});
+
+test("EPE: Auth Guard is not generated", () => {
+  for (const f of readdirSync(OUT_DIR)) {
+    assert.notEqual(load(f).name, "EPE: Auth Guard");
+  }
+});
+
+test("each file contains the correct n8n workflow name", () => {
+  for (const [file, expectedName] of Object.entries(EXPECTED_NAMES)) {
+    assert.equal(load(file).name, expectedName);
+  }
+});
+
+test("webhook paths and methods match the live deferred routes", () => {
+  const expected = [
+    ["evaluations-matrix.json", "GET", "api/admin/evaluations-matrix"],
+    ["all-evaluations.json", "GET", "api/admin/all-evaluations"],
+    ["evaluation-details-by-user.json", "GET", "api/admin/evaluation-details-by-user"],
+    ["analytics.json", "GET", "api/analytics"],
+    ["get-admin-data.json", "GET", "get-admin-data"],
+    ["manager-subordinates-matrix.json", "GET", "api/manager-subordinates-matrix"],
+    ["employee-self-review.json", "GET", "api/employee-self-review"],
+    ["score-correction.json", "POST", "api/admin/score-correction"],
+    ["manage-criteria.json", "POST", "manage-criteria"],
+    ["update-admin-data.json", "POST", "update-admin-data"],
+  ];
+  for (const [file, method, path] of expected) {
+    const paths = webhookPaths(load(file));
+    assert.ok(
+      paths.some((w) => w.method === method && w.path === path),
+      `${file}: missing ${method} ${path}`
+    );
+  }
+});
+
+test("manager-subordinates-matrix keeps an OPTIONS twin without the guard", () => {
+  const wf = load("manager-subordinates-matrix.json");
+  assert.ok(
+    webhookPaths(wf).some(
+      (w) => w.method === "OPTIONS" && w.path === "api/manager-subordinates-matrix"
+    )
+  );
+});
+
+test("every generated workflow calls the auth guard", () => {
+  for (const filename of EXPECTED_FILES) {
+    assert.ok(guardCallNodes(load(filename)).length >= 1, filename);
+  }
+});
+
+test("execution-data persistence is disabled", () => {
+  for (const filename of EXPECTED_FILES) {
+    const s = load(filename).settings || {};
+    assert.equal(s.saveDataErrorExecution, "none");
+    assert.equal(s.saveDataSuccessExecution, "none");
+    assert.equal(s.saveManualExecutions, false);
+  }
+});
+
+test("company-wide reporting routes require admin and c_level", () => {
+  for (const file of [
+    "evaluations-matrix.json",
+    "all-evaluations.json",
+    "evaluation-details-by-user.json",
+    "analytics.json",
+    "get-admin-data.json",
+  ]) {
+    const js = allJsCode(load(file));
+    assert.ok(js.includes('"admin"') && js.includes('"c_level"'), file);
+    assert.ok(!js.includes('"hr"'), `${file} must not admit HR`);
+  }
+});
+
+test("manager-subordinates-matrix admits admin, c_level, manager and uses actor id", () => {
+  const js = allJsCode(load("manager-subordinates-matrix.json"));
+  assert.ok(js.includes('"admin"') && js.includes('"c_level"') && js.includes('"manager"'));
+  assert.ok(js.includes("guard.identity.id"));
+  assert.ok(js.includes("Client manager_id is ignored") || js.includes("manager_id is ignored"));
+});
+
+test("score-correction uses guard.identity.id and ignores client evaluator_id", () => {
+  const js = allJsCode(load("score-correction.json"));
+  assert.ok(js.includes("guard.identity.id"));
+  assert.ok(!js.includes("body.evaluator_id"));
+  assert.ok(js.includes("ON CONFLICT (subject_id, criteria_id, correction_level, period_id)"));
+  assert.ok(js.includes("correctionLevel = 'c_level'"));
+  assert.ok(js.includes("correctionLevel = 'mid_level'"));
+});
+
+test("employee-self-review ignores client subject_id and uses the actor", () => {
+  const js = allJsCode(load("employee-self-review.json"));
+  assert.ok(js.includes("guard.identity.id"));
+  assert.ok(!js.includes("query.subject_id"));
+});
+
+test("manage-criteria and update-admin-data are admin-only and freeze on an active period", () => {
+  for (const file of ["manage-criteria.json", "update-admin-data.json"]) {
+    const js = allJsCode(load(file));
+    assert.ok(js.includes('"admin"'), file);
+    assert.ok(js.includes("ACTIVE_PERIOD_EXISTS") || js.includes("is_active = true OR status = 'active'"), file);
+    assert.ok(js.includes("409") || js.includes("http_status: 409"), file);
+  }
+});
+
+test("every webhook can reach a respondToWebhook node", () => {
+  for (const filename of EXPECTED_FILES) {
+    const wf = load(filename);
+    const names = new Set(allNodes(wf).map((n) => n.name));
+    const respondNames = new Set(
+      allNodes(wf)
+        .filter((n) => n.type === "n8n-nodes-base.respondToWebhook")
+        .map((n) => n.name)
+    );
+    const conns = wf.connections || {};
+    function reachable(start) {
+      const seen = new Set();
+      const queue = [start];
+      while (queue.length) {
+        const cur = queue.shift();
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        for (const outputs of conns[cur]?.main || []) {
+          for (const edge of outputs || []) {
+            if (edge?.node) queue.push(edge.node);
+          }
+        }
+      }
+      return seen;
+    }
+    for (const hook of webhookNodes(wf)) {
+      const seen = reachable(hook.name);
+      assert.ok(
+        [...respondNames].some((name) => seen.has(name)),
+        `${filename} webhook ${hook.name} cannot reach a Respond node`
+      );
+    }
+  }
+});
+
+test("postgres query expressions keep the n8n ={{ }} wrapper", () => {
+  for (const filename of EXPECTED_FILES) {
+    for (const node of allNodes(load(filename))) {
+      if (node.type !== "n8n-nodes-base.postgres") continue;
+      const query = node.parameters?.query || "";
+      if (query.includes("$json") || query.includes("$('")) {
+        assert.ok(
+          query.startsWith("={{"),
+          `${filename} ${node.name}: expected ={{ expression, got ${query.slice(0, 40)}`
+        );
+      }
+    }
+  }
+});
+
+test("write routes do not use request-body identity as actor", () => {
+  const js = allJsCode(load("score-correction.json"));
+  assert.ok(js.includes("actor_id: actorId") || js.includes("actorId"));
+  assert.match(js, /evaluator_id, \$\{prev\.actor_id\}|evaluator_id = EXCLUDED\.evaluator_id/);
+});
+
+test("evaluations-matrix binds cells to one period and manager_score to evaluation_source", () => {
+  const js = allJsCode(load("evaluations-matrix.json"));
+  assert.ok(js.includes("evaluation_source = 'manager'"));
+  assert.ok(js.includes("evaluation_source = 'c_level_direct'"));
+  assert.ok(js.includes("e.period_id = ${periodId}") || js.includes("period_id = ${periodId}"));
+  assert.ok(js.includes("campaign_active"));
+  assert.ok(js.includes("actor_c_level_evaluation_id"));
+  assert.ok(js.includes("is_in_scope"));
+  assert.equal(js.includes("evaluator.role IN ('manager'"), false);
+  assert.equal(js.includes("evaluator.role IN ('admin', 'c_level')"), false);
+});
+
+test("score-correction binds writes to the active period only", () => {
+  const js = allJsCode(load("score-correction.json"));
+  assert.ok(js.includes("p.is_active = true AND p.status = 'active'"));
+  assert.ok(js.includes("NO_ACTIVE_PERIOD"));
+  assert.equal(js.includes("p.status <> 'closed'"), false);
+  assert.equal(js.includes("ORDER BY p.id DESC"), false);
+});
+
+test("all-evaluations binds to one period and deduplicates manager_evaluations_given", () => {
+  const js = allJsCode(load("all-evaluations.json"));
+  assert.ok(js.includes("e.period_id = ${periodId}"));
+  assert.ok(js.includes("DISTINCT ON (e.evaluator_id)"));
+  assert.ok(js.includes("campaign_active"));
+  assert.ok(js.includes("evaluation_source = 'manager'"));
+});
+
+test("analytics binds aggregates to one named period", () => {
+  const js = allJsCode(load("analytics.json"));
+  assert.ok(js.includes("e.period_id = ${periodId}") || js.includes("period_id = ${periodId}"));
+  assert.ok(js.includes("campaign_active"));
+  assert.ok(js.includes("no_period"));
+  assert.ok(js.includes("function uniqueBy"));
+  assert.ok(js.includes("uniqueBy($('Get Period Trends').all(), 'period_name')"));
+});
+
+test("details-by-user uses detail_type in SQL and binds the period", () => {
+  const js = allJsCode(load("evaluation-details-by-user.json"));
+  assert.ok(js.includes("received_from_manager"));
+  assert.ok(js.includes("from_subordinates"));
+  assert.ok(js.includes("gave_to_manager"));
+  assert.ok(js.includes("gave_to_subordinates"));
+  assert.ok(js.includes("e.period_id"));
+  assert.ok(js.includes("INVALID_QUERY"));
+  assert.ok(js.includes("campaign_active"));
+});
+
+test("manager-subordinates-matrix binds period and manager_score to evaluation_source", () => {
+  const js = allJsCode(load("manager-subordinates-matrix.json"));
+  assert.ok(js.includes("evaluation_source = 'manager'"));
+  assert.ok(js.includes("e.period_id = ${periodId}"));
+  assert.ok(js.includes("campaign_active"));
+  assert.equal(js.includes("evaluator.role IN ('manager'"), false);
+});
+
+test("manage-criteria GET names the active period without emptying the catalogue", () => {
+  const js = allJsCode(load("manage-criteria.json"));
+  assert.ok(js.includes("_period"));
+  assert.ok(js.includes("FROM performance_db.criteria"));
+  assert.ok(js.includes("ACTIVE_PERIOD_EXISTS"));
+});
