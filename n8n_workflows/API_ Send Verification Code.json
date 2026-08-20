@@ -1,0 +1,401 @@
+{
+  "updatedAt": "2026-08-19T08:40:23.260Z",
+  "createdAt": "2025-12-15T10:12:50.341Z",
+  "id": "imGl6C6SUPAexvBE",
+  "name": "API: Send Verification Code",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/send-verification-code",
+        "responseMode": "lastNode",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "21fe3ba7-01e3-44f5-aa02-9416a92f01ab",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1360,
+        0
+      ],
+      "webhookId": "send-verification-code-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Webhook').first().json.body;\n\nconst email = body.email?.toLowerCase().trim();\nconst token = body.token;\n\nif (!email) {\n  throw new Error('Email is required');\n}\n\nif (!token) {\n  throw new Error('Invite token is required');\n}\n\n// Проверка домена\nconst allowedDomain = '@sedamedical.com';\nif (!email.endsWith(allowedDomain)) {\n  throw new Error('Only ' + allowedDomain + ' emails are allowed');\n}\n\n// Генерация 6-значного кода\nconst code = String(Math.floor(100000 + Math.random() * 900000));\n\n// Экранируем email для SQL\nconst safeEmail = email.replace(/'/g, \"''\");\n\nreturn {\n  json: {\n    email: email,\n    safe_email: safeEmail,\n    token: token,\n    code: code\n  }\n};"
+      },
+      "id": "7553e79d-c7e6-4401-a92a-3ac454cc9aa2",
+      "name": "Generate Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1152,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM performance_db.invite_tokens\nWHERE token = '{{ $json.token }}'\n  AND expires_at > NOW()\nLIMIT 1",
+        "options": {}
+      },
+      "id": "a6a43989-09e6-4667-855c-f09060da2fc7",
+      "name": "Verify Invite Token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const tokenResult = $input.first().json;\nconst inputData = $('Generate Code').first().json;\n\nif (!tokenResult || !tokenResult.id) {\n  throw new Error('Ссылка для регистрации недействительна или истекла');\n}\n\nreturn { json: inputData };"
+      },
+      "id": "9693cf3b-7d04-43bd-b2c1-488bf298fa22",
+      "name": "Check Token Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT \n  id, \n  full_name, \n  email, \n  password_hash,\n  CASE \n    WHEN password_hash IS NULL THEN 'null'\n    WHEN TRIM(password_hash) = '' THEN 'empty'\n    ELSE 'has_password'\n  END as password_status,\n  (SELECT FLOOR(EXTRACT(EPOCH FROM MAX(created_at)) * 1000)\n    FROM performance_db.email_verification_codes c\n    WHERE LOWER(c.email) = LOWER(TRIM('{{ $json.safe_email }}'))) AS last_code_at_ms\nFROM performance_db.users\nWHERE LOWER(TRIM(email)) = LOWER(TRIM('{{ $json.safe_email }}'))\nLIMIT 1",
+        "options": {}
+      },
+      "id": "124926ef-77b4-4d47-90f0-1bfad40afc31",
+      "name": "Find User",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.all();\nconst inputData = $('Check Token Result').first().json;\n\n// Проверяем, есть ли результаты и есть ли id\nlet userResult = null;\nif (results && results.length > 0) {\n  const firstResult = results[0].json;\n  // Проверяем, что это не пустой объект\n  if (firstResult && typeof firstResult.id !== 'undefined' && firstResult.id !== null) {\n    userResult = firstResult;\n  }\n}\n\n// Для отладки выводим информацию\nconsole.log('Results count:', results.length);\nconsole.log('User result:', JSON.stringify(userResult));\n\n// 1. Пользователь не найден в базе - возвращаем структурированный ответ\nif (!userResult) {\n  return {\n    json: {\n      success: false,\n      error_code: 'email_not_found',\n      message: 'Email не найден в системе. Проверьте правильность написания или обратитесь в HR.',\n      data: {\n        email: inputData.email\n      }\n    }\n  };\n}\n\n// 2. Проверяем статус пароля\nconst passwordStatus = userResult.password_status;\nconsole.log('Password status:', passwordStatus);\n\n// Если пароль уже установлен - аккаунт зарегистрирован\n// Возвращаем структурированный ответ вместо ошибки\nif (passwordStatus === 'has_password') {\n  return {\n    json: {\n      success: false,\n      error_code: 'already_registered',\n      message: 'Этот аккаунт уже зарегистрирован. Пожалуйста, войдите или сбросьте пароль.',\n      data: {\n        email: inputData.email,\n        full_name: userResult.full_name\n      }\n    }\n  };\n}\n\nconst lastCodeAtMs = Number(userResult.last_code_at_ms);\nif (Number.isFinite(lastCodeAtMs) && lastCodeAtMs > 0) {\n  const elapsed = Date.now() - lastCodeAtMs;\n  if (elapsed < 60 * 1000) {\n    const retryAfter = Math.max(1, Math.ceil((60 * 1000 - Math.max(0, elapsed)) / 1000));\n    return {\n      json: {\n        success: false,\n        error_code: 'resend_cooldown',\n        retry_after_seconds: retryAfter,\n        message: 'Код уже отправлен. Подождите ' + retryAfter + ' сек. перед повторной отправкой.',\n        data: { email: inputData.email }\n      }\n    };\n  }\n}\n\n// 3. Пользователь найден и пароль не установлен - можно регистрировать\nreturn {\n  json: {\n    success: true,\n    ...inputData,\n    user_id: userResult.id,\n    full_name: userResult.full_name,\n    db_email: userResult.email,\n    password_status: passwordStatus\n  }\n};"
+      },
+      "id": "c30ed170-1a9b-4a72-942c-2c81edecad30",
+      "name": "Verify User",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e10c04b1-b2ff-45e8-a681-1fdfc5462111",
+      "name": "Check Registration Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Удаляем старые коды для этого email\nDELETE FROM performance_db.email_verification_codes\nWHERE LOWER(email) = LOWER('{{ $json.safe_email }}');\n\n-- Вставляем новый код (действует 10 минут)\nINSERT INTO performance_db.email_verification_codes (email, code, expires_at)\nVALUES ('{{ $json.safe_email }}', '{{ $json.code }}', NOW() + INTERVAL '10 minutes')\nRETURNING id, code, expires_at",
+        "options": {}
+      },
+      "id": "d38ae15c-e2f9-413a-958a-db8f4f578803",
+      "name": "Save Code",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        176,
+        -96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@sedamedical.com",
+        "toEmail": "={{ $('Verify User').first().json.email }}",
+        "subject": "Код подтверждения регистрации - SEDA Medical",
+        "html": "=<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;\">\n  <div style=\"background: linear-gradient(135deg, #059669, #0d9488); padding: 30px; border-radius: 16px 16px 0 0; text-align: center;\">\n    <h1 style=\"color: white; margin: 0; font-size: 24px;\">SEDA Medical</h1>\n    <p style=\"color: #d1fae5; margin: 8px 0 0 0; font-size: 14px;\">Система оценки персонала</p>\n  </div>\n  <div style=\"background: white; padding: 30px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);\">\n    <h2 style=\"color: #1f2937; margin: 0 0 16px 0; font-size: 20px;\">Код подтверждения</h2>\n    <p style=\"color: #4b5563; margin: 0 0 8px 0;\">Здравствуйте, <strong>{{ $('Verify User').first().json.full_name }}</strong>!</p>\n    <p style=\"color: #4b5563; margin: 0 0 24px 0;\">Ваш код подтверждения для регистрации:</p>\n    <div style=\"background: #f3f4f6; padding: 24px; text-align: center; border-radius: 12px; margin: 0 0 24px 0;\">\n      <span style=\"font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #059669; font-family: monospace;\">{{ $('Generate Code').first().json.code }}</span>\n    </div>\n    <p style=\"color: #6b7280; font-size: 14px; margin: 0 0 8px 0;\">⏱️ Код действителен <strong>10 минут</strong></p>\n    <p style=\"color: #9ca3af; font-size: 12px; margin: 24px 0 0 0; padding-top: 16px; border-top: 1px solid #e5e7eb;\">Если вы не запрашивали регистрацию, просто проигнорируйте это письмо.</p>\n  </div>\n</div>",
+        "options": {}
+      },
+      "id": "eb1c62e9-0fd5-4569-9fae-516e39d3ab62",
+      "name": "Send Verification Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        400,
+        -96
+      ],
+      "webhookId": "70f433a6-7ac8-42a6-a70f-0422679d866a",
+      "credentials": {
+        "smtp": {
+          "id": "Owjl0MaDCmpyOksi",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const codeResult = $('Save Code').first().json;\nconst inputData = $('Verify User').first().json;\n\n// Email отправлен через предыдущую ноду\n// Возвращаем успешный ответ без кода\n\nreturn {\n  json: {\n    success: true,\n    message: 'Код подтверждения отправлен на ' + inputData.email,\n    data: {\n      email: inputData.email,\n      full_name: inputData.full_name,\n      expires_at: codeResult.expires_at\n    }\n  }\n};"
+      },
+      "id": "0f16dcc9-159b-474e-b867-8af012b5ad92",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ошибка регистрации (уже зарегистрирован или email не найден) - просто передаём ответ дальше\nconst inputData = $('Verify User').first().json;\n\nreturn {\n  json: inputData\n};"
+      },
+      "id": "275d61b8-f6e8-4da7-aa4b-cb0eb07e4ea1",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        112
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Generate Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Code": {
+      "main": [
+        [
+          {
+            "node": "Verify Invite Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Invite Token": {
+      "main": [
+        [
+          {
+            "node": "Check Token Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Token Result": {
+      "main": [
+        [
+          {
+            "node": "Find User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find User": {
+      "main": [
+        [
+          {
+            "node": "Verify User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify User": {
+      "main": [
+        [
+          {
+            "node": "Check Registration Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Registration Status": {
+      "main": [
+        [
+          {
+            "node": "Save Code",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Code": {
+      "main": [
+        [
+          {
+            "node": "Send Verification Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Verification Email": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1a7bf1b6-3f90-44a3-8534-34344f50e1a3",
+  "versionCounter": 26,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-15T10:12:50.341Z",
+      "createdAt": "2025-12-15T10:12:50.341Z",
+      "role": "workflow:owner",
+      "workflowId": "imGl6C6SUPAexvBE",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

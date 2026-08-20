@@ -1,0 +1,192 @@
+{
+  "updatedAt": "2026-08-18T16:56:21.888Z",
+  "createdAt": "2025-12-06T14:01:52.848Z",
+  "id": "CkxIyrEJBrc6V4Cv",
+  "name": "API: Update Admin Data",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "update-admin-data",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "e8226b76-9551-40f2-818a-650d4fda2ffe",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -128
+      ],
+      "webhookId": "69fc85c5-3526-4074-85c6-ae57782723cf"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Генерируем SQL запросы для обновления\nconst body = $input.item.json.body;\nconst grades = body.grades || [];\nconst settings = body.settings || [];\n\nlet sqlQueries = [];\n\n// 1. Обновляем Грейды\nfor (const g of grades) {\n  if (g.id && g.coefficient !== undefined) {\n     sqlQueries.push(`UPDATE performance_db.grades SET coefficient = ${g.coefficient} WHERE id = ${g.id};`);\n  }\n}\n\n// 2. Обновляем Настройки\nfor (const s of settings) {\n  if (s.setting_key && s.setting_value !== undefined) {\n    sqlQueries.push(`UPDATE performance_db.global_settings SET setting_value = ${s.setting_value} WHERE setting_key = '${s.setting_key}';`);\n  }\n}\n\nconst finalQuery = sqlQueries.join('\\n');\n\nreturn {\n  json: {\n    query: finalQuery,\n    count: sqlQueries.length\n  }\n};"
+      },
+      "id": "21bcaab8-9073-4f42-9621-78038bb1bb21",
+      "name": "Build SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "additionalFields": {}
+      },
+      "id": "26b018e1-9182-4725-a604-da97531da1ca",
+      "name": "Execute Update",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [
+        32,
+        -128
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Возвращаем успешный ответ\nconst buildSqlData = $('Build SQL').first().json;\n\nreturn {\n  json: {\n    success: true,\n    message: 'Данные успешно обновлены',\n    updatedCount: buildSqlData.count || 0\n  }\n};"
+      },
+      "id": "3e53e222-a04a-4648-ab65-69f974709037",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        -128
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Update": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "8cf09637-1447-42c9-be7c-3d581401b4f5",
+  "versionCounter": 23,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-06T14:01:52.848Z",
+      "createdAt": "2025-12-06T14:01:52.848Z",
+      "role": "workflow:owner",
+      "workflowId": "CkxIyrEJBrc6V4Cv",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

@@ -1,0 +1,140 @@
+{
+  "updatedAt": "2026-08-12T21:31:11.365Z",
+  "createdAt": "2025-12-06T18:12:21.088Z",
+  "id": "BJwFjunajsGkoNY2",
+  "name": "API: Global CORS Handler",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "admin/*",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "8bf6d2be-6229-44ef-abe2-57d85568fc8b",
+      "name": "Webhook OPTIONS",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f3fa2ceb-807c-4ee2-8402-2794f78f34f0"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS, PUT, DELETE"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "acb38ba4-a928-4b45-849a-64d05d7d18e2",
+      "name": "Respond CORS",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook OPTIONS": {
+      "main": [
+        [
+          {
+            "node": "Respond CORS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "b04c54e7-b406-4a6b-be9b-deab07cf693f",
+  "versionCounter": 13,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-06T18:12:21.088Z",
+      "createdAt": "2025-12-06T18:12:21.088Z",
+      "role": "workflow:owner",
+      "workflowId": "BJwFjunajsGkoNY2",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

@@ -1,0 +1,188 @@
+{
+  "name": "API: Get Criteria With Levels",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/criteria",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "criteria-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-criteria"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "criteria-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "criteria-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT id, title, description, target_audience, weight, is_active,\n        selfassesment, for_manager, c_level_only,\n        level_0_desc, level_1_desc, level_2_desc, level_3_desc, level_4_desc,\n        level_5_desc, level_6_desc, level_7_desc, level_8_desc, level_9_desc, level_10_desc\n      FROM performance_db.criteria\n      ORDER BY id ASC\n    `,\n  },\n};"
+      },
+      "id": "criteria-build",
+      "name": "Build Criteria Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "criteria-query",
+      "name": "Load Criteria",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst criteria = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, data: criteria },\n  },\n};"
+      },
+      "id": "criteria-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "criteria-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Criteria Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Criteria Query": {
+      "main": [
+        [
+          {
+            "node": "Load Criteria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Criteria": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

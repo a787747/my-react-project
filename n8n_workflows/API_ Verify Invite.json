@@ -1,0 +1,188 @@
+{
+  "updatedAt": "2026-08-19T13:46:13.004Z",
+  "createdAt": "2025-12-15T09:45:02.378Z",
+  "id": "VVqO0KkCr28emLsq",
+  "name": "API: Verify Invite",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "api/verify-invite",
+        "responseMode": "lastNode",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "849fe9fc-cfa6-4f34-a1f4-57dcba3e737d",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        -128
+      ],
+      "webhookId": "verify-invite-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhook = $('Webhook').first().json;\nconst query = webhook.query || {};\nconst headers = webhook.headers || {};\nconst token = query.token;\n\nif (!token) {\n  return {\n    json: {\n      success: false,\n      valid: false,\n      message: 'Token is required'\n    }\n  };\n}\n\nconst forwarded = String(\n  headers['x-forwarded-for'] || headers['x-real-ip'] || headers['X-Forwarded-For'] || ''\n).split(',')[0].trim();\nconst ip = /^[0-9a-fA-F.:]+$/.test(forwarded) ? forwarded : 'unknown';\n\nreturn {\n  json: {\n    token: token,\n    safe_ip: ip.replace(/'/g, '')\n  }\n};"
+      },
+      "id": "bed4ddff-290d-47ed-a2bf-9aa1ba9c3c9f",
+      "name": "Extract Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH bucket AS (\n  INSERT INTO performance_db.auth_login_attempts (email, window_started_at, failed_count, last_failed_at, updated_at)\n  VALUES (\n    'epe-throttle:verify-invite:{{ $json.safe_ip }}',\n    now(),\n    1,\n    now(),\n    now()\n  )\n  ON CONFLICT (email) DO UPDATE SET\n    failed_count = CASE\n      WHEN auth_login_attempts.window_started_at > now() - interval '5 minutes'\n      THEN auth_login_attempts.failed_count + 1\n      ELSE 1\n    END,\n    window_started_at = CASE\n      WHEN auth_login_attempts.window_started_at > now() - interval '5 minutes'\n      THEN auth_login_attempts.window_started_at\n      ELSE now()\n    END,\n    last_failed_at = now(),\n    updated_at = now()\n  RETURNING failed_count\n)\nSELECT\n  it.id,\n  it.token,\n  it.expires_at,\n  b.failed_count AS throttle_count\nFROM bucket b\nLEFT JOIN performance_db.invite_tokens it\n  ON it.token = '{{ $json.token }}'\n AND it.expires_at > NOW()",
+        "options": {}
+      },
+      "id": "c24d5d7b-3f75-49e6-97ec-0ca173e10fd0",
+      "name": "Check Token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        -128
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst throttleCount = Number(result && result.throttle_count);\nif (Number.isFinite(throttleCount) && throttleCount > 600) {\n  return {\n    json: {\n      success: false,\n      valid: false,\n      error_code: 'RATE_LIMITED',\n      message: 'Too many requests. Try again in a few minutes.'\n    }\n  };\n}\n\nif (!result || !result.id) {\n  return {\n    json: {\n      success: true,\n      valid: false,\n      message: 'Token is invalid or expired'\n    }\n  };\n}\n\nreturn {\n  json: {\n    success: true,\n    valid: true,\n    data: {\n      token_id: result.id,\n      expires_at: result.expires_at\n    },\n    message: 'Token is valid'\n  }\n};"
+      },
+      "id": "b561d625-9ca9-4b40-8d45-49c5bf72c6f2",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -128
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Token": {
+      "main": [
+        [
+          {
+            "node": "Check Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Token": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "b1c87ec3-3190-4e73-b289-5c874063317b",
+  "versionCounter": 22,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-15T09:45:02.378Z",
+      "createdAt": "2025-12-15T09:45:02.378Z",
+      "role": "workflow:owner",
+      "workflowId": "VVqO0KkCr28emLsq",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

@@ -1,0 +1,188 @@
+{
+  "name": "API: Check Self Review",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/check-self-review",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "chksr-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-check-self-review"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "chksr-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "chksr-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Actor is always the subject; body/query user_id is ignored for auth.\nconst actorId = Number(guard.identity.id);\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT\n        e.id,\n        e.calculated_score,\n        e.updated_at,\n        COALESCE(\n          ARRAY_AGG(es.criteria_id) FILTER (WHERE es.criteria_id IS NOT NULL),\n          '{}'\n        ) AS evaluated_criteria_ids,\n        COALESCE(\n          jsonb_object_agg(es.criteria_id::text, es.score_value)\n            FILTER (WHERE es.criteria_id IS NOT NULL),\n          '{}'::jsonb\n        ) AS grades,\n        COALESCE(\n          jsonb_object_agg(es.criteria_id::text, es.comment)\n            FILTER (WHERE es.criteria_id IS NOT NULL AND es.comment IS NOT NULL AND es.comment != ''),\n          '{}'::jsonb\n        ) AS comments\n      FROM performance_db.evaluations e\n      JOIN performance_db.evaluation_periods p\n        ON p.id = e.period_id AND p.is_active = true AND p.status = 'active'\n      LEFT JOIN performance_db.evaluation_scores es ON es.evaluation_id = e.id\n      WHERE e.subject_id = ${actorId}\n        AND e.is_self_evaluation = true\n      GROUP BY e.id, e.calculated_score, e.updated_at\n      ORDER BY e.updated_at DESC\n      LIMIT 1\n    `,\n  },\n};"
+      },
+      "id": "chksr-build",
+      "name": "Build Self Review Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "chksr-query",
+      "name": "Load Self Review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst rows = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nif (!rows.length) {\n  return {\n    json: {\n      http_status: 200,\n      body: {\n        has_self_review: false,\n        evaluation_id: null,\n        score: null,\n        grades: {},\n        comments: {},\n      },\n    },\n  };\n}\nconst review = rows[0];\nlet grades = review.grades || {};\nlet comments = review.comments || {};\nif (typeof grades === 'string') { try { grades = JSON.parse(grades); } catch { grades = {}; } }\nif (typeof comments === 'string') { try { comments = JSON.parse(comments); } catch { comments = {}; } }\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      has_self_review: true,\n      evaluation_id: review.id,\n      score: review.calculated_score,\n      date: review.updated_at,\n      evaluated_criteria_ids: review.evaluated_criteria_ids || [],\n      grades,\n      comments,\n    },\n  },\n};"
+      },
+      "id": "chksr-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "chksr-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Self Review Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Self Review Query": {
+      "main": [
+        [
+          {
+            "node": "Load Self Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Self Review": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

@@ -1,0 +1,262 @@
+{
+  "updatedAt": "2026-08-19T08:40:21.096Z",
+  "createdAt": "2025-12-06T19:33:41.750Z",
+  "id": "k5lNBhvMfJSLFSDz",
+  "name": "API: My Evaluation History (Received)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/evaluation-history",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "evhist-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-evaluation-history"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "evhist-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "evhist-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Actor is the evaluator — returns evaluations they gave (not received)\nconst actorId = Number(guard.identity.id);\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT\n        e.id,\n        e.calculated_score AS final_score,\n        e.updated_at AS evaluation_date,\n        e.evaluation_source,\n        subject.full_name AS evaluatee_name,\n        subject.job_title,\n        subject.work_category,\n        d.name AS department_name,\n        g.code AS grade_name,\n        ep.name AS period_name\n      FROM performance_db.evaluations e\n      JOIN performance_db.users subject ON subject.id = e.subject_id\n      LEFT JOIN performance_db.departments d ON d.id = subject.department_id\n      LEFT JOIN performance_db.grades g ON g.id = subject.grade_id\n      LEFT JOIN performance_db.evaluation_periods ep ON ep.id = e.period_id\n      WHERE e.evaluator_id = ${actorId}\n        AND e.is_self_evaluation = false\n      ORDER BY e.updated_at DESC\n    `,\n  },\n};"
+      },
+      "id": "evhist-build",
+      "name": "Build History Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "evhist-query",
+      "name": "Load History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst data = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, data },\n  },\n};"
+      },
+      "id": "evhist-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "evhist-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build History Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build History Query": {
+      "main": [
+        [
+          {
+            "node": "Load History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load History": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "64daacbf-9a1d-4ee3-aa85-3922dc7b24dd",
+  "versionCounter": 37,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-06T19:33:41.750Z",
+      "createdAt": "2025-12-06T19:33:41.750Z",
+      "role": "workflow:owner",
+      "workflowId": "k5lNBhvMfJSLFSDz",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

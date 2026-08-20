@@ -1,0 +1,188 @@
+{
+  "name": "API: Get Employees (Smart Role Based)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/employees",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "employees-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "ba63a094-956c-49a9-8284-b06a1d243d37"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: ['admin', 'c_level', 'manager'],\n    required_capability: 'can_evaluate',\n    request,\n  },\n};"
+      },
+      "id": "employees-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "employees-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $input.first().json;\nif (!guard.ok) return { json: guard };\nconst actorId = Number(guard.identity.id);\nreturn {\n  json: {\n    ...guard,\n    sql: `\n      WITH active_period AS (\n        SELECT id FROM performance_db.evaluation_periods\n        WHERE is_active = true AND status = 'active'\n        LIMIT 1\n      ),\n      scoped AS (\n        SELECT\n          users.id,\n          users.full_name,\n          users.email,\n          users.job_title,\n          users.work_category,\n          users.is_project_participant,\n          users.manager_id,\n          users.has_subordinates,\n          departments.name AS department_name,\n          grades.code AS grade_code,\n          grades.coefficient AS grade_coefficient\n        FROM performance_db.users users\n        LEFT JOIN performance_db.departments departments\n          ON users.department_id = departments.id\n        LEFT JOIN performance_db.grades grades\n          ON users.grade_id = grades.id\n        JOIN active_period ap ON true\n        JOIN performance_db.evaluation_period_participants epp\n          ON epp.period_id = ap.id\n         AND epp.user_id = users.id\n         AND epp.is_in_scope = true\n        WHERE users.manager_id = ${actorId}\n      )\n      SELECT\n        EXISTS(SELECT 1 FROM active_period) AS campaign_active,\n        COALESCE(\n          (SELECT json_agg(row_to_json(scoped) ORDER BY scoped.full_name) FROM scoped),\n          '[]'::json\n        ) AS employees\n    `,\n  },\n};"
+      },
+      "id": "employees-build",
+      "name": "Build Identity-Bound Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "employees-query",
+      "name": "Load Actor Subordinates",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: {\n        success: false,\n        error: guard.code,\n        message: guard.message,\n      },\n    },\n  };\n}\n\nconst row = $input.first().json || {};\nlet employees = row.employees || [];\nif (typeof employees === 'string') {\n  try { employees = JSON.parse(employees); } catch { employees = []; }\n}\nif (!Array.isArray(employees)) employees = [];\nconst campaignActive = row.campaign_active === true || row.campaign_active === 't';\n\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      actor_user_id: guard.identity.id,\n      campaign_active: campaignActive,\n      data: employees,\n    },\n  },\n};"
+      },
+      "id": "employees-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "employees-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Identity-Bound Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Identity-Bound Query": {
+      "main": [
+        [
+          {
+            "node": "Load Actor Subordinates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Actor Subordinates": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

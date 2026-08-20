@@ -1,0 +1,188 @@
+{
+  "name": "API: Get Evaluation Details FIXED",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/evaluation-details",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "evdet-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-evaluation-details"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "evdet-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "evdet-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { status: 'error', message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nconst actorRole = String(guard.identity.role || '');\nconst request = guard.request;\nconst rawEvalId = parseInt(request.query?.evaluation_id || request.body?.evaluation_id, 10);\nif (!Number.isFinite(rawEvalId) || rawEvalId < 1) {\n  return {\n    json: {\n      http_status: 400,\n      body: { status: 'error', message: 'evaluation_id is required and must be a positive integer' },\n    },\n  };\n}\nconst privileged = ['admin', 'hr', 'c_level'].includes(actorRole);\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    actor_role: actorRole,\n    is_privileged: privileged,\n    evaluation_id: rawEvalId,\n    sql: `\n      SELECT\n        e.id AS evaluation_id,\n        e.updated_at AS evaluation_date,\n        e.calculated_score AS final_score,\n        e.status,\n        e.general_comment,\n        e.private_comment,\n        e.evaluation_source,\n        e.is_self_evaluation,\n        u_subj.id AS subject_id,\n        u_subj.full_name AS subject_name,\n        u_subj.job_title,\n        u_subj.work_category,\n        u_eval.id AS evaluator_id,\n        u_eval.full_name AS evaluator_name,\n        g.code AS grade_name,\n        d.name AS department_name,\n        es.id AS score_id,\n        es.criteria_id,\n        c.title AS criteria_title,\n        c.description AS criteria_description,\n        c.category AS criteria_category,\n        es.score_value,\n        es.comment AS score_comment\n      FROM performance_db.evaluations e\n      JOIN performance_db.users u_subj ON u_subj.id = e.subject_id\n      JOIN performance_db.users u_eval ON u_eval.id = e.evaluator_id\n      LEFT JOIN performance_db.grades g ON g.id = u_subj.grade_id\n      LEFT JOIN performance_db.departments d ON d.id = u_subj.department_id\n      LEFT JOIN performance_db.evaluation_scores es ON es.evaluation_id = e.id\n      LEFT JOIN performance_db.criteria c ON c.id = es.criteria_id\n      WHERE e.id = ${rawEvalId}\n        AND (\n          ${privileged}\n          OR e.evaluator_id = ${actorId}\n          OR e.subject_id = ${actorId}\n        )\n    `,\n  },\n};"
+      },
+      "id": "evdet-build",
+      "name": "Build Details Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS evaluation_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "evdet-query",
+      "name": "Load Evaluation Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Details Query').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst items = $input.all().map(item => item.json);\nif (!items.length || !items[0].evaluation_id) {\n  return {\n    json: { http_status: 404, body: { status: 'error', message: 'Evaluation not found' } },\n  };\n}\nconst first = items[0];\nconst actorId = Number(prev.actor_id);\nconst isPrivileged = prev.is_privileged;\nconst isEvaluator = first.evaluator_id === actorId;\n// For subject viewers: hide private_comment; hide evaluator identity for subordinate source\nconst showEvaluatorIdentity = isPrivileged || isEvaluator || first.evaluation_source !== 'subordinate';\nconst evaluation = {\n  evaluation_id: first.evaluation_id,\n  evaluation_date: first.evaluation_date,\n  final_score: first.final_score,\n  status: first.status,\n  general_comment: first.general_comment,\n  private_comment: (isPrivileged || isEvaluator) ? first.private_comment : null,\n  subject_id: first.subject_id,\n  subject_name: first.subject_name,\n  job_title: first.job_title,\n  work_category: first.work_category,\n  evaluator_id: showEvaluatorIdentity ? first.evaluator_id : null,\n  evaluator_name: showEvaluatorIdentity ? first.evaluator_name : null,\n  grade_name: first.grade_name,\n  department_name: first.department_name,\n};\nconst scores = items\n  .filter(row => row.score_id !== null && row.score_id !== undefined)\n  .map(row => ({\n    id: row.score_id,\n    criteria_id: row.criteria_id,\n    criteria_title: row.criteria_title,\n    criteria_description: row.criteria_description,\n    criteria_category: row.criteria_category,\n    score_value: row.score_value,\n    comment: row.score_comment,\n  }));\nreturn {\n  json: {\n    http_status: 200,\n    body: { status: 'success', evaluation, scores },\n  },\n};"
+      },
+      "id": "evdet-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "evdet-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Details Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Details Query": {
+      "main": [
+        [
+          {
+            "node": "Load Evaluation Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Evaluation Data": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

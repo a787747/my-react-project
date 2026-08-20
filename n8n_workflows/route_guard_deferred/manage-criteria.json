@@ -1,0 +1,245 @@
+{
+  "name": "API: Manage Criteria Admin V7",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "manage-criteria",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "mc-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "110ced24-b474-4754-8976-8d8963ebacb9"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "mc-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "mc-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst action = body.action;\nif (action !== 'get' && action !== 'save' && action !== 'delete') {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_ACTION', message: 'action must be get, save, or delete' },\n    },\n  };\n}\nif (action === 'get') {\n  return {\n    json: {\n      ok: true,\n      mode: 'get',\n      sql: `\n        SELECT\n          c.*,\n          (\n            SELECT json_build_object(\n              'id', p.id,\n              'name', p.name,\n              'status', p.status,\n              'is_active', p.is_active,\n              'period_type', p.period_type,\n              'start_date', p.start_date,\n              'end_date', p.end_date\n            )\n            FROM performance_db.evaluation_periods p\n            WHERE p.is_active = true AND p.status = 'active'\n            LIMIT 1\n          ) AS _period\n        FROM performance_db.criteria c\n        ORDER BY c.id ASC\n      `,\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    mode: 'write',\n    action,\n    sql: `\n      SELECT id, name, status\n      FROM performance_db.evaluation_periods\n      WHERE is_active = true OR status = 'active'\n      LIMIT 1\n    `,\n  },\n};"
+      },
+      "id": "mc-route",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "mc-first",
+      "name": "Load Criteria Or Freeze",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Route Action').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nif (prev.mode === 'get') {\n  const rows = $input.all().map(item => item.json).filter(item => item.id !== undefined);\n  let periodRaw = rows.length ? rows[0]._period : null;\n  if (typeof periodRaw === 'string') {\n    try { periodRaw = JSON.parse(periodRaw); } catch (e) { periodRaw = null; }\n  }\n  const data = rows.map(row => {\n    const copy = { ...row };\n    delete copy._period;\n    return copy;\n  });\n  const isActive = periodRaw && (periodRaw.is_active === true || periodRaw.is_active === 'true');\n  return {\n    json: {\n      http_status: 200,\n      body: {\n        data,\n        period: periodRaw\n          ? {\n              id: Number(periodRaw.id),\n              name: periodRaw.name,\n              status: periodRaw.status,\n              is_active: Boolean(isActive),\n              period_type: periodRaw.period_type,\n              start_date: periodRaw.start_date,\n              end_date: periodRaw.end_date,\n            }\n          : null,\n        campaign_active: Boolean(isActive && periodRaw && periodRaw.status === 'active'),\n      },\n    },\n  };\n}\nconst activePeriod = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (activePeriod) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'ACTIVE_PERIOD_EXISTS',\n        message: `Cannot modify criteria while period \"${activePeriod.name}\" is active`,\n      },\n    },\n  };\n}\nconst guard = $('Run Auth Guard').first().json;\nconst body = guard.request.body || guard.request;\nconst item = body.criteria || {};\nconst action = prev.action;\n// ЛОГИКА УДАЛЕНИЯ\nif (action === 'delete') {\n   return { \n    json: { \n      query: `DELETE FROM performance_db.criteria WHERE id = ${item.id} RETURNING id;` \n    } \n  };\n}\n\n// ЛОГИКА СОХРАНЕНИЯ (SAVE)\nconst safe = (str) => str ? str.toString().replace(/'/g, \"''\") : \"\";\nconst title = safe(item.title);\nconst desc = safe(item.description);\nconst aud = safe(item.target_audience);\nconst active = item.is_active ? 'TRUE' : 'FALSE';\nconst selfassesment = item.selfassesment !== undefined ? (item.selfassesment ? 'TRUE' : 'FALSE') : 'TRUE';\nconst forManager = item.for_manager !== undefined ? (item.for_manager ? 'TRUE' : 'FALSE') : 'TRUE';\nconst cLevelOnly = item.c_level_only !== undefined ? (item.c_level_only ? 'TRUE' : 'FALSE') : 'FALSE';\n\n// Обработка level_*_desc полей (0-10)\nconst levels = {};\nfor (let i = 0; i <= 10; i++) {\n  const fieldName = `level_${i}_desc`;\n  levels[fieldName] = item[fieldName] ? safe(item[fieldName]) : null;\n}\n\nif (item.id) {\n  // UPDATE существующего критерия\n  const levelUpdates = [];\n  for (let i = 0; i <= 10; i++) {\n    const fieldName = `level_${i}_desc`;\n    const value = levels[fieldName];\n    if (value !== null) {\n      levelUpdates.push(`${fieldName} = '${value}'`);\n    } else {\n      levelUpdates.push(`${fieldName} = NULL`);\n    }\n  }\n  \n  const query = `UPDATE performance_db.criteria SET \n    title = '${title}', \n    description = '${desc}', \n    target_audience = '${aud}', \n    is_active = ${active},\n    selfassesment = ${selfassesment},\n    for_manager = ${forManager},\n    c_level_only = ${cLevelOnly},\n    ${levelUpdates.join(', ')}\n    WHERE id = ${item.id} RETURNING id;`;\n  \n  return { json: { query: query } };\n  \n} else {\n  // INSERT нового критерия\n  const levelFields = [];\n  const levelValues = [];\n  \n  for (let i = 0; i <= 10; i++) {\n    const fieldName = `level_${i}_desc`;\n    levelFields.push(fieldName);\n    const value = levels[fieldName];\n    if (value !== null) {\n      levelValues.push(`'${value}'`);\n    } else {\n      levelValues.push('NULL');\n    }\n  }\n  \n  const query = `INSERT INTO performance_db.criteria \n    (title, description, category, target_audience, is_active, selfassesment, for_manager, c_level_only, ${levelFields.join(', ')}) \n    VALUES \n    ('${title}', '${desc}', 'dynamic', '${aud}', ${active}, ${selfassesment}, ${forManager}, ${cLevelOnly}, ${levelValues.join(', ')}) \n    RETURNING id;`;\n  \n  return { json: { query: query } };\n}"
+      },
+      "id": "mc-prep",
+      "name": "Prepare Write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query ? $json.query : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "mc-write",
+      "name": "Execute SQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        740,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Prepare Write').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, message: 'Operation successful' },\n  },\n};"
+      },
+      "id": "mc-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "mc-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1220,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Load Criteria Or Freeze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Criteria Or Freeze": {
+      "main": [
+        [
+          {
+            "node": "Prepare Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Write": {
+      "main": [
+        [
+          {
+            "node": "Execute SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute SQL": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

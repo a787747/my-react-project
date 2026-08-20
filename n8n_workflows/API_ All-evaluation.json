@@ -1,0 +1,207 @@
+{
+  "updatedAt": "2026-08-18T16:56:01.030Z",
+  "createdAt": "2025-12-09T18:07:48.050Z",
+  "id": "j9YdW8LGzW5lvxgb",
+  "name": "API: All-evaluation",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "api/admin/all-evaluations",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "8584e91c-4770-4cd5-82ac-5d29f96b4d7a",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        -64
+      ],
+      "webhookId": "admin-all-evaluations-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sql = `\n  WITH latest_evaluations AS (\n    SELECT DISTINCT ON (e.subject_id, e.is_self_evaluation, e.evaluation_source)\n      e.id as evaluation_id,\n      e.subject_id,\n      e.evaluator_id,\n      e.calculated_score,\n      e.updated_at,\n      e.is_self_evaluation,\n      e.evaluation_source\n    FROM performance_db.evaluations e\n    ORDER BY e.subject_id, e.is_self_evaluation, e.evaluation_source, e.updated_at DESC\n  ),\n  -- Оценки, которые сотрудник поставил своему руководителю\n  manager_evaluations_given AS (\n    SELECT \n      e.evaluator_id,\n      e.subject_id as manager_id,\n      mgr.full_name as manager_name,\n      e.calculated_score,\n      e.updated_at,\n      e.id as evaluation_id\n    FROM performance_db.evaluations e\n    JOIN performance_db.users mgr ON e.subject_id = mgr.id\n    WHERE e.evaluation_source = 'subordinate'\n  ),\n  -- Средняя оценка от подчинённых (как подчинённые оценили своего руководителя)\n  subordinates_rating AS (\n    SELECT \n      e.subject_id as manager_id,\n      ROUND(AVG(e.calculated_score), 2) as avg_score,\n      COUNT(*) as ratings_count,\n      MAX(e.updated_at) as last_date\n    FROM performance_db.evaluations e\n    WHERE e.evaluation_source = 'subordinate'\n      AND e.is_self_evaluation = false\n    GROUP BY e.subject_id\n  ),\n  -- Количество оценённых подчинённых\n  subordinates_evaluated AS (\n    SELECT \n      e.evaluator_id,\n      COUNT(DISTINCT e.subject_id) as evaluated_count\n    FROM performance_db.evaluations e\n    WHERE e.evaluation_source = 'manager'\n      AND e.is_self_evaluation = false\n    GROUP BY e.evaluator_id\n  ),\n  -- Количество подчинённых всего\n  subordinates_total AS (\n    SELECT \n      manager_id,\n      COUNT(*) as total_count\n    FROM performance_db.users\n    WHERE manager_id IS NOT NULL\n    GROUP BY manager_id\n  )\n  SELECT \n    u.id,\n    u.full_name,\n    u.job_title,\n    u.role,\n    u.is_project_participant,\n    u.has_subordinates,\n    u.manager_id,\n    mgr.full_name as manager_name,\n    d.name as department_name,\n    \n    -- Самооценка\n    le_self.calculated_score as self_score,\n    le_self.updated_at as self_date,\n    le_self.evaluation_id as self_eval_id,\n    \n    -- Оценка, полученная от менеджера\n    le_manager.calculated_score as manager_score,\n    le_manager.updated_at as manager_date,\n    le_manager.evaluation_id as manager_eval_id,\n    \n    -- Оценка, данная своему руководителю\n    meg.calculated_score as gave_to_manager_score,\n    meg.updated_at as gave_to_manager_date,\n    meg.evaluation_id as gave_to_manager_eval_id,\n    meg.manager_name as evaluated_manager_name,\n    \n    -- Средняя оценка ОТ подчинённых (как подчинённые оценили этого руководителя)\n    sr.avg_score as from_subordinates_score,\n    sr.ratings_count as from_subordinates_count,\n    sr.last_date as from_subordinates_date,\n    \n    -- Статистика по подчинённым (сколько подчинённых оценил этот руководитель)\n    COALESCE(se.evaluated_count, 0) as subordinates_evaluated,\n    COALESCE(st.total_count, 0) as subordinates_total\n    \n  FROM performance_db.users u\n  LEFT JOIN performance_db.users mgr ON u.manager_id = mgr.id\n  LEFT JOIN performance_db.departments d ON u.department_id = d.id\n  LEFT JOIN latest_evaluations le_self ON u.id = le_self.subject_id AND le_self.is_self_evaluation = true\n  LEFT JOIN latest_evaluations le_manager ON u.id = le_manager.subject_id AND le_manager.is_self_evaluation = false AND le_manager.evaluation_source = 'manager'\n  LEFT JOIN manager_evaluations_given meg ON u.id = meg.evaluator_id\n  LEFT JOIN subordinates_rating sr ON u.id = sr.manager_id\n  LEFT JOIN subordinates_evaluated se ON u.id = se.evaluator_id\n  LEFT JOIN subordinates_total st ON u.id = st.manager_id\n  WHERE u.role NOT IN ('c_level', 'admin')\n  ORDER BY u.full_name\n`;\n\nreturn { json: { sql } };"
+      },
+      "id": "a3ade57a-372f-4592-9cca-c70f47839b93",
+      "name": "Build SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "id": "9fa126ee-4934-4f84-ba7e-898baa0056ed",
+      "name": "Execute Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -64
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const employees = $input.all().map(item => item.json);\n\nreturn {\n  json: {\n    success: true,\n    data: employees\n  }\n};"
+      },
+      "id": "ad17e666-1554-43ea-ba98-2edd656bb256",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "d33e577e-b2cc-4180-9442-abf3f8e6c844",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -64
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Query": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "88bb6769-d796-4a9e-9f4d-32fa9ee6fec5",
+  "versionCounter": 30,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-09T18:07:48.050Z",
+      "createdAt": "2025-12-09T18:07:48.050Z",
+      "role": "workflow:owner",
+      "workflowId": "j9YdW8LGzW5lvxgb",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

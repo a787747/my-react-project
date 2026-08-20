@@ -1,0 +1,595 @@
+{
+  "name": "API: Manage Periods",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/periods",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "periods-webhook-get",
+      "name": "Webhook GET",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        -200
+      ],
+      "webhookId": "epe-periods-get"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"hr\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "periods-guard-input-get",
+      "name": "Prepare Guard Input GET",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "periods-run-guard-get",
+      "name": "Run Auth Guard GET",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard GET').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT id, name, start_date, end_date, is_active, status, period_type, parent_period_id,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = evaluation_periods.id) AS participant_count,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = evaluation_periods.id AND epp.is_in_scope = true) AS in_scope_count\n      FROM performance_db.evaluation_periods\n      ORDER BY start_date DESC\n    `,\n  },\n};"
+      },
+      "id": "periods-get-build",
+      "name": "Build Periods Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "periods-get-query",
+      "name": "Load Periods",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard GET').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst periods = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nreturn {\n  json: {\n    http_status: 200,\n    body: { status: 'success', data: periods },\n  },\n};"
+      },
+      "id": "periods-get-format",
+      "name": "Format Periods Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "periods-respond-get",
+      "name": "Respond GET",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/periods/create",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "periods-webhook-create",
+      "name": "Webhook CREATE",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-periods-create"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "periods-guard-input-create",
+      "name": "Prepare Guard Input CREATE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "periods-run-guard-create",
+      "name": "Run Auth Guard CREATE",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard CREATE').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst name = String(body.name || '').trim();\nconst startDate = String(body.start_date || '').trim();\nconst endDate = String(body.end_date || '').trim();\n// Limit to half_year and annual for H1/H2; ignore client status — always starts draft\nconst rawType = String(body.period_type || 'half_year').trim();\nconst VALID_TYPES = ['half_year', 'annual'];\n\nif (!name || name.length > 100) {\n  return { json: { http_status: 422, body: { success: false, error: 'INVALID_NAME', message: 'name is required (max 100 chars)' } } };\n}\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(startDate)) {\n  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE', message: 'start_date must be YYYY-MM-DD' } } };\n}\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(endDate)) {\n  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE', message: 'end_date must be YYYY-MM-DD' } } };\n}\nif (endDate <= startDate) {\n  return { json: { http_status: 422, body: { success: false, error: 'INVALID_DATE_RANGE', message: 'end_date must be after start_date' } } };\n}\nif (!VALID_TYPES.includes(rawType)) {\n  return { json: { http_status: 422, body: { success: false, error: 'INVALID_TYPE', message: `period_type must be half_year or annual` } } };\n}\n\nconst safeName = name.replace(/'/g, \"''\");\n// Always start as draft and inactive; ignore client-supplied status\nreturn {\n  json: {\n    ok: true,\n    end_date: endDate,\n    sql: `\nWITH new_period AS (\n  INSERT INTO performance_db.evaluation_periods\n    (name, start_date, end_date, is_active, period_type, status)\n  VALUES ('${safeName}', '${startDate}', '${endDate}', false, '${rawType}', 'draft')\n  RETURNING id, name, start_date, end_date, is_active, period_type, status\n),\nparticipants AS (\n  INSERT INTO performance_db.evaluation_period_participants\n    (period_id, user_id, is_in_scope, exclusion_reason)\n  SELECT\n    np.id,\n    u.id,\n    CASE\n      WHEN u.join_date IS NOT NULL AND u.join_date > '${endDate}'::date THEN false\n      ELSE true\n    END,\n    CASE\n      WHEN u.join_date IS NOT NULL AND u.join_date > '${endDate}'::date THEN 'hired_after_period_end'\n      ELSE NULL\n    END\n  FROM new_period np\n  CROSS JOIN performance_db.users u\n  ON CONFLICT (period_id, user_id) DO UPDATE\n    SET is_in_scope = EXCLUDED.is_in_scope,\n        exclusion_reason = EXCLUDED.exclusion_reason,\n        updated_at = now()\n  RETURNING user_id\n)\nSELECT np.id, np.name, np.start_date, np.end_date, np.is_active, np.period_type, np.status,\n       count(p.user_id)::integer AS participants_added\nFROM new_period np\nLEFT JOIN participants p ON true\nGROUP BY np.id, np.name, np.start_date, np.end_date, np.is_active, np.period_type, np.status\n    `,\n  },\n};"
+      },
+      "id": "periods-create-validate",
+      "name": "Validate Period Create",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "periods-create-execute",
+      "name": "Execute Period Create",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Period Create').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!row) {\n  return {\n    json: { http_status: 500, body: { status: 'error', message: 'Period creation failed' } },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      status: 'success',\n      message: 'Period created',\n      data: {\n        id: row.id,\n        name: row.name,\n        start_date: row.start_date,\n        end_date: row.end_date,\n        is_active: row.is_active,\n        period_type: row.period_type,\n        status: row.status,\n      },\n      participants_added: row.participants_added,\n    },\n  },\n};"
+      },
+      "id": "periods-create-format",
+      "name": "Format Create Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "periods-respond-create",
+      "name": "Respond CREATE",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/periods/activate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "periods-webhook-activate",
+      "name": "Webhook ACTIVATE",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        200
+      ],
+      "webhookId": "epe-periods-activate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "periods-guard-input-activate",
+      "name": "Prepare Guard Input ACTIVATE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "periods-run-guard-activate",
+      "name": "Run Auth Guard ACTIVATE",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard ACTIVATE').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst periodId = parseInt(body.period_id, 10);\nif (!Number.isFinite(periodId) || periodId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_PERIOD_ID', message: 'period_id must be a positive integer' },\n    },\n  };\n}\n// Check: is there a currently-active period that has evaluations (would block the switch)?\nreturn {\n  json: {\n    ok: true,\n    target_period_id: periodId,\n    sql: `\n      SELECT\n        p.id AS current_active_id,\n        p.name AS current_active_name,\n        EXISTS(\n          SELECT 1 FROM performance_db.evaluations WHERE period_id = p.id LIMIT 1\n        ) AS has_evaluations\n      FROM performance_db.evaluation_periods p\n      WHERE (p.is_active = true OR p.status = 'active')\n        AND p.id != ${periodId}\n      LIMIT 1\n    `,\n  },\n};"
+      },
+      "id": "periods-activate-validate",
+      "name": "Validate Period Activate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS current_active_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "periods-activate-check",
+      "name": "Check Existing Active",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Period Activate').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.all().map(item => item.json).find(item => item.current_active_id !== undefined);\n// Reject if switching away from an active period that already has evaluations\nif (check && check.has_evaluations) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'ACTIVE_PERIOD_HAS_EVALUATIONS',\n        message: `Cannot deactivate period \"${check.current_active_name}\": it already has evaluations`,\n      },\n    },\n  };\n}\nconst periodId = Number(prev.target_period_id);\nreturn {\n  json: {\n    ok: true,\n    sql: `\nWITH deactivated AS (\n  UPDATE performance_db.evaluation_periods\n  SET is_active = false, status = 'draft'\n  WHERE (is_active = true OR status = 'active') AND id != ${periodId}\n  RETURNING id\n),\nactivated AS (\n  UPDATE performance_db.evaluation_periods\n  SET is_active = true, status = 'active'\n  WHERE id = ${periodId}\n    AND status != 'closed'\n  RETURNING id, name, start_date, end_date, is_active, status, period_type\n)\nSELECT a.*, (SELECT count(*)::integer FROM deactivated) AS deactivated_count\nFROM activated a\n    `,\n  },\n};"
+      },
+      "id": "periods-activate-build",
+      "name": "Build Activation SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "periods-activate-execute",
+      "name": "Execute Activation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        750,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Activation SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!row) {\n  return {\n    json: {\n      http_status: 404,\n      body: { status: 'error', message: 'Period not found or is already closed' },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      status: 'success',\n      message: 'Period activated',\n      data: {\n        id: row.id,\n        name: row.name,\n        start_date: row.start_date,\n        end_date: row.end_date,\n        is_active: row.is_active,\n        status: row.status,\n        period_type: row.period_type,\n      },\n      deactivated_count: row.deactivated_count,\n    },\n  },\n};"
+      },
+      "id": "periods-activate-format",
+      "name": "Format Activate Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "periods-respond-activate",
+      "name": "Respond ACTIVATE",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook GET": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input GET",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input GET": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard GET",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard GET": {
+      "main": [
+        [
+          {
+            "node": "Build Periods Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Periods Query": {
+      "main": [
+        [
+          {
+            "node": "Load Periods",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Periods": {
+      "main": [
+        [
+          {
+            "node": "Format Periods Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Periods Response": {
+      "main": [
+        [
+          {
+            "node": "Respond GET",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook CREATE": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input CREATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input CREATE": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard CREATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard CREATE": {
+      "main": [
+        [
+          {
+            "node": "Validate Period Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Period Create": {
+      "main": [
+        [
+          {
+            "node": "Execute Period Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Period Create": {
+      "main": [
+        [
+          {
+            "node": "Format Create Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Create Response": {
+      "main": [
+        [
+          {
+            "node": "Respond CREATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook ACTIVATE": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input ACTIVATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input ACTIVATE": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard ACTIVATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard ACTIVATE": {
+      "main": [
+        [
+          {
+            "node": "Validate Period Activate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Period Activate": {
+      "main": [
+        [
+          {
+            "node": "Check Existing Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Existing Active": {
+      "main": [
+        [
+          {
+            "node": "Build Activation SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Activation SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Activation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Activation": {
+      "main": [
+        [
+          {
+            "node": "Format Activate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Activate Response": {
+      "main": [
+        [
+          {
+            "node": "Respond ACTIVATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

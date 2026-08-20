@@ -1,0 +1,245 @@
+{
+  "name": "API: Update Admin Data",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "update-admin-data",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ua-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "69fc85c5-3526-4074-85c6-ae57782723cf"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "ua-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "ua-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT id, name, status\n      FROM performance_db.evaluation_periods\n      WHERE is_active = true OR status = 'active'\n      LIMIT 1\n    `,\n  },\n};"
+      },
+      "id": "ua-freeze",
+      "name": "Check Freeze",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "ua-period",
+      "name": "Load Active Period",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Check Freeze').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst activePeriod = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (activePeriod) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'ACTIVE_PERIOD_EXISTS',\n        message: `Cannot modify grade coefficients while period \"${activePeriod.name}\" is active`,\n      },\n    },\n  };\n}\nconst guard = $('Run Auth Guard').first().json;\n// Генерируем SQL запросы для обновления\nconst body = (guard.request.body || guard.request);\nconst grades = body.grades || [];\nconst settings = body.settings || [];\n\nlet sqlQueries = [];\n\n// 1. Обновляем Грейды\nfor (const g of grades) {\n  if (g.id && g.coefficient !== undefined) {\n     sqlQueries.push(`UPDATE performance_db.grades SET coefficient = ${g.coefficient} WHERE id = ${g.id};`);\n  }\n}\n\n// 2. Обновляем Настройки\nfor (const s of settings) {\n  if (s.setting_key && s.setting_value !== undefined) {\n    sqlQueries.push(`UPDATE performance_db.global_settings SET setting_value = ${s.setting_value} WHERE setting_key = '${s.setting_key}';`);\n  }\n}\n\nconst finalQuery = sqlQueries.join('\\n');\n\nreturn {\n  json: {\n    query: finalQuery,\n    count: sqlQueries.length\n  }\n};"
+      },
+      "id": "ua-build",
+      "name": "Build SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query ? $json.query : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "ua-exec",
+      "name": "Execute Update",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        740,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      message: 'Данные успешно обновлены',\n      updatedCount: prev.count || 0,\n    },\n  },\n};"
+      },
+      "id": "ua-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "ua-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1220,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Check Freeze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Freeze": {
+      "main": [
+        [
+          {
+            "node": "Load Active Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Active Period": {
+      "main": [
+        [
+          {
+            "node": "Build SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Update": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

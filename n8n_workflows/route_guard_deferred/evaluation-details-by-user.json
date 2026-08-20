@@ -1,0 +1,245 @@
+{
+  "name": "API: evaluation-details-by-user",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/admin/evaluation-details-by-user",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "du-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "admin-evaluation-details-by-user"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "du-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "du-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst query = guard.request.query || {};\nconst userId = query.user_id;\nconst detailType = String(query.detail_type || 'all');\nconst evaluationId = query.evaluation_id;\nconst rawPeriod = query.period_id ?? query.periodId;\nconst requested = parseInt(rawPeriod, 10);\nconst hasRequested = Number.isFinite(requested) && requested > 0;\nconst allowed = [\"all\", \"self\", \"received_from_manager\", \"from_subordinates\", \"gave_to_manager\", \"gave_to_subordinates\"];\nif (!userId) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_QUERY', message: 'user_id is required' },\n    },\n  };\n}\nif (!allowed.includes(detailType)) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'INVALID_QUERY',\n        message: 'detail_type must be one of: ' + allowed.join(', '),\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    user_id: parseInt(userId, 10),\n    detail_type: detailType,\n    evaluation_id: evaluationId ? parseInt(evaluationId, 10) : null,\n    requested_period_id: hasRequested ? requested : null,\n    sql: hasRequested\n      ? `SELECT id, name, status, is_active, period_type, start_date, end_date\n         FROM performance_db.evaluation_periods\n         WHERE id = ${requested}\n         LIMIT 1`\n      : `SELECT id, name, status, is_active, period_type, start_date, end_date\n         FROM performance_db.evaluation_periods\n         WHERE is_active = true AND status = 'active'\n         LIMIT 1`,\n  },\n};"
+      },
+      "id": "du-extract",
+      "name": "Extract Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "du-period",
+      "name": "Load Period",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Extract Params').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst period = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!period) {\n  return { json: { ok: false, no_period: true, period: null, detail_type: prev.detail_type } };\n}\nconst userId = Number(prev.user_id);\nconst periodId = Number(period.id);\nconst detailType = prev.detail_type;\nconst evaluationId = prev.evaluation_id;\nconst evalFilter = Number.isFinite(evaluationId) && evaluationId > 0\n  ? ` AND e.id = ${evaluationId}`\n  : '';\n\nconst columns = `\n    e.id as evaluation_id,\n    e.subject_id,\n    e.evaluator_id,\n    e.calculated_score,\n    e.updated_at,\n    e.is_self_evaluation,\n    e.evaluation_source,\n    evaluator.full_name as evaluator_name,\n    evaluator.role as evaluator_role,\n    subject.full_name as subject_name,\n    subject.job_title as subject_job_title,\n    c.id as criteria_id,\n    c.title as criteria_title,\n    c.selfassesment,\n    c.c_level_only,\n    c.target_audience,\n    es.score_value,\n    es.comment\n`;\nconst joins = `\n  FROM performance_db.evaluations e\n  LEFT JOIN performance_db.users evaluator ON e.evaluator_id = evaluator.id\n  LEFT JOIN performance_db.users subject ON e.subject_id = subject.id\n  LEFT JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n  LEFT JOIN performance_db.criteria c ON es.criteria_id = c.id\n`;\n\nlet subjectWhere = `e.subject_id = ${userId} AND e.period_id = ${periodId}${evalFilter}`;\nif (detailType === 'self') {\n  subjectWhere += ` AND e.is_self_evaluation = true`;\n} else if (detailType === 'received_from_manager') {\n  subjectWhere += ` AND e.is_self_evaluation = false AND e.evaluation_source IN ('manager', 'c_level_direct')`;\n} else if (detailType === 'from_subordinates') {\n  subjectWhere += ` AND e.evaluation_source = 'subordinate'`;\n}\n\nlet evaluatorWhere = `e.evaluator_id = ${userId} AND e.is_self_evaluation = false AND e.period_id = ${periodId}${evalFilter}`;\nif (detailType === 'gave_to_manager') {\n  evaluatorWhere += ` AND e.evaluation_source = 'subordinate'`;\n} else if (detailType === 'gave_to_subordinates') {\n  evaluatorWhere += ` AND e.evaluation_source IN ('manager', 'c_level_direct')`;\n}\n\nconst wantSubject = ['all', 'self', 'received_from_manager', 'from_subordinates'].includes(detailType);\nconst wantEvaluator = ['all', 'gave_to_manager', 'gave_to_subordinates'].includes(detailType);\n\nconst sqlAsSubject = `\n  SELECT 'as_subject' as query_type, ${columns}\n  ${joins}\n  WHERE ${subjectWhere}\n  ORDER BY e.updated_at DESC, c.id\n`;\nconst sqlAsEvaluator = `\n  SELECT 'as_evaluator' as query_type, ${columns}\n  ${joins}\n  WHERE ${evaluatorWhere}\n  ORDER BY e.updated_at DESC, c.id\n`;\n\nlet sql;\nif (wantSubject && wantEvaluator) {\n  sql = `(${sqlAsSubject}) UNION ALL (${sqlAsEvaluator})`;\n} else if (wantSubject) {\n  sql = sqlAsSubject;\n} else {\n  sql = sqlAsEvaluator;\n}\n\nreturn {\n  json: {\n    ok: true,\n    no_period: false,\n    period,\n    detail_type: detailType,\n    sql,\n  },\n};"
+      },
+      "id": "du-build",
+      "name": "Build SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "du-query",
+      "name": "Execute Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Extract Params').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst built = $('Build SQL').first().json;\nif (built.http_status) {\n  return { json: built };\n}\nconst empty = {\n  self_evaluation: null,\n  manager_evaluations: [],\n  c_level_evaluations: [],\n  subordinate_evaluations: [],\n  evaluation_to_manager: null,\n  evaluations_to_subordinates: [],\n};\nfunction periodBody(p) {\n  if (!p) return { period: null, campaign_active: false };\n  const isActive = p.is_active === true || p.is_active === 'true';\n  return {\n    period: {\n      id: Number(p.id),\n      name: p.name,\n      status: p.status,\n      is_active: isActive,\n      period_type: p.period_type,\n      start_date: p.start_date,\n      end_date: p.end_date,\n    },\n    campaign_active: isActive && p.status === 'active',\n  };\n}\nif (built.no_period) {\n  return {\n    json: {\n      http_status: 200,\n      body: {\n        success: true,\n        data: empty,\n        detail_type: built.detail_type || prev.detail_type || 'all',\n        ...periodBody(null),\n      },\n    },\n  };\n}\nconst rows = $input.all().map(item => item.json);\nconst evaluations = {};\nrows.forEach(row => {\n  const evalId = row.evaluation_id;\n  if (!evalId) return;\n  if (!evaluations[evalId]) {\n    evaluations[evalId] = {\n      evaluation_id: evalId,\n      query_type: row.query_type,\n      evaluator_id: row.evaluator_id,\n      evaluator_name: row.evaluator_name,\n      evaluator_role: row.evaluator_role,\n      subject_id: row.subject_id,\n      subject_name: row.subject_name,\n      subject_job_title: row.subject_job_title,\n      calculated_score: row.calculated_score,\n      updated_at: row.updated_at,\n      is_self_evaluation: row.is_self_evaluation,\n      evaluation_source: row.evaluation_source || 'manager',\n      criteria: [],\n    };\n  }\n  if (row.criteria_id) {\n    evaluations[evalId].criteria.push({\n      criteria_id: row.criteria_id,\n      criteria_title: row.criteria_title,\n      score_value: row.score_value,\n      comment: row.comment,\n      selfassesment: row.selfassesment,\n      c_level_only: row.c_level_only,\n      target_audience: row.target_audience,\n    });\n  }\n});\nconst result = {\n  self_evaluation: null,\n  manager_evaluations: [],\n  c_level_evaluations: [],\n  subordinate_evaluations: [],\n  evaluation_to_manager: null,\n  evaluations_to_subordinates: [],\n};\nObject.values(evaluations).forEach(evaluation => {\n  if (evaluation.query_type === 'as_subject') {\n    if (evaluation.is_self_evaluation) {\n      result.self_evaluation = evaluation;\n    } else if (evaluation.evaluation_source === 'subordinate') {\n      result.subordinate_evaluations.push(evaluation);\n    } else if (evaluation.evaluation_source === 'c_level_direct'\n        || evaluation.evaluator_role === 'c_level'\n        || evaluation.evaluator_role === 'admin') {\n      result.c_level_evaluations.push(evaluation);\n    } else {\n      result.manager_evaluations.push(evaluation);\n    }\n  } else if (evaluation.query_type === 'as_evaluator') {\n    if (evaluation.evaluation_source === 'subordinate') {\n      result.evaluation_to_manager = evaluation;\n    } else if (evaluation.evaluation_source === 'manager' || evaluation.evaluation_source === 'c_level_direct') {\n      result.evaluations_to_subordinates.push(evaluation);\n    }\n  }\n});\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      data: result,\n      detail_type: built.detail_type || prev.detail_type || 'all',\n      ...periodBody(built.period),\n    },\n  },\n};"
+      },
+      "id": "du-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "du-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Extract Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Params": {
+      "main": [
+        [
+          {
+            "node": "Load Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Period": {
+      "main": [
+        [
+          {
+            "node": "Build SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Query": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

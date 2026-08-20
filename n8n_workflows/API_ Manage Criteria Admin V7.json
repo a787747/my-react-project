@@ -1,0 +1,291 @@
+{
+  "updatedAt": "2026-08-18T16:56:13.191Z",
+  "createdAt": "2025-12-06T14:25:10.187Z",
+  "id": "55BHbXWIS6igHHBT",
+  "name": "API: Manage Criteria Admin V7",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "manage-criteria",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "0dcdaf03-8c07-4481-acba-ae533fc0c259",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -656,
+        -64
+      ],
+      "webhookId": "110ced24-b474-4754-8976-8d8963ebacb9"
+    },
+    {
+      "parameters": {
+        "jsCode": "const action = $input.item.json.body.action;\nreturn { json: { action: action } };"
+      },
+      "id": "36f0add9-3833-421a-a727-58d367a70826",
+      "name": "Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.action }}",
+              "operation": "notEqual",
+              "value2": "get"
+            }
+          ]
+        }
+      },
+      "id": "ad92fb78-fec7-4fcb-8bb1-ec664699b4fa",
+      "name": "Is Write Action?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM performance_db.criteria ORDER BY id ASC;",
+        "additionalFields": {}
+      },
+      "id": "e7241af4-68ec-4733-8149-340371897f04",
+      "name": "Get All Criteria",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        48
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const action = $('Webhook').item.json.body.action;\nconst item = $('Webhook').item.json.body.criteria || {};\n\n// ЛОГИКА УДАЛЕНИЯ\nif (action === 'delete') {\n   return { \n    json: { \n      query: `DELETE FROM performance_db.criteria WHERE id = ${item.id} RETURNING id;` \n    } \n  };\n}\n\n// ЛОГИКА СОХРАНЕНИЯ (SAVE)\nconst safe = (str) => str ? str.toString().replace(/'/g, \"''\") : \"\";\nconst title = safe(item.title);\nconst desc = safe(item.description);\nconst aud = safe(item.target_audience);\nconst active = item.is_active ? 'TRUE' : 'FALSE';\nconst selfassesment = item.selfassesment !== undefined ? (item.selfassesment ? 'TRUE' : 'FALSE') : 'TRUE';\nconst forManager = item.for_manager !== undefined ? (item.for_manager ? 'TRUE' : 'FALSE') : 'TRUE';\nconst cLevelOnly = item.c_level_only !== undefined ? (item.c_level_only ? 'TRUE' : 'FALSE') : 'FALSE';\n\n// Обработка level_*_desc полей (0-10)\nconst levels = {};\nfor (let i = 0; i <= 10; i++) {\n  const fieldName = `level_${i}_desc`;\n  levels[fieldName] = item[fieldName] ? safe(item[fieldName]) : null;\n}\n\nif (item.id) {\n  // UPDATE существующего критерия\n  const levelUpdates = [];\n  for (let i = 0; i <= 10; i++) {\n    const fieldName = `level_${i}_desc`;\n    const value = levels[fieldName];\n    if (value !== null) {\n      levelUpdates.push(`${fieldName} = '${value}'`);\n    } else {\n      levelUpdates.push(`${fieldName} = NULL`);\n    }\n  }\n  \n  const query = `UPDATE performance_db.criteria SET \n    title = '${title}', \n    description = '${desc}', \n    target_audience = '${aud}', \n    is_active = ${active},\n    selfassesment = ${selfassesment},\n    for_manager = ${forManager},\n    c_level_only = ${cLevelOnly},\n    ${levelUpdates.join(', ')}\n    WHERE id = ${item.id} RETURNING id;`;\n  \n  return { json: { query: query } };\n  \n} else {\n  // INSERT нового критерия\n  const levelFields = [];\n  const levelValues = [];\n  \n  for (let i = 0; i <= 10; i++) {\n    const fieldName = `level_${i}_desc`;\n    levelFields.push(fieldName);\n    const value = levels[fieldName];\n    if (value !== null) {\n      levelValues.push(`'${value}'`);\n    } else {\n      levelValues.push('NULL');\n    }\n  }\n  \n  const query = `INSERT INTO performance_db.criteria \n    (title, description, category, target_audience, is_active, selfassesment, for_manager, c_level_only, ${levelFields.join(', ')}) \n    VALUES \n    ('${title}', '${desc}', 'dynamic', '${aud}', ${active}, ${selfassesment}, ${forManager}, ${cLevelOnly}, ${levelValues.join(', ')}) \n    RETURNING id;`;\n  \n  return { json: { query: query } };\n}"
+      },
+      "id": "ab2d7e5f-76f6-4f3b-9671-f6963dafec41",
+      "name": "Prep SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "additionalFields": {}
+      },
+      "id": "1ba245e8-35de-4d3b-b602-f0313e82518e",
+      "name": "Execute SQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [
+        192,
+        -176
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return { json: { success: true, message: \"Operation successful\" } };"
+      },
+      "id": "41cbd909-0834-4e4f-8ab0-9f3536cedd81",
+      "name": "Send Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allRows = $input.all().map(item => item.json);\nreturn { json: { data: allRows } };"
+      },
+      "id": "86977ab2-01e2-4cc0-ab93-9b195d9500ae",
+      "name": "Aggregate List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        48
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router": {
+      "main": [
+        [
+          {
+            "node": "Is Write Action?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Write Action?": {
+      "main": [
+        [
+          {
+            "node": "Prep SQL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get All Criteria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Criteria": {
+      "main": [
+        [
+          {
+            "node": "Aggregate List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute SQL": {
+      "main": [
+        [
+          {
+            "node": "Send Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "e9599adc-b1ca-4daa-bd4f-dc7a0dedd124",
+  "versionCounter": 36,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-06T14:25:10.187Z",
+      "createdAt": "2025-12-06T14:25:10.187Z",
+      "role": "workflow:owner",
+      "workflowId": "55BHbXWIS6igHHBT",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

@@ -1,0 +1,245 @@
+{
+  "name": "API: evaluations-matrix",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/admin/evaluations-matrix",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "em-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "admin-evaluations-matrix"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "em-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "em-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst request = guard.request || {};\nconst query = request.query || {};\nconst rawPeriod = query.period_id ?? query.periodId;\nconst requested = parseInt(rawPeriod, 10);\nconst hasRequested = Number.isFinite(requested) && requested > 0;\nreturn {\n  json: {\n    ok: true,\n    requested_period_id: hasRequested ? requested : null,\n    sql: hasRequested\n      ? `SELECT id, name, status, is_active, period_type, start_date, end_date\n         FROM performance_db.evaluation_periods\n         WHERE id = ${requested}\n         LIMIT 1`\n      : `SELECT id, name, status, is_active, period_type, start_date, end_date\n         FROM performance_db.evaluation_periods\n         WHERE is_active = true AND status = 'active'\n         LIMIT 1`,\n  },\n};"
+      },
+      "id": "em-period-build",
+      "name": "Build Period Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "em-period",
+      "name": "Load Period",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst period = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!period) {\n  return {\n    json: {\n      ok: false,\n      no_period: true,\n      period: null,\n    },\n  };\n}\nconst periodId = Number(period.id);\nconst actorId = Number(guard.identity.id);\nreturn {\n  json: {\n    ok: true,\n    no_period: false,\n    period,\n    sql: `\nWITH\nmanager_scores_from_subordinates AS (\n  SELECT\n    e.subject_id as manager_id,\n    es.criteria_id,\n    AVG(es.score_value) as avg_subordinate_score,\n    COUNT(es.score_value) as subordinate_count\n  FROM performance_db.evaluations e\n  JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n  JOIN performance_db.criteria c ON es.criteria_id = c.id\n  WHERE e.evaluation_source = 'subordinate'\n    AND c.target_audience = 'managers_only'\n    AND c.is_active = true\n    AND e.period_id = ${periodId}\n  GROUP BY e.subject_id, es.criteria_id\n),\nmanager_scores_from_boss AS (\n  SELECT\n    e.subject_id as manager_id,\n    es.criteria_id,\n    es.score_value as boss_score\n  FROM performance_db.evaluations e\n  JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n  JOIN performance_db.criteria c ON es.criteria_id = c.id\n  JOIN performance_db.users subject ON e.subject_id = subject.id\n  WHERE e.evaluator_id = subject.manager_id\n    AND e.is_self_evaluation = false\n    AND e.evaluation_source = 'manager'\n    AND c.target_audience = 'managers_only'\n    AND c.is_active = true\n    AND e.period_id = ${periodId}\n)\nSELECT\n  u.id,\n  u.full_name,\n  u.job_title,\n  u.manager_id,\n  u.has_subordinates,\n  u.role,\n  u.can_be_evaluated,\n  COALESCE(epp.is_in_scope, false) AS is_in_scope,\n  (\n    SELECT e.id\n    FROM performance_db.evaluations e\n    WHERE e.subject_id = u.id\n      AND e.evaluator_id = ${actorId}\n      AND e.evaluation_source = 'c_level_direct'\n      AND e.period_id = ${periodId}\n    LIMIT 1\n  ) AS actor_c_level_evaluation_id,\n  d.name as department_name,\n  g.code as grade_code,\n  g.description as grade_description,\n  u.is_project_participant,\n  json_agg(\n    json_build_object(\n      'criteria_id', c.id,\n      'criteria_title', c.title,\n      'criteria_description', c.description,\n      'level_0_desc', c.level_0_desc,\n      'level_1_desc', c.level_1_desc,\n      'level_2_desc', c.level_2_desc,\n      'level_3_desc', c.level_3_desc,\n      'level_4_desc', c.level_4_desc,\n      'level_5_desc', c.level_5_desc,\n      'level_6_desc', c.level_6_desc,\n      'level_7_desc', c.level_7_desc,\n      'level_8_desc', c.level_8_desc,\n      'level_9_desc', c.level_9_desc,\n      'level_10_desc', c.level_10_desc,\n      'selfassesment', c.selfassesment,\n      'c_level_only', c.c_level_only,\n      'target_audience', c.target_audience,\n      'self_score', (\n        SELECT es.score_value\n        FROM performance_db.evaluations e\n        JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n        WHERE e.subject_id = u.id\n          AND e.is_self_evaluation = true\n          AND es.criteria_id = c.id\n          AND e.period_id = ${periodId}\n        ORDER BY e.updated_at DESC\n        LIMIT 1\n      ),\n      'manager_score', (\n        SELECT es.score_value\n        FROM performance_db.evaluations e\n        JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n        WHERE e.subject_id = u.id\n          AND e.is_self_evaluation = false\n          AND e.evaluation_source = 'manager'\n          AND c.c_level_only = false\n          AND es.criteria_id = c.id\n          AND e.period_id = ${periodId}\n        ORDER BY e.updated_at DESC\n        LIMIT 1\n      ),\n      'c_level_score', (\n        SELECT es.score_value\n        FROM performance_db.evaluations e\n        JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n        WHERE e.subject_id = u.id\n          AND e.evaluation_source = 'c_level_direct'\n          AND c.c_level_only = true\n          AND es.criteria_id = c.id\n          AND e.period_id = ${periodId}\n        ORDER BY e.updated_at DESC\n        LIMIT 1\n      ),\n      'actor_c_level_score', (\n        SELECT es.score_value\n        FROM performance_db.evaluations e\n        JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n        WHERE e.subject_id = u.id\n          AND e.evaluator_id = ${actorId}\n          AND e.evaluation_source = 'c_level_direct'\n          AND c.c_level_only = true\n          AND es.criteria_id = c.id\n          AND e.period_id = ${periodId}\n        LIMIT 1\n      ),\n      'mid_level_correction', (\n        SELECT sc.correction_score\n        FROM performance_db.score_corrections sc\n        WHERE sc.subject_id = u.id\n          AND sc.criteria_id = c.id\n          AND sc.correction_level = 'mid_level'\n          AND sc.period_id = ${periodId}\n        LIMIT 1\n      ),\n      'c_level_correction', (\n        SELECT sc.correction_score\n        FROM performance_db.score_corrections sc\n        WHERE sc.subject_id = u.id\n          AND sc.criteria_id = c.id\n          AND sc.correction_level = 'c_level'\n          AND sc.period_id = ${periodId}\n        LIMIT 1\n      ),\n      'subordinate_avg_score', (\n        SELECT ROUND(msfs.avg_subordinate_score::numeric, 1)\n        FROM manager_scores_from_subordinates msfs\n        WHERE msfs.manager_id = u.id\n          AND msfs.criteria_id = c.id\n      ),\n      'subordinate_count', (\n        SELECT msfs.subordinate_count\n        FROM manager_scores_from_subordinates msfs\n        WHERE msfs.manager_id = u.id\n          AND msfs.criteria_id = c.id\n      ),\n      'boss_score', (\n        SELECT msfb.boss_score\n        FROM manager_scores_from_boss msfb\n        WHERE msfb.manager_id = u.id\n          AND msfb.criteria_id = c.id\n      )\n    ) ORDER BY\n      CASE\n        WHEN c.selfassesment THEN 1\n        WHEN c.target_audience = 'all' AND NOT c.c_level_only THEN 2\n        WHEN c.target_audience = 'project_participants' THEN 3\n        WHEN c.target_audience = 'managers_only' THEN 4\n        WHEN c.c_level_only THEN 5\n      END,\n      c.id\n  ) as criteria\nFROM performance_db.users u\nLEFT JOIN performance_db.departments d ON u.department_id = d.id\nLEFT JOIN performance_db.grades g ON u.grade_id = g.id\nLEFT JOIN performance_db.evaluation_period_participants epp\n  ON epp.user_id = u.id AND epp.period_id = ${periodId}\nCROSS JOIN performance_db.criteria c\nWHERE u.role != 'admin'\n  AND c.is_active = true\nGROUP BY u.id, u.full_name, u.job_title, u.manager_id, u.has_subordinates,\n         u.role, u.can_be_evaluated, epp.is_in_scope,\n         d.name, g.code, g.description, u.is_project_participant\nORDER BY u.full_name`,\n  },\n};"
+      },
+      "id": "em-build",
+      "name": "Build Matrix Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "em-query",
+      "name": "Execute Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst built = $('Build Matrix Query').first().json;\nif (built.http_status) {\n  return { json: built };\n}\nif (built.no_period) {\n  return {\n    json: {\n      http_status: 200,\n      body: {\n        success: true,\n        data: [],\n        period: null,\n        campaign_active: false,\n      },\n    },\n  };\n}\nconst rows = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nconst p = built.period;\nconst isActive = p.is_active === true || p.is_active === 'true';\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      data: rows,\n      period: {\n        id: Number(p.id),\n        name: p.name,\n        status: p.status,\n        is_active: isActive,\n        period_type: p.period_type,\n        start_date: p.start_date,\n        end_date: p.end_date,\n      },\n      campaign_active: isActive && p.status === 'active',\n    },\n  },\n};"
+      },
+      "id": "em-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "em-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Period Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Period Query": {
+      "main": [
+        [
+          {
+            "node": "Load Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Period": {
+      "main": [
+        [
+          {
+            "node": "Build Matrix Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Matrix Query": {
+      "main": [
+        [
+          {
+            "node": "Execute Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Query": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

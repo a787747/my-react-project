@@ -1,0 +1,377 @@
+{
+  "name": "API: Analytics Dashboard - Optimized",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/analytics",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "an-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "analytics-dashboard-v2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "an-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "an-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst request = guard.request || {};\nconst query = request.query || {};\nconst rawPeriod = query.period_id ?? query.periodId;\nconst requested = parseInt(rawPeriod, 10);\nconst hasRequested = Number.isFinite(requested) && requested > 0;\nreturn {\n  json: {\n    ok: true,\n    requested_period_id: hasRequested ? requested : null,\n    sql: hasRequested\n      ? `SELECT id, name, status, is_active, period_type, start_date, end_date\n         FROM performance_db.evaluation_periods\n         WHERE id = ${requested}\n         LIMIT 1`\n      : `SELECT id, name, status, is_active, period_type, start_date, end_date\n         FROM performance_db.evaluation_periods\n         WHERE is_active = true AND status = 'active'\n         LIMIT 1`,\n  },\n};"
+      },
+      "id": "an-period-build",
+      "name": "Build Period Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "an-period",
+      "name": "Load Period",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        80,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst period = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!period) {\n  return { json: { ok: false, no_period: true, period: null } };\n}\nconst periodId = Number(period.id);\nreturn {\n  json: {\n    ok: true,\n    no_period: false,\n    period,\n    sql_overall: `\nSELECT\n  COUNT(DISTINCT e.id) as total_evaluations,\n  COALESCE(ROUND(AVG(e.calculated_score)::numeric, 2), 0) as company_avg_score,\n  COUNT(DISTINCT e.subject_id) as total_employees,\n  COUNT(DISTINCT e.evaluator_id) as active_evaluators\nFROM performance_db.evaluations e\nWHERE e.calculated_score IS NOT NULL\n  AND e.period_id = ${periodId}\n    `,\n    sql_dept: `\nSELECT\n  COALESCE(d.name, 'Без отдела') as department,\n  COUNT(e.id) as evaluations_count,\n  ROUND(AVG(e.calculated_score)::numeric, 2) as avg_score\nFROM performance_db.evaluations e\nINNER JOIN performance_db.users u ON e.subject_id = u.id\nLEFT JOIN performance_db.departments d ON u.department_id = d.id\nWHERE e.calculated_score IS NOT NULL\n  AND e.period_id = ${periodId}\nGROUP BY d.name\nORDER BY avg_score DESC NULLS LAST\n    `,\n    sql_top: `\nWITH latest_scores AS (\n  SELECT DISTINCT ON (subject_id)\n    subject_id,\n    calculated_score,\n    updated_at\n  FROM performance_db.evaluations\n  WHERE calculated_score IS NOT NULL\n    AND period_id = ${periodId}\n  ORDER BY subject_id, updated_at DESC\n)\nSELECT\n  u.id,\n  u.full_name,\n  COALESCE(u.job_title, 'Не указано') as job_title,\n  COALESCE(d.name, 'Без отдела') as department,\n  ls.calculated_score as score\nFROM latest_scores ls\nINNER JOIN performance_db.users u ON ls.subject_id = u.id\nLEFT JOIN performance_db.departments d ON u.department_id = d.id\nORDER BY ls.calculated_score DESC\nLIMIT 10\n    `,\n    sql_low: `\nWITH latest_scores AS (\n  SELECT DISTINCT ON (subject_id)\n    subject_id,\n    calculated_score,\n    updated_at\n  FROM performance_db.evaluations\n  WHERE calculated_score IS NOT NULL\n    AND period_id = ${periodId}\n  ORDER BY subject_id, updated_at DESC\n)\nSELECT\n  u.id,\n  u.full_name,\n  COALESCE(u.job_title, 'Не указано') as job_title,\n  COALESCE(d.name, 'Без отдела') as department,\n  ls.calculated_score as score\nFROM latest_scores ls\nINNER JOIN performance_db.users u ON ls.subject_id = u.id\nLEFT JOIN performance_db.departments d ON u.department_id = d.id\nORDER BY ls.calculated_score ASC\nLIMIT 3\n    `,\n    sql_trends: `\nSELECT\n  ep.name as period_name,\n  COUNT(e.id) as evaluations_count,\n  ROUND(AVG(e.calculated_score)::numeric, 2) as avg_score,\n  TO_CHAR(ep.start_date, 'YYYY-MM-DD') as start_date\nFROM performance_db.evaluations e\nINNER JOIN performance_db.evaluation_periods ep ON e.period_id = ep.id\nWHERE e.calculated_score IS NOT NULL\n  AND e.period_id = ${periodId}\nGROUP BY ep.id, ep.name, ep.start_date\nORDER BY ep.start_date DESC\nLIMIT 12`,\n  },\n};"
+      },
+      "id": "an-build",
+      "name": "Build Analytics Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Build Analytics Plan').first().json.ok ? $('Build Analytics Plan').first().json.sql_overall : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "an-overall",
+      "name": "Get Overall Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Build Analytics Plan').first().json.ok ? $('Build Analytics Plan').first().json.sql_dept : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "an-dept",
+      "name": "Get Department Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        -100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Build Analytics Plan').first().json.ok ? $('Build Analytics Plan').first().json.sql_top : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "an-top",
+      "name": "Get Top Performers",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Build Analytics Plan').first().json.ok ? $('Build Analytics Plan').first().json.sql_low : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "an-low",
+      "name": "Get Low Performers",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Build Analytics Plan').first().json.ok ? $('Build Analytics Plan').first().json.sql_trends : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "an-trends",
+      "name": "Get Period Trends",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst built = $('Build Analytics Plan').first().json;\nif (built.http_status) {\n  return { json: built };\n}\nfunction periodBody(p) {\n  if (!p) return { period: null, campaign_active: false };\n  const isActive = p.is_active === true || p.is_active === 'true';\n  return {\n    period: {\n      id: Number(p.id),\n      name: p.name,\n      status: p.status,\n      is_active: isActive,\n      period_type: p.period_type,\n      start_date: p.start_date,\n      end_date: p.end_date,\n    },\n    campaign_active: isActive && p.status === 'active',\n  };\n}\nconst emptyOverall = {\n  total_evaluations: 0,\n  company_avg_score: 0,\n  total_employees: 0,\n  active_evaluators: 0,\n};\nif (built.no_period) {\n  return {\n    json: {\n      http_status: 200,\n      body: {\n        success: true,\n        data: {\n          overall: emptyOverall,\n          departments: [],\n          top_performers: [],\n          low_performers: [],\n          period_trends: [],\n        },\n        ...periodBody(null),\n      },\n    },\n  };\n}\nfunction uniqueBy(items, key) {\n  const seen = new Set();\n  const out = [];\n  for (const item of items || []) {\n    const row = item.json || {};\n    const id = row[key];\n    if (id === undefined || seen.has(String(id))) continue;\n    seen.add(String(id));\n    out.push(row);\n  }\n  return out;\n}\nconst overallItems = $('Get Overall Stats').all();\nconst overall = overallItems && overallItems.length > 0 && overallItems[0].json.total_evaluations !== undefined\n  ? overallItems[0].json\n  : emptyOverall;\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      data: {\n        overall,\n        departments: uniqueBy($('Get Department Stats').all(), 'department'),\n        top_performers: uniqueBy($('Get Top Performers').all(), 'id'),\n        low_performers: uniqueBy($('Get Low Performers').all(), 'id'),\n        period_trends: uniqueBy($('Get Period Trends').all(), 'period_name'),\n      },\n      ...periodBody(built.period),\n    },\n  },\n};"
+      },
+      "id": "an-format",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "an-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        940,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Period Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Period Query": {
+      "main": [
+        [
+          {
+            "node": "Load Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Period": {
+      "main": [
+        [
+          {
+            "node": "Build Analytics Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Analytics Plan": {
+      "main": [
+        [
+          {
+            "node": "Get Overall Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Overall Stats": {
+      "main": [
+        [
+          {
+            "node": "Get Department Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Department Stats": {
+      "main": [
+        [
+          {
+            "node": "Get Top Performers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Top Performers": {
+      "main": [
+        [
+          {
+            "node": "Get Low Performers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Low Performers": {
+      "main": [
+        [
+          {
+            "node": "Get Period Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Period Trends": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

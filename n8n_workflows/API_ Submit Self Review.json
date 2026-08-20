@@ -1,0 +1,319 @@
+{
+  "updatedAt": "2026-08-19T08:40:23.767Z",
+  "createdAt": "2025-12-08T18:29:11.229Z",
+  "id": "CuHkTYvGDyhqEarg",
+  "name": "API: Submit Self Review",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/self-review-submit",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "sr-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -900,
+        0
+      ],
+      "webhookId": "epe-self-review-submit"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"employee\", \"manager\", \"hr\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "sr-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "sr-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -450,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Admin and c_level rejection is handled by the guard's ROLE_FORBIDDEN.\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request;\n\nconst finalScore = body.final_score;\nconst finalScoreNum = Number(finalScore);\nif (finalScore === null || finalScore === undefined || finalScore === '' || !Number.isFinite(finalScoreNum)) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_SCORE', message: 'final_score must be a valid number' },\n    },\n  };\n}\nif (finalScoreNum < 1 || finalScoreNum > 10) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'SCORE_OUT_OF_RANGE', message: 'final_score must be between 1 and 10 inclusive' },\n    },\n  };\n}\n// weighted_score may exceed 10 by design (accumulates grade coefficients), but must be finite and non-negative if supplied.\nlet weightedScore = finalScoreNum;\nif (body.weighted_score !== undefined && body.weighted_score !== null && body.weighted_score !== '') {\n  const ws = Number(body.weighted_score);\n  if (!Number.isFinite(ws) || ws < 0) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_WEIGHTED_SCORE', message: 'weighted_score must be a finite non-negative number' },\n      },\n    };\n  }\n  weightedScore = ws;\n}\n\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    final_score: Number(finalScore),\n    weighted_score: weightedScore,\n    sql: `\n      SELECT\n        p.id AS period_id,\n        EXISTS(\n          SELECT 1 FROM performance_db.evaluations dup\n          WHERE dup.subject_id = ${actorId}\n            AND dup.evaluator_id = ${actorId}\n            AND dup.period_id = p.id\n            AND dup.is_self_evaluation = true\n        ) AS is_duplicate\n      FROM performance_db.evaluation_periods p\n      JOIN performance_db.evaluation_period_participants epp\n        ON epp.period_id = p.id AND epp.user_id = ${actorId} AND epp.is_in_scope = true\n      WHERE p.is_active = true AND p.status = 'active'\n      LIMIT 1\n    `,\n  },\n};"
+      },
+      "id": "sr-validate",
+      "name": "Validate Self Review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS period_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "sr-check",
+      "name": "Execute Scope Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        60,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Self Review').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.first().json;\n\nif (!check.period_id) {\n  return {\n    json: {\n      http_status: 403,\n      body: { success: false, error: 'NOT_IN_SCOPE', message: 'No active period or actor is not in scope' },\n    },\n  };\n}\nif (check.is_duplicate) {\n  return {\n    json: {\n      http_status: 409,\n      body: { success: false, error: 'DUPLICATE_SELF_REVIEW', message: 'Self-review already exists for this period' },\n    },\n  };\n}\n\nconst guard = $('Run Auth Guard').first().json;\nconst body = guard.request.body || guard.request;\nconst actorId = Number(prev.actor_id);\nconst periodId = Number(check.period_id);\nconst finalScore = Number(prev.final_score);\nconst weightedScore = Number(prev.weighted_score);\nconst grades = body.grades || {};\nconst comments = body.comments || {};\nconst generalComment = String(body.general_comment || '').replace(/'/g, \"''\");\nconst generalCommentSql = generalComment ? `'${generalComment}'` : 'NULL';\n\n// Validate grades before building SQL — return 422, never throw.\nconst gradeEntries = Object.entries(grades);\nif (!gradeEntries.length) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'NO_GRADES', message: 'grades must contain at least one entry' },\n    },\n  };\n}\nfor (const [cId, sv] of gradeEntries) {\n  const criteriaId = parseInt(cId, 10);\n  const scoreValue = parseInt(sv, 10);\n  if (!Number.isFinite(criteriaId) || criteriaId < 1) {\n    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Invalid criteria_id: ${cId}` } } };\n  }\n  if (!Number.isFinite(scoreValue) || scoreValue < 1 || scoreValue > 10) {\n    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Score for criteria ${cId} must be an integer between 1 and 10` } } };\n  }\n}\n\nconst scoreRows = gradeEntries.map(([cId, sv], idx) => {\n  const criteriaId = parseInt(cId, 10);\n  const scoreValue = parseInt(sv, 10);\n  const rawComment = String(comments[cId] || '').replace(/'/g, \"''\");\n  const commentLit = rawComment ? `'${rawComment}'` : 'NULL';\n  if (idx === 0) {\n    return `(${criteriaId}::integer, ${scoreValue}::integer, ${commentLit}::text)`;\n  }\n  return `(${criteriaId}, ${scoreValue}, ${commentLit})`;\n});\n\nreturn {\n  json: {\n    ok: true,\n    sql: `\nWITH new_eval AS (\n  INSERT INTO performance_db.evaluations\n    (subject_id, evaluator_id, period_id, calculated_score, weighted_score,\n     evaluation_source, is_self_evaluation, status, general_comment, updated_at)\n  VALUES (${actorId}, ${actorId}, ${periodId}, ${finalScore}, ${weightedScore},\n          'self', true, 'completed', ${generalCommentSql}, now())\n  ON CONFLICT (subject_id, period_id) WHERE is_self_evaluation = true DO NOTHING\n  RETURNING id\n),\nscore_rows(crit_id, score_val, cmt) AS (\n  VALUES ${scoreRows.join(', ')}\n)\nINSERT INTO performance_db.evaluation_scores (evaluation_id, criteria_id, score_value, comment)\nSELECT ne.id, sr.crit_id, sr.score_val, sr.cmt\nFROM new_eval ne\nCROSS JOIN score_rows sr\nRETURNING evaluation_id\n    `,\n  },\n};"
+      },
+      "id": "sr-build",
+      "name": "Build Self Review Insert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS evaluation_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "sr-insert",
+      "name": "Execute Self Review Insert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        580,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Self Review Insert').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst rows = $input.all().map(item => item.json).filter(item => item.evaluation_id !== undefined);\nif (!rows.length) {\n  // ON CONFLICT DO NOTHING — race duplicate\n  return {\n    json: {\n      http_status: 409,\n      body: { success: false, error: 'DUPLICATE_SELF_REVIEW', message: 'Self-review already exists (concurrent submission).' },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true },\n  },\n};"
+      },
+      "id": "sr-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "sr-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1080,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Validate Self Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Self Review": {
+      "main": [
+        [
+          {
+            "node": "Execute Scope Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Scope Check": {
+      "main": [
+        [
+          {
+            "node": "Build Self Review Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Self Review Insert": {
+      "main": [
+        [
+          {
+            "node": "Execute Self Review Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Self Review Insert": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "de0843a5-d7a3-47b4-8372-07168d4418fb",
+  "versionCounter": 40,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-08T18:29:11.229Z",
+      "createdAt": "2025-12-08T18:29:11.229Z",
+      "role": "workflow:owner",
+      "workflowId": "CuHkTYvGDyhqEarg",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

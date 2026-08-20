@@ -1,0 +1,302 @@
+{
+  "name": "API: Get Employee Self Review",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/employee-self-review",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "esr-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "0bae8451-0de8-48b5-b905-e27da61a2fb1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "esr-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "esr-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    sql: 'SELECT id FROM performance_db.evaluation_periods WHERE is_active = true LIMIT 1',\n  },\n};"
+      },
+      "id": "esr-period-build",
+      "name": "Build Period Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "esr-period",
+      "name": "Get Active Period",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Period Query').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst period = $input.all().map(item => item.json).find(item => item.id !== undefined);\nconst actorId = prev.actor_id;\nif (!period) {\n  return {\n    json: {\n      skip: true,\n      sql: 'SELECT NULL::integer AS id WHERE false',\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    sql: `\n      SELECT id, calculated_score, updated_at\n      FROM performance_db.evaluations\n      WHERE subject_id = ${actorId}\n        AND evaluator_id = ${actorId}\n        AND period_id = ${Number(period.id)}\n        AND evaluation_type = 'self'\n      ORDER BY updated_at DESC\n      LIMIT 1\n    `,\n  },\n};"
+      },
+      "id": "esr-review-build",
+      "name": "Build Self Review Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "esr-review",
+      "name": "Get Self Review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        740,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Self Review Query').first().json;\nif (prev.http_status || prev.skip) {\n  return { json: prev };\n}\nconst review = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!review) {\n  return { json: { skip: true, sql: 'SELECT NULL::integer AS criteria_id WHERE false' } };\n}\nreturn {\n  json: {\n    ok: true,\n    review,\n    sql: `\n      SELECT\n        es.criteria_id,\n        es.score_value,\n        es.comment,\n        c.title as criteria_title\n      FROM performance_db.evaluation_scores es\n      LEFT JOIN performance_db.criteria c ON es.criteria_id = c.id\n      WHERE es.evaluation_id = ${Number(review.id)}\n    `,\n  },\n};"
+      },
+      "id": "esr-scores-build",
+      "name": "Build Scores Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "esr-scores",
+      "name": "Get Scores",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1220,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst reviewStep = $('Build Scores Query').first().json;\nif (reviewStep.http_status) {\n  return { json: reviewStep };\n}\nif (reviewStep.skip || !reviewStep.review) {\n  return {\n    json: {\n      http_status: 200,\n      body: {\n        has_self_review: false,\n        evaluation_id: null,\n        score: null,\n        scores: {},\n        comments: {},\n      },\n    },\n  };\n}\nconst review = reviewStep.review;\nconst scoresMap = {};\nconst commentsMap = {};\n$input.all().forEach(item => {\n  if (item.json.criteria_id) {\n    scoresMap[item.json.criteria_id] = item.json.score_value;\n    if (item.json.comment) {\n      commentsMap[item.json.criteria_id] = item.json.comment;\n    }\n  }\n});\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      has_self_review: true,\n      evaluation_id: review.id,\n      total_score: review.calculated_score,\n      updated_at: review.updated_at,\n      scores: scoresMap,\n      comments: commentsMap,\n    },\n  },\n};"
+      },
+      "id": "esr-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "esr-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1700,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Period Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Period Query": {
+      "main": [
+        [
+          {
+            "node": "Get Active Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Period": {
+      "main": [
+        [
+          {
+            "node": "Build Self Review Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Self Review Query": {
+      "main": [
+        [
+          {
+            "node": "Get Self Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Self Review": {
+      "main": [
+        [
+          {
+            "node": "Build Scores Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Scores Query": {
+      "main": [
+        [
+          {
+            "node": "Get Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Scores": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

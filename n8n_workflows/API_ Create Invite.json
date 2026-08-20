@@ -1,0 +1,317 @@
+{
+  "updatedAt": "2026-08-19T08:40:18.273Z",
+  "createdAt": "2025-12-15T09:44:43.533Z",
+  "id": "uxKDjQFNJDv7MEnS",
+  "name": "API: Create Invite",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/admin/create-invite",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "invite-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -900,
+        0
+      ],
+      "webhookId": "epe-create-invite"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "invite-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "invite-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -450,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Actor from guard; ignore body admin_id and body frontend_url for security\nconst actorId = Number(guard.identity.id);\nconst frontendUrl = String($env.EPE_FRONTEND_URL || '').replace(/\\/$/, '');\nif (!/^https:\\/\\/[^/]+/i.test(frontendUrl)) {\n  return {\n    json: {\n      http_status: 500,\n      body: {\n        success: false,\n        error: 'CONFIG_ERROR',\n        message: 'EPE_FRONTEND_URL must be configured with an HTTPS origin',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    frontend_url: frontendUrl,\n    sql: `\n      SELECT id, token, created_at, expires_at\n      FROM performance_db.invite_tokens\n      WHERE COALESCE(is_used, false) = false\n        AND expires_at > now()\n      ORDER BY created_at DESC\n      LIMIT 1\n    `,\n  },\n};"
+      },
+      "id": "invite-build",
+      "name": "Build Invite Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "invite-check",
+      "name": "Find Existing Token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        60,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Invite Query').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst existing = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (existing) {\n  const registrationLink = `${prev.frontend_url}/register?token=${existing.token}`;\n  return {\n    json: {\n      http_status: 200,\n      body: {\n        success: true,\n        data: {\n          id: existing.id,\n          token: existing.token,\n          registration_link: registrationLink,\n          created_at: existing.created_at,\n          expires_at: existing.expires_at,\n          is_new: false,\n        },\n        message: 'Existing invite token returned',\n      },\n    },\n  };\n}\n// Generate cryptographically random token\nconst crypto = require('crypto');\nconst rawToken = crypto.randomBytes(32).toString('base64url');\nconst actorId = Number(prev.actor_id);\nconst registrationLink = `${prev.frontend_url}/register?token=${rawToken}`;\nreturn {\n  json: {\n    ok: true,\n    frontend_url: prev.frontend_url,\n    registration_link: registrationLink,\n    token: rawToken,\n    sql: `\n      INSERT INTO performance_db.invite_tokens (token, created_by, expires_at)\n      VALUES ('${rawToken}', ${actorId}, now() + interval '30 days')\n      RETURNING id, token, created_at, expires_at\n    `,\n  },\n};"
+      },
+      "id": "invite-token-build",
+      "name": "Build Token or Return Existing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "invite-insert",
+      "name": "Insert Token",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        580,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Token or Return Existing').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nif (!prev.ok) {\n  return { json: { http_status: 500, body: { success: false, error: 'UNEXPECTED', message: 'Unexpected state' } } };\n}\nconst row = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!row) {\n  return {\n    json: { http_status: 500, body: { success: false, error: 'INSERT_FAILED', message: 'Failed to create invite token' } },\n  };\n}\nconst registrationLink = `${prev.frontend_url}/register?token=${row.token}`;\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      data: {\n        id: row.id,\n        token: row.token,\n        registration_link: registrationLink,\n        created_at: row.created_at,\n        expires_at: row.expires_at,\n        is_new: true,\n      },\n      message: 'Invite token created successfully',\n    },\n  },\n};"
+      },
+      "id": "invite-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "invite-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1080,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Invite Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Invite Query": {
+      "main": [
+        [
+          {
+            "node": "Find Existing Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Token": {
+      "main": [
+        [
+          {
+            "node": "Build Token or Return Existing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Token or Return Existing": {
+      "main": [
+        [
+          {
+            "node": "Insert Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Token": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "9a228b0b-0f16-4b44-ae6f-86605669de0a",
+  "versionCounter": 19,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-15T09:44:43.533Z",
+      "createdAt": "2025-12-15T09:44:43.533Z",
+      "role": "workflow:owner",
+      "workflowId": "uxKDjQFNJDv7MEnS",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

@@ -1,0 +1,425 @@
+{
+  "updatedAt": "2026-08-18T16:56:01.873Z",
+  "createdAt": "2025-12-08T12:32:55.201Z",
+  "id": "i1rMW79I7GYb5iXm",
+  "name": "API: Analytics Dashboard - Optimized",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "api/analytics",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -544,
+        -128
+      ],
+      "webhookId": "analytics-dashboard-v2",
+      "id": "a99c1bd6-2784-4bd8-9e3c-5eadeabe4476"
+    },
+    {
+      "parameters": {},
+      "name": "Limit1",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -128
+      ],
+      "id": "dbc35722-ab5d-43ba-b266-a807f4fadf8c"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  COUNT(DISTINCT e.id) as total_evaluations,\n  COALESCE(ROUND(AVG(e.calculated_score)::numeric, 2), 0) as company_avg_score,\n  COUNT(DISTINCT e.subject_id) as total_employees,\n  COUNT(DISTINCT e.evaluator_id) as active_evaluators\nFROM performance_db.evaluations e\nWHERE e.calculated_score IS NOT NULL",
+        "options": {}
+      },
+      "name": "Get Overall Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -144,
+        -128
+      ],
+      "id": "f8d20dd0-4f54-4a17-9993-ab9ea18ae03b",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "name": "Limit2",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        64,
+        -128
+      ],
+      "id": "df9ae958-e1e5-4e60-9a38-2fb110b4b3d8"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  COALESCE(d.name, 'Без отдела') as department,\n  COUNT(e.id) as evaluations_count,\n  ROUND(AVG(e.calculated_score)::numeric, 2) as avg_score\nFROM performance_db.evaluations e\nINNER JOIN performance_db.users u ON e.subject_id = u.id\nLEFT JOIN performance_db.departments d ON u.department_id = d.id\nWHERE e.calculated_score IS NOT NULL\nGROUP BY d.name\nORDER BY avg_score DESC NULLS LAST",
+        "options": {}
+      },
+      "name": "Get Department Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        256,
+        -128
+      ],
+      "id": "c56eb8e8-8838-4dd0-8575-3a38dc680419",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "name": "Limit3",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        464,
+        -128
+      ],
+      "id": "372f2ab7-3e23-4fd2-b49b-d723589119eb"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH latest_scores AS (\n  SELECT DISTINCT ON (subject_id)\n    subject_id,\n    calculated_score,\n    updated_at\n  FROM performance_db.evaluations\n  WHERE calculated_score IS NOT NULL\n  ORDER BY subject_id, updated_at DESC\n)\nSELECT \n  u.id,\n  u.full_name,\n  COALESCE(u.job_title, 'Не указано') as job_title,\n  COALESCE(d.name, 'Без отдела') as department,\n  ls.calculated_score as score\nFROM latest_scores ls\nINNER JOIN performance_db.users u ON ls.subject_id = u.id\nLEFT JOIN performance_db.departments d ON u.department_id = d.id\nORDER BY ls.calculated_score DESC\nLIMIT 10",
+        "options": {}
+      },
+      "name": "Get Top Performers",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        656,
+        -128
+      ],
+      "id": "697cef74-2590-4208-9300-1259892e4e47",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "name": "Limit4",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        864,
+        -128
+      ],
+      "id": "4be694c0-f63e-40ec-baf6-a2c178e024d2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH latest_scores AS (\n  SELECT DISTINCT ON (subject_id)\n    subject_id,\n    calculated_score,\n    updated_at\n  FROM performance_db.evaluations\n  WHERE calculated_score IS NOT NULL\n  ORDER BY subject_id, updated_at DESC\n)\nSELECT \n  u.id,\n  u.full_name,\n  COALESCE(u.job_title, 'Не указано') as job_title,\n  COALESCE(d.name, 'Без отдела') as department,\n  ls.calculated_score as score\nFROM latest_scores ls\nINNER JOIN performance_db.users u ON ls.subject_id = u.id\nLEFT JOIN performance_db.departments d ON u.department_id = d.id\nORDER BY ls.calculated_score ASC\nLIMIT 3",
+        "options": {}
+      },
+      "name": "Get Low Performers",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1056,
+        -128
+      ],
+      "id": "10cba7a8-6b66-49ae-85de-87516ffcec9e",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "name": "Limit5",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1264,
+        -128
+      ],
+      "id": "06569774-4d7a-4838-be08-83de3d9ad395"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  ep.name as period_name,\n  COUNT(e.id) as evaluations_count,\n  ROUND(AVG(e.calculated_score)::numeric, 2) as avg_score,\n  TO_CHAR(ep.start_date, 'YYYY-MM-DD') as start_date\nFROM performance_db.evaluations e\nINNER JOIN performance_db.evaluation_periods ep ON e.period_id = ep.id\nWHERE e.calculated_score IS NOT NULL\nGROUP BY ep.id, ep.name, ep.start_date\nORDER BY ep.start_date DESC\nLIMIT 12",
+        "options": {}
+      },
+      "name": "Get Period Trends",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1456,
+        -128
+      ],
+      "id": "2f667685-e150-48b7-9850-c0aba291b41c",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const overallItems = $('Get Overall Stats').all();\nconst deptItems = $('Get Department Stats').all();\nconst topItems = $('Get Top Performers').all();\nconst lowItems = $('Get Low Performers').all();\nconst trendItems = $('Get Period Trends').all();\n\nreturn {\n  json: {\n    success: true,\n    data: {\n      overall: overallItems && overallItems.length > 0 ? overallItems[0].json : {\n        total_evaluations: 0,\n        company_avg_score: 0,\n        total_employees: 0,\n        active_evaluators: 0\n      },\n      departments: deptItems ? deptItems.map(i => i.json) : [],\n      top_performers: topItems ? topItems.map(i => i.json) : [],\n      low_performers: lowItems ? lowItems.map(i => i.json) : [],\n      period_trends: trendItems ? trendItems.map(i => i.json) : []\n    }\n  }\n};"
+      },
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        -128
+      ],
+      "id": "2dd483b1-6e69-4cc2-934b-2d6602738286"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1856,
+        -128
+      ],
+      "id": "7bbd2a12-8607-450a-b12c-58aa25b49c91"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Limit1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit1": {
+      "main": [
+        [
+          {
+            "node": "Get Overall Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Overall Stats": {
+      "main": [
+        [
+          {
+            "node": "Limit2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit2": {
+      "main": [
+        [
+          {
+            "node": "Get Department Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Department Stats": {
+      "main": [
+        [
+          {
+            "node": "Limit3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit3": {
+      "main": [
+        [
+          {
+            "node": "Get Top Performers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Top Performers": {
+      "main": [
+        [
+          {
+            "node": "Limit4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit4": {
+      "main": [
+        [
+          {
+            "node": "Get Low Performers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Low Performers": {
+      "main": [
+        [
+          {
+            "node": "Limit5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit5": {
+      "main": [
+        [
+          {
+            "node": "Get Period Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Period Trends": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "67431ce8-45e5-4d14-a541-6adb1a30fc9e",
+  "versionCounter": 62,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-08T12:32:55.201Z",
+      "createdAt": "2025-12-08T12:32:55.201Z",
+      "role": "workflow:owner",
+      "workflowId": "i1rMW79I7GYb5iXm",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

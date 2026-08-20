@@ -1,0 +1,244 @@
+{
+  "updatedAt": "2026-08-18T16:56:17.938Z",
+  "createdAt": "2025-12-15T07:16:48.020Z",
+  "id": "rSZcm0HDMUHLYk8W",
+  "name": "API: Score Correction",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/admin/score-correction",
+        "responseMode": "lastNode",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "80310635-b42a-4d1c-8a5e-22e65c9b6bb9",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        -128
+      ],
+      "webhookId": "score-correction-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Webhook').first().json.body;\n\n// Валидация входных данных\nconst evaluatorId = parseInt(body.evaluator_id);\nconst subjectId = parseInt(body.subject_id);\nconst criteriaId = parseInt(body.criteria_id);\nconst correctionScore = parseInt(body.correction_score);\n// Опционально: явно указать уровень корректировки\nconst explicitLevel = body.correction_level || null;\n\nif (!evaluatorId || !subjectId || !criteriaId || isNaN(correctionScore)) {\n  throw new Error('Missing required fields: evaluator_id, subject_id, criteria_id, correction_score');\n}\n\nif (correctionScore < 1 || correctionScore > 10) {\n  throw new Error('correction_score must be between 1 and 10');\n}\n\nreturn {\n  json: {\n    evaluator_id: evaluatorId,\n    subject_id: subjectId,\n    criteria_id: criteriaId,\n    correction_score: correctionScore,\n    explicit_level: explicitLevel\n  }\n};"
+      },
+      "id": "fe674fd6-e70a-4ff7-aabe-db5fe5918628",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Получаем информацию об оценивающем и оцениваемом для определения уровня доступа\nWITH evaluator_info AS (\n  SELECT \n    id,\n    role,\n    manager_id,\n    has_subordinates\n  FROM performance_db.users \n  WHERE id = {{ $json.evaluator_id }}\n),\nsubject_info AS (\n  SELECT \n    id,\n    manager_id\n  FROM performance_db.users \n  WHERE id = {{ $json.subject_id }}\n),\n-- Проверяем, является ли оценивающий менеджером менеджера оцениваемого\nsubject_manager AS (\n  SELECT \n    id,\n    manager_id\n  FROM performance_db.users \n  WHERE id = (SELECT manager_id FROM subject_info)\n)\nSELECT \n  e.role as evaluator_role,\n  e.has_subordinates,\n  s.manager_id as subject_manager_id,\n  sm.manager_id as subject_manager_manager_id,\n  CASE \n    WHEN e.role IN ('admin', 'c_level') THEN 'c_level'\n    WHEN e.id = sm.manager_id THEN 'mid_level'\n    ELSE 'none'\n  END as correction_level\nFROM evaluator_info e\nCROSS JOIN subject_info s\nLEFT JOIN subject_manager sm ON true",
+        "options": {}
+      },
+      "id": "1d5358a9-73bc-4dc0-b28b-093816f69711",
+      "name": "Check Permissions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        -128
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const permissionData = $input.first().json;\nconst inputData = $('Validate Input').first().json;\n\nconst correctionLevel = inputData.explicit_level || permissionData.correction_level;\n\n// Проверяем права доступа\nif (correctionLevel === 'none') {\n  throw new Error('Access denied: You can only correct scores if you are the manager\\'s manager (mid_level) or C-level/admin');\n}\n\n// C-level и admin всегда могут ставить c_level корректировку\n// Менеджеры менеджеров могут ставить mid_level корректировку\nconst allowedLevels = ['mid_level', 'c_level'];\nif (!allowedLevels.includes(correctionLevel)) {\n  throw new Error('Invalid correction level: ' + correctionLevel);\n}\n\nreturn { \n  json: {\n    ...inputData,\n    correction_level: correctionLevel\n  }\n};"
+      },
+      "id": "a86589d8-fd4e-413a-98a7-24111f3b57db",
+      "name": "Verify Permissions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO performance_db.score_corrections \n  (subject_id, evaluator_id, criteria_id, correction_score, correction_level, updated_at)\nVALUES \n  ({{ $json.subject_id }}, {{ $json.evaluator_id }}, {{ $json.criteria_id }}, {{ $json.correction_score }}, '{{ $json.correction_level }}', NOW())\nON CONFLICT (subject_id, criteria_id, correction_level) \nDO UPDATE SET \n  correction_score = EXCLUDED.correction_score,\n  evaluator_id = EXCLUDED.evaluator_id,\n  updated_at = NOW()\nRETURNING id, correction_score, correction_level",
+        "options": {}
+      },
+      "id": "e6d11cf3-17a4-4c51-8ebc-dbd0b22f2b2e",
+      "name": "Upsert Correction",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -128
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst inputData = $('Validate Input').first().json;\n\nreturn {\n  json: {\n    success: true,\n    message: 'Score correction saved successfully',\n    data: {\n      id: result.id,\n      subject_id: inputData.subject_id,\n      criteria_id: inputData.criteria_id,\n      correction_score: result.correction_score,\n      correction_level: result.correction_level\n    }\n  }\n};"
+      },
+      "id": "4fe9b255-fdf0-414c-9790-66a9265dbe92",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -128
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Check Permissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Permissions": {
+      "main": [
+        [
+          {
+            "node": "Verify Permissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Permissions": {
+      "main": [
+        [
+          {
+            "node": "Upsert Correction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Correction": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "e02ce17b-00ba-4542-9dba-ee010c7e1e73",
+  "versionCounter": 18,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-15T07:16:48.020Z",
+      "createdAt": "2025-12-15T07:16:48.020Z",
+      "role": "workflow:owner",
+      "workflowId": "rSZcm0HDMUHLYk8W",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

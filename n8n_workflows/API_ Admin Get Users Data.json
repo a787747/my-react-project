@@ -1,0 +1,403 @@
+{
+  "updatedAt": "2026-08-19T08:40:16.486Z",
+  "createdAt": "2025-12-06T16:55:10.673Z",
+  "id": "AwID96McjHKyk8WI",
+  "name": "API: Admin Get Users Data",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/admin-users-data",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "adminusers-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-admin-users-data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "adminusers-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "adminusers-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    users_sql: `\n      SELECT\n        u.id, u.full_name, u.email, u.role, u.work_category, u.is_project_participant,\n        u.job_title, u.manager_id, u.department_id, u.grade_id, u.has_subordinates,\n        d.name AS department_name,\n        g.code AS grade_name,\n        m.full_name AS manager_name,\n        COALESCE(\n          (SELECT CASE WHEN e.status = 'completed' THEN true ELSE false END\n           FROM performance_db.evaluations e\n           WHERE e.subject_id = u.id\n             AND e.is_self_evaluation = true\n             AND e.period_id = (\n               SELECT id FROM performance_db.evaluation_periods\n               WHERE is_active = true AND status = 'active' LIMIT 1\n             )\n           LIMIT 1),\n          false\n        ) AS self_review_done,\n        (SELECT e.status\n         FROM performance_db.evaluations e\n         WHERE e.subject_id = u.id\n           AND e.is_self_evaluation = false\n           AND e.period_id = (\n             SELECT id FROM performance_db.evaluation_periods\n             WHERE is_active = true AND status = 'active' LIMIT 1\n           )\n         LIMIT 1\n        ) AS manager_review_status\n      FROM performance_db.users u\n      LEFT JOIN performance_db.departments d ON d.id = u.department_id\n      LEFT JOIN performance_db.grades g ON g.id = u.grade_id\n      LEFT JOIN performance_db.users m ON m.id = u.manager_id\n      ORDER BY u.id DESC\n    `,\n    depts_sql: `SELECT id, name FROM performance_db.departments ORDER BY name`,\n    grades_sql: `SELECT id, code, coefficient FROM performance_db.grades ORDER BY code`,\n  },\n};"
+      },
+      "id": "adminusers-build",
+      "name": "Build Users Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Users Query').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nreturn { json: { ok: true, sql: prev.users_sql, depts_sql: prev.depts_sql, grades_sql: prev.grades_sql } };"
+      },
+      "id": "adminusers-pass-users",
+      "name": "Load Users",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "adminusers-query-users",
+      "name": "Query Users",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        500,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev = $('Load Users').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nreturn { json: { ok: true, sql: prev.depts_sql, grades_sql: prev.grades_sql } };"
+      },
+      "id": "adminusers-pass-depts",
+      "name": "Load Depts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "adminusers-query-depts",
+      "name": "Query Depts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1000,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev = $('Load Depts').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nreturn { json: { ok: true, sql: prev.grades_sql } };"
+      },
+      "id": "adminusers-pass-grades",
+      "name": "Load Grades",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "adminusers-query-grades",
+      "name": "Query Grades",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1500,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Read from Postgres result nodes, not the relay Code nodes that only carry SQL strings.\nconst rawUsers = $('Query Users').all().map(i => i.json);\nconst rawDepts = $('Query Depts').all().map(i => i.json);\nconst rawGrades = $('Query Grades').all().map(i => i.json);\n\nfunction dedup(arr) {\n  const seen = new Map();\n  arr.forEach(item => { if (item.id) seen.set(item.id, item); });\n  return Array.from(seen.values());\n}\n\nconst users = dedup(rawUsers);\nconst departments = dedup(rawDepts);\nconst grades = dedup(rawGrades);\nconst managers = users\n  .filter(u => u.role !== 'employee')\n  .map(u => ({ id: u.id, name: u.full_name }));\n\nreturn {\n  json: {\n    http_status: 200,\n    body: { users, options: { departments, grades, managers } },\n  },\n};"
+      },
+      "id": "adminusers-merge",
+      "name": "Merge and Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1750,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "adminusers-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2000,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Users Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Users Query": {
+      "main": [
+        [
+          {
+            "node": "Load Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Users": {
+      "main": [
+        [
+          {
+            "node": "Query Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Users": {
+      "main": [
+        [
+          {
+            "node": "Load Depts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Depts": {
+      "main": [
+        [
+          {
+            "node": "Query Depts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Depts": {
+      "main": [
+        [
+          {
+            "node": "Load Grades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Grades": {
+      "main": [
+        [
+          {
+            "node": "Query Grades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Grades": {
+      "main": [
+        [
+          {
+            "node": "Merge and Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge and Format": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "ed76c904-7bfe-465f-82ec-774f016b1bb9",
+  "versionCounter": 56,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-06T16:55:10.673Z",
+      "createdAt": "2025-12-06T16:55:10.673Z",
+      "role": "workflow:owner",
+      "workflowId": "AwID96McjHKyk8WI",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

@@ -1,0 +1,229 @@
+{
+  "updatedAt": "2026-08-18T16:56:05.353Z",
+  "createdAt": "2025-12-09T18:19:11.906Z",
+  "id": "ZUDqYb0nWGGXLUnB",
+  "name": "API: evaluation-details-by-user",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "api/admin/evaluation-details-by-user",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "38600cac-069a-41d4-9889-4bfa54be7ee2",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -496,
+        -80
+      ],
+      "webhookId": "admin-evaluation-details-by-user"
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $input.item.json.query;\nconst userId = query?.user_id;\nconst detailType = query?.detail_type || 'all';\nconst evaluationId = query?.evaluation_id;\n\nif (!userId) {\n  throw new Error('user_id is required');\n}\n\nreturn {\n  json: { \n    user_id: parseInt(userId),\n    detail_type: detailType,\n    evaluation_id: evaluationId ? parseInt(evaluationId) : null\n  }\n};"
+      },
+      "id": "7ee76db1-e8cd-4c73-b355-3db5093271d9",
+      "name": "Extract Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const userId = $json.user_id;\nconst detailType = $json.detail_type;\n\n// SQL для оценок ГДЕ ПОЛЬЗОВАТЕЛЬ - ОЦЕНИВАЕМЫЙ (subject)\nconst sqlAsSubject = `\n  SELECT \n    'as_subject' as query_type,\n    e.id as evaluation_id,\n    e.subject_id,\n    e.evaluator_id,\n    e.calculated_score,\n    e.updated_at,\n    e.is_self_evaluation,\n    e.evaluation_source,\n    \n    evaluator.full_name as evaluator_name,\n    evaluator.role as evaluator_role,\n    subject.full_name as subject_name,\n    subject.job_title as subject_job_title,\n    \n    c.id as criteria_id,\n    c.title as criteria_title,\n    c.selfassesment,\n    c.c_level_only,\n    c.target_audience,\n    \n    es.score_value,\n    es.comment\n    \n  FROM performance_db.evaluations e\n  LEFT JOIN performance_db.users evaluator ON e.evaluator_id = evaluator.id\n  LEFT JOIN performance_db.users subject ON e.subject_id = subject.id\n  LEFT JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n  LEFT JOIN performance_db.criteria c ON es.criteria_id = c.id\n  \n  WHERE e.subject_id = ${userId}\n  ORDER BY e.updated_at DESC, c.id\n`;\n\n// SQL для оценок ГДЕ ПОЛЬЗОВАТЕЛЬ - ОЦЕНЩИК (evaluator)\nconst sqlAsEvaluator = `\n  SELECT \n    'as_evaluator' as query_type,\n    e.id as evaluation_id,\n    e.subject_id,\n    e.evaluator_id,\n    e.calculated_score,\n    e.updated_at,\n    e.is_self_evaluation,\n    e.evaluation_source,\n    \n    evaluator.full_name as evaluator_name,\n    evaluator.role as evaluator_role,\n    subject.full_name as subject_name,\n    subject.job_title as subject_job_title,\n    \n    c.id as criteria_id,\n    c.title as criteria_title,\n    c.selfassesment,\n    c.c_level_only,\n    c.target_audience,\n    \n    es.score_value,\n    es.comment\n    \n  FROM performance_db.evaluations e\n  LEFT JOIN performance_db.users evaluator ON e.evaluator_id = evaluator.id\n  LEFT JOIN performance_db.users subject ON e.subject_id = subject.id\n  LEFT JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id\n  LEFT JOIN performance_db.criteria c ON es.criteria_id = c.id\n  \n  WHERE e.evaluator_id = ${userId} AND e.is_self_evaluation = false\n  ORDER BY e.updated_at DESC, c.id\n`;\n\n// Объединяем оба запроса\nconst sql = `(${sqlAsSubject}) UNION ALL (${sqlAsEvaluator})`;\n\nreturn { json: { sql, detail_type: detailType } };"
+      },
+      "id": "c4359590-212b-494c-92b9-2841cb04aea5",
+      "name": "Build SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "id": "0047dc7e-a3da-413c-a847-3fe26cb4f53e",
+      "name": "Execute Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        176,
+        -80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\nconst inputData = $('Extract Params').first().json;\nconst userId = inputData.user_id;\n\n// Группируем по evaluation_id\nconst evaluations = {};\n\nrows.forEach(row => {\n  const evalId = row.evaluation_id;\n  if (!evalId) return;\n  \n  if (!evaluations[evalId]) {\n    evaluations[evalId] = {\n      evaluation_id: evalId,\n      query_type: row.query_type,\n      evaluator_id: row.evaluator_id,\n      evaluator_name: row.evaluator_name,\n      evaluator_role: row.evaluator_role,\n      subject_id: row.subject_id,\n      subject_name: row.subject_name,\n      subject_job_title: row.subject_job_title,\n      calculated_score: row.calculated_score,\n      updated_at: row.updated_at,\n      is_self_evaluation: row.is_self_evaluation,\n      evaluation_source: row.evaluation_source || 'manager',\n      criteria: []\n    };\n  }\n  \n  if (row.criteria_id) {\n    evaluations[evalId].criteria.push({\n      criteria_id: row.criteria_id,\n      criteria_title: row.criteria_title,\n      score_value: row.score_value,\n      comment: row.comment,\n      selfassesment: row.selfassesment,\n      c_level_only: row.c_level_only,\n      target_audience: row.target_audience\n    });\n  }\n});\n\n// Группируем по типам\nconst result = {\n  self_evaluation: null,\n  manager_evaluations: [],\n  c_level_evaluations: [],\n  subordinate_evaluations: [],\n  evaluation_to_manager: null,\n  evaluations_to_subordinates: []\n};\n\nObject.values(evaluations).forEach(evaluation => {\n  // Оценки, где user - оцениваемый (subject)\n  if (evaluation.query_type === 'as_subject') {\n    if (evaluation.is_self_evaluation) {\n      result.self_evaluation = evaluation;\n    } else if (evaluation.evaluation_source === 'subordinate') {\n      result.subordinate_evaluations.push(evaluation);\n    } else if (evaluation.evaluator_role === 'c_level' || evaluation.evaluator_role === 'admin') {\n      result.c_level_evaluations.push(evaluation);\n    } else {\n      result.manager_evaluations.push(evaluation);\n    }\n  }\n  // Оценки, где user - оценщик (evaluator)\n  else if (evaluation.query_type === 'as_evaluator') {\n    if (evaluation.evaluation_source === 'subordinate') {\n      // Оценка руководителю\n      result.evaluation_to_manager = evaluation;\n    } else if (evaluation.evaluation_source === 'manager') {\n      // Оценка подчинённому\n      result.evaluations_to_subordinates.push(evaluation);\n    }\n  }\n});\n\nreturn {\n  json: {\n    success: true,\n    data: result\n  }\n};"
+      },
+      "id": "de17e0c2-ecaa-40a7-b7bc-d268cb237bf0",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "1877b71b-2b1c-43fd-adc5-3528117cb16f",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        624,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Params": {
+      "main": [
+        [
+          {
+            "node": "Build SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Query": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "18bb815a-4dad-4a08-a143-66c777a8f721",
+  "versionCounter": 25,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-09T18:19:11.906Z",
+      "createdAt": "2025-12-09T18:19:11.906Z",
+      "role": "workflow:owner",
+      "workflowId": "ZUDqYb0nWGGXLUnB",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

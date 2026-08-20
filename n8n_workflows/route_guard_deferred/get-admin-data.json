@@ -1,0 +1,221 @@
+{
+  "name": "API: Get Admin Data Fixed",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "get-admin-data",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "gad-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "8de1bf42-37f2-436c-9150-66dab3c43fb0"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "gad-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "gad-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    sql_grades: \"SELECT * FROM performance_db.grades ORDER BY id ASC;\",\n    sql_settings: \"SELECT * FROM performance_db.global_settings ORDER BY setting_key ASC;\",\n  },\n};"
+      },
+      "id": "gad-build",
+      "name": "Build Admin Data Queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Build Admin Data Queries').first().json.ok ? $('Build Admin Data Queries').first().json.sql_grades : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "gad-grades",
+      "name": "Get Grades",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        -80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $('Build Admin Data Queries').first().json.ok ? $('Build Admin Data Queries').first().json.sql_settings : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "gad-settings",
+      "name": "Get Settings",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst grades = $('Get Grades').all().map(item => item.json).filter(item => item.id !== undefined);\nconst settings = $('Get Settings').all().map(item => item.json).filter(item => item.setting_key !== undefined);\nreturn {\n  json: {\n    http_status: 200,\n    body: { grades, settings },\n  },\n};"
+      },
+      "id": "gad-format",
+      "name": "Combine Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "gad-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Admin Data Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Admin Data Queries": {
+      "main": [
+        [
+          {
+            "node": "Get Grades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Grades": {
+      "main": [
+        [
+          {
+            "node": "Get Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Settings": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Data": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

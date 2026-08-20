@@ -1,0 +1,188 @@
+{
+  "name": "API: HR Evaluation Status",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/hr/evaluation-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "hrstat-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-hr-evaluation-status"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"hr\", \"admin\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "hrstat-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "hrstat-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      WITH active_period AS (\n        SELECT id FROM performance_db.evaluation_periods\n        WHERE is_active = true AND status = 'active'\n        LIMIT 1\n      ),\n      self_reviews AS (\n        SELECT e.subject_id, true AS has_self_review\n        FROM performance_db.evaluations e\n        WHERE e.is_self_evaluation = true\n          AND e.period_id = (SELECT id FROM active_period)\n          AND e.status = 'completed'\n      ),\n      subordinate_evals AS (\n        SELECT e.evaluator_id, e.subject_id\n        FROM performance_db.evaluations e\n        WHERE e.evaluation_source = 'manager'\n          AND e.period_id = (SELECT id FROM active_period)\n          AND e.status = 'completed'\n      ),\n      manager_evals AS (\n        SELECT DISTINCT e.evaluator_id\n        FROM performance_db.evaluations e\n        WHERE e.evaluation_source = 'subordinate'\n          AND e.period_id = (SELECT id FROM active_period)\n          AND e.status = 'completed'\n      ),\n      in_scope AS (\n        SELECT epp.user_id\n        FROM performance_db.evaluation_period_participants epp\n        JOIN active_period ap ON ap.id = epp.period_id\n        WHERE epp.is_in_scope = true\n      ),\n      sub_counts AS (\n        SELECT u.manager_id, COUNT(*) AS total_subordinates\n        FROM performance_db.users u\n        JOIN in_scope s ON s.user_id = u.id\n        WHERE u.manager_id IS NOT NULL\n        GROUP BY u.manager_id\n      ),\n      eval_counts AS (\n        SELECT evaluator_id, COUNT(*) AS evaluated_count FROM subordinate_evals GROUP BY evaluator_id\n      )\n      SELECT\n        u.id, u.full_name, u.email, u.job_title, u.role, u.has_subordinates, u.manager_id,\n        d.name AS department_name,\n        COALESCE(sr.has_self_review, false) AS has_self_review,\n        EXISTS(SELECT 1 FROM manager_evals me WHERE me.evaluator_id = u.id) AS evaluated_manager,\n        COALESCE(sc.total_subordinates, 0) AS total_subordinates,\n        COALESCE(ec.evaluated_count, 0) AS evaluated_subordinates,\n        CASE WHEN COALESCE(sc.total_subordinates, 0) = 0 THEN true\n             ELSE COALESCE(ec.evaluated_count, 0) >= COALESCE(sc.total_subordinates, 0)\n        END AS all_subordinates_evaluated,\n        (SELECT COUNT(*)::integer FROM in_scope) AS in_scope_count,\n        EXISTS(SELECT 1 FROM active_period) AS campaign_active\n      FROM performance_db.users u\n      JOIN in_scope s ON s.user_id = u.id\n      LEFT JOIN performance_db.departments d ON d.id = u.department_id\n      LEFT JOIN self_reviews sr ON sr.subject_id = u.id\n      LEFT JOIN sub_counts sc ON sc.manager_id = u.id\n      LEFT JOIN eval_counts ec ON ec.evaluator_id = u.id\n      WHERE u.role NOT IN ('admin', 'hr')\n      ORDER BY u.full_name\n    `,\n  },\n};"
+      },
+      "id": "hrstat-build",
+      "name": "Build Status Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "hrstat-query",
+      "name": "Load Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst employees = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nconst first = employees[0];\nconst inScopeCount = first ? Number(first.in_scope_count) || 0 : 0;\nconst campaignActive = first\n  ? (first.campaign_active === true || first.campaign_active === 't')\n  : false;\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      employees,\n      total: employees.length,\n      in_scope_count: inScopeCount,\n      campaign_active: campaignActive,\n    },\n  },\n};"
+      },
+      "id": "hrstat-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "hrstat-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Build Status Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Status Query": {
+      "main": [
+        [
+          {
+            "node": "Load Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Status": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}

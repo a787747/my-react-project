@@ -1,0 +1,273 @@
+{
+  "updatedAt": "2026-08-18T16:56:08.651Z",
+  "createdAt": "2025-12-08T07:30:14.646Z",
+  "id": "H4T4EMYmJJ1jdT7Z",
+  "name": "API: Get Employee Self Review",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "api/employee-self-review",
+        "options": {}
+      },
+      "id": "f612df2f-2bd9-4817-b840-e4e0b3929945",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -544,
+        -112
+      ],
+      "webhookId": "0bae8451-0de8-48b5-b905-e27da61a2fb1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $input.item.json.query;\nconst params = $input.item.json.params;\n\nlet subjectId = null;\n\nif (query && query.subject_id) {\n  subjectId = query.subject_id;\n} else if (params && params.subject_id) {\n  subjectId = params.subject_id;\n}\n\nif (!subjectId) {\n  throw new Error('subject_id is required');\n}\n\nreturn {\n  json: { subject_id: parseInt(subjectId) }\n};"
+      },
+      "id": "9935f608-b226-4b0b-bd2b-fdf8370c1e0d",
+      "name": "Extract Subject ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM performance_db.evaluation_periods WHERE is_active = true LIMIT 1",
+        "options": {}
+      },
+      "id": "a069e485-5eb5-4d7f-baf2-f9b1928b8848",
+      "name": "Get Active Period",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, calculated_score, updated_at\nFROM performance_db.evaluations\nWHERE subject_id = {{ $('Extract Subject ID').item.json.subject_id }}\n  AND evaluator_id = {{ $('Extract Subject ID').item.json.subject_id }}\n  AND period_id = {{ $json.id }}\n  AND evaluation_type = 'self'\nORDER BY updated_at DESC\nLIMIT 1",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "id": "0c6c1b29-7d03-43bb-bc7f-2e2556840a59",
+      "name": "Get Self Review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        128,
+        -112
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT \n  es.criteria_id,\n  es.score_value,\n  es.comment,\n  c.title as criteria_title\nFROM performance_db.evaluation_scores es\nLEFT JOIN performance_db.criteria c ON es.criteria_id = c.id\nWHERE es.evaluation_id = {{ $json.id }}",
+        "options": {}
+      },
+      "id": "dfc5e618-386c-455e-a0a7-8049e3c2928f",
+      "name": "Get Scores",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        336,
+        -112
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const selfReview = $('Get Self Review').all();\nconst scores = $input.all();\n\nif (!selfReview || selfReview.length === 0 || !selfReview[0].json.id) {\n  return {\n    json: {\n      has_self_review: false,\n      evaluation_id: null,\n      score: null,\n      scores: {},\n      comments: {}\n    }\n  };\n}\n\nconst review = selfReview[0].json;\nconst scoresMap = {};\nconst commentsMap = {};\n\nscores.forEach(item => {\n  if (item.json.criteria_id) {\n    scoresMap[item.json.criteria_id] = item.json.score_value;\n    if (item.json.comment) {\n      commentsMap[item.json.criteria_id] = item.json.comment;\n    }\n  }\n});\n\nreturn {\n  json: {\n    has_self_review: true,\n    evaluation_id: review.id,\n    total_score: review.calculated_score,\n    updated_at: review.updated_at,\n    scores: scoresMap,\n    comments: commentsMap\n  }\n};"
+      },
+      "id": "bff19375-00c9-4397-a522-35d412bb1691",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "fc1964b3-4f73-45c2-b4f9-6edb4b4318f1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        784,
+        -112
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Subject ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Subject ID": {
+      "main": [
+        [
+          {
+            "node": "Get Active Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Period": {
+      "main": [
+        [
+          {
+            "node": "Get Self Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Self Review": {
+      "main": [
+        [
+          {
+            "node": "Get Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Scores": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "ef05b1d1-1ba3-4d1e-8a9a-96bd3210f5b0",
+  "versionCounter": 16,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-08T07:30:14.646Z",
+      "createdAt": "2025-12-08T07:30:14.646Z",
+      "role": "workflow:owner",
+      "workflowId": "H4T4EMYmJJ1jdT7Z",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-19",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}
