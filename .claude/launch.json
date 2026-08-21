@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "epe-hier-vite",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "VITE_DEV_API_PROXY=http://127.0.0.1:25679 npm run dev -- --port 5299 --strictPort"],
+      "port": 5299
+    }
+  ]
+}

@@ -37,12 +37,20 @@ echo "== 3. Migration 013 + seed on the throwaway =="
 "${SSH[@]}" "docker exec -i postgres_n8n psql -U admin -d $DB -v ON_ERROR_STOP=1" < "$REPO/migrations/013_add_period_results.sql"
 "${SSH[@]}" "docker exec -i postgres_n8n psql -U admin -d $DB -v ON_ERROR_STOP=1" < "$REPO/scripts/seed_hierarchy_throwaway.sql"
 
-echo "== 4. Generate manage-periods with real credential/guard ids =="
+echo "== 4. Generate manage-periods + evaluations-matrix with real credential/guard ids =="
 GEN_DIR="$(mktemp -d)"
 python3 "$REPO/scripts/build_route_guard_workflows.py" \
   --postgres-credential-id "$CRED_ID" \
   --guard-workflow-id "$GUARD_ID" \
   --output-directory "$GEN_DIR" >/dev/null
+# NOTE: the top-level export "API_ evaluations-matrix.json" is the STALE
+# pre-calibration workflow (no guard, no period binding). Live runs the
+# generated one — generate it here too.
+GEN_DEFERRED="$(mktemp -d)"
+python3 "$REPO/scripts/build_route_guard_deferred.py" \
+  --postgres-credential-id "$CRED_ID" \
+  --guard-workflow-id "$GUARD_ID" \
+  --output-directory "$GEN_DEFERRED" >/dev/null
 
 echo "== 5. Isolated n8n on VPS loopback :25679 =="
 JWT_SECRET="$(openssl rand -hex 32)"
@@ -85,9 +93,22 @@ print(json.dumps([{
 PYEOF
 
 IMPORT_DIR="$(mktemp -d)"
-cp "$GEN_DIR/manage-periods.json" "$IMPORT_DIR/manage-periods.json"
+# n8n CLI import requires explicit active and versionId (NOT NULL columns)
+python3 - "$GEN_DIR/manage-periods.json" "$IMPORT_DIR/manage-periods.json" <<'PYEOF'
+import json, sys, uuid
+wf = json.load(open(sys.argv[1]))
+wf["active"] = False
+wf["versionId"] = str(uuid.uuid4())
+json.dump(wf, open(sys.argv[2], "w"), ensure_ascii=False, indent=2)
+PYEOF
+python3 - "$GEN_DEFERRED/evaluations-matrix.json" "$IMPORT_DIR/evaluations-matrix.json" <<'PYEOF'
+import json, sys, uuid
+wf = json.load(open(sys.argv[1]))
+wf["active"] = False
+wf["versionId"] = str(uuid.uuid4())
+json.dump(wf, open(sys.argv[2], "w"), ensure_ascii=False, indent=2)
+PYEOF
 cp "$REPO/n8n_workflows/EPE_ Auth Guard.json" "$IMPORT_DIR/auth-guard.json"
-cp "$REPO/n8n_workflows/API_ evaluations-matrix.json" "$IMPORT_DIR/evaluations-matrix.json"
 cp "$REPO/n8n_workflows/API_ Get Score Coefficients.json" "$IMPORT_DIR/score-coefficients.json"
 cp "$REPO/n8n_workflows/API_ Admin Get Users Data.json" "$IMPORT_DIR/admin-users-data.json"
 

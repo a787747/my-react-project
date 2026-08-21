@@ -685,3 +685,23 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 
 **Notes / Gotchas:**
 - Column is `varchar(50)` with no CHECK; enum `work_category_type` includes `tender`/`hybrid` but is unused by the column. Raw SQL could store tender; the portal cannot.
+
+## 2026-08-21 — Periods hierarchy, close-time persistence, annual roll-up
+
+**What was done:**
+- Migration 013: `period_results` (insert-only close snapshot, CHECK-enforced no-data-is-never-zero) + idempotent parent-column repair. Live: dated dump `epe_2026_pre013_20260821_0549.dump` first; applied; every table's row count proven unchanged; second run all no-ops.
+- `API: Manage Periods` extended 3→7 routes: rename, reparent (attach/detach), close (atomic compute+persist+close in one statement), annual-rollup (admin+c_level); activation refuses containers 422 and re-asserts in SQL; deactivate now gated on the target being activatable (pre-existing race fixed in passing).
+- Close computes the matrix final cell (D-0820-12) and the formula-#3 bonus index by replicating the matrix SQL + client pipeline verbatim (incl. `|| 1.0` quirks and JS rounding).
+- Frontend: `/admin/periods` hierarchy UI (container badge, no Activate, indented children, rename/reparent modals, close button with irreversibility confirm, type+parent in create modal); new `/admin/annual-rollup` «Годовые итоги» (own screen — stated call), `ReportingRoute`.
+- Throwaway stand scripts (`setup_hierarchy_throwaway.sh`, seed, `prove_periods_hierarchy.py` — 38 recorded checks) + `deploy_periods_hierarchy.py`. Tests 192→213, all green.
+
+**Results:**
+- Acceptance passed in full: A 6.0/8.0→annual 7.0, index i1+i2 (104.70); B out-of-scope P1→annual 8.0 NOT 4.0, single-term index; C explicit no-data, visible, excluded from mean; server/client cross-check <0.005; weight/grade edits after close change nothing; second close zero rows; container activation 422 + no button.
+- Live: workflow PUT `updatedAt=2026-08-21T06:00:08.687Z` (guard frozen, active preserved); frontend `20260821T060049Z`; H1 `draft,false` 87/89; evaluations/results 0/0; webhooks 37→41; archive untouched.
+- Report: `docs/PERIODS_HIERARCHY_2026-08-2x.md`. Decisions D-0821-1/2/3 appended.
+
+**Notes / Gotchas:**
+- `parent_period_id` already existed on live with FK — the original schema import shipped it; migration's ADD COLUMN was a no-op there.
+- Top-level export `API_ evaluations-matrix.json` is the STALE pre-guard version (BUG-028); live truth is the `build_route_guard_deferred.py` output. Cost one throwaway debug cycle.
+- Nothing keys on period name at runtime (verified); migrations 010/012 are name-keyed one-time seeds — do not re-run after renames.
+- Throwaway DB `epe_hier_20260821_0549` kept for audit; container `epe-hier-n8n` removed.

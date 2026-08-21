@@ -185,6 +185,16 @@ def main() -> None:
         evidence[name] = {"status": status, "body": payload}
         return status, payload
 
+    # ── 0. Reset fixture periods from any previous run (throwaway only) ──
+    sql(database, """
+      DELETE FROM performance_db.period_results
+      WHERE period_id IN (SELECT id FROM performance_db.evaluation_periods WHERE name LIKE 'Hier %');
+      DELETE FROM performance_db.evaluation_scores WHERE evaluation_id BETWEEN 2101 AND 2130;
+      DELETE FROM performance_db.evaluations WHERE id BETWEEN 2101 AND 2130;
+      UPDATE performance_db.evaluation_periods SET parent_period_id = NULL WHERE name LIKE 'Hier %';
+      DELETE FROM performance_db.evaluation_periods WHERE name LIKE 'Hier %';
+    """)
+
     # ── 1. Create the container and children ─────────────────────────────
     status, annual = record("create_container", "POST", "api/periods/create", actor="admin",
                             body={"name": "Hier Annual-T", "start_date": "2026-01-01",
@@ -280,9 +290,9 @@ def main() -> None:
     require(rows_p1[1103][3] == "6.00", f"A manager rating must persist 6.00: {rows_p1[1103]}")
     require(rows_p1[1103][5] == "5.00", f"A self rating must persist 5.00: {rows_p1[1103]}")
     require(rows_p1[1102][4] == "7.00", f"manager upward rating must persist 7.00: {rows_p1[1102]}")
-    require(rows_p1[1104][1] == "f" and rows_p1[1104][6] == "-" and rows_p1[1104][7] == "-",
+    require(rows_p1[1104][1] == "false" and rows_p1[1104][6] == "-" and rows_p1[1104][7] == "-",
             f"B out of scope in P1 must carry no numbers: {rows_p1[1104]}")
-    require(rows_p1[1105][1] == "t" and rows_p1[1105][2] == "f" and rows_p1[1105][6] == "-",
+    require(rows_p1[1105][1] == "true" and rows_p1[1105][2] == "false" and rows_p1[1105][6] == "-",
             f"C must be explicit no-data, not zero: {rows_p1[1105]}")
     a_index_p1 = float(rows_p1[1103][7])
 
@@ -397,7 +407,7 @@ def main() -> None:
                 continue
             stored_final = None if stored[-2] == "-" else float(stored[-2])
             stored_index = None if stored[-1] == "-" else float(stored[-1])
-            if not (stored[1] == "t" and stored[2] == "t"):
+            if not (stored[1] == "true" and stored[2] == "true"):
                 continue  # out-of-scope/no-data rows carry no numbers by design
             if expected["final"] is None:
                 require(stored_final is None,

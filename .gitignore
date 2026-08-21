@@ -38,3 +38,4 @@ __pycache__/
 # Claude Code
 .claude/scratchpad.md
 .claude/sessions/
+.claude/scratchpad.md

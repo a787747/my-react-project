@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 9 |
+| 🔴 Open | 10 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 18 |
 
@@ -254,3 +254,11 @@
 - Description: `SOURCE_NOT_SUPPORTED` for `c_level_direct`. 2025 stored C-level influence as `score_corrections`, not evaluation rows.
 - Fix: allowed for admin or c_level; evaluator = token actor; same `AVG(score_val)`.
 - Verification: employee/manager/HR 403; admin and Bayram 200; formula AVG. Live `updatedAt=2026-08-19T19:43:38.525Z`. See `docs/CLEVEL_DIRECT_ENABLE_2026-08-2x.md`.
+
+### BUG-028: Stale top-level workflow export (evaluations-matrix)
+- Status: 🔴 OPEN
+- Severity: 🟢 Low
+- Location: `n8n_workflows/API_ evaluations-matrix.json`
+- Description: The top-level export is the pre-guard, pre-period-binding 4-node workflow. Live runs the generated version (`scripts/build_route_guard_deferred.py` → `route_guard_deferred/evaluations-matrix.json`). Anything importing or trusting the top-level file gets an unguarded, all-periods-mixed matrix — it cost the 2026-08-21 throwaway stand one debug cycle.
+- Why it matters: A future session or stand that seeds from the stale export silently reintroduces an unauthenticated period-mixing matrix.
+- How to fix: Refresh top-level exports from live after each PUT (deploy_periods_hierarchy.py already does this for Manage Periods), or drop top-level duplicates of generator-owned workflows keeping only the id-bearing metadata.

@@ -437,3 +437,12 @@ Do not close H1 on 31 Aug evening; leave it `active` until calibration week is d
 
 ### D-0820-15 — Drafts persist in localStorage, no logout sweep for H1
 All three forms use `epe:evaluation-draft:{evaluator}:{subject}`; logout/401 remove only `user` and `token`.
+
+### D-0821-1 — Containers are non-activatable reporting constructs
+A period with children is a container: no Activate control, API refuses activation (422 `CONTAINER_NOT_ACTIVATABLE`) and close (422 `CONTAINER_NOT_CLOSABLE`); a period with evaluations can never become one; child dates lie within the parent's; reparenting a leaf is always safe.
+
+### D-0821-2 — Close-time result persistence (upgrades HANDOVER §6.13 from proposed to decided)
+Closing a leaf period atomically stores per participant into `period_results`: rating per source, the final cell (mean over matrix criterion finals, D-0820-12), the bonus index (formula #3), and the in-scope flag; in-scope-never-evaluated is an explicit no-data marker (CHECK-enforced never-zero). Results are immutable through the product; a second close changes zero rows; closed numbers never require a live join.
+
+### D-0821-3 — Annual display: out-of-scope excluded from the mean, index is a sum (confirms D-0819-1 interpretation)
+Annual rating = AVG of persisted finals over in-scope periods with data only — no zero-fill, «вне охвата» marked; «нет данных» visible but excluded from the mean; annual index = SUM of persisted period indices; audience admin + c_level (D-0820-11).
