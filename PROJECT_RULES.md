@@ -1,6 +1,6 @@
 # EPE — project rules (ports, naming, diagnosis)
 
-This file did not exist. `AGENTS.md` pointed at it for a reserved port range that was never written down. These are the **live facts** from `infra/caddy-compose.yml`, `infra/n8n-stack.yml`, and `~/.ssh/config` Host `epe-vps-tunnel`, verified 2026-08-20 and re-checked 2026-08-21 (ports and firewall chain unchanged; the throwaway-stand and local-tooling sections were added then). There is no separate reserved-range document.
+This file did not exist. `AGENTS.md` pointed at it for a reserved port range that was never written down. These are the **live facts** from `infra/caddy-compose.yml`, `infra/n8n-stack.yml`, and `~/.ssh/config` Host `epe-vps-tunnel`, verified 2026-08-20 and re-checked 2026-08-21 (ports and firewall chain unchanged; the throwaway-stand and local-tooling sections were added then, and the backups section after the BUG-032 fix). There is no separate reserved-range document.
 
 ## Compose and names
 
@@ -61,6 +61,24 @@ Stand traps that already cost time, all of them silent:
   of those exports is stale against live (BUG-028).
 - A proof artifact must record the compared values, not a summary string. A run that compared nothing
   writes the same slogan as a run that compared everything.
+
+## Backups
+
+Two cron jobs on `92.51.45.147`, both writing gzipped `pg_dump -Fc` files into `/root/backups/epe/daily`
+with `chmod 600` and a **14-day** window. `0 3 * * * backup-performance-db.sh` dumps the read-only 2025
+archive (`postgres`, schema `performance_db`) — pre-existing, do not edit. `20 3 * * * backup-epe-live.sh`
+(added 2026-08-21 for BUG-032) dumps the **live** `epe_2026` in full and the **n8n application schema**
+(`postgres`, schema `public`: 58 workflows, credentials, settings, webhook registrations) — before that
+date neither had any backup at all. Pruning is keyed on the filename stem, so neither job can ever delete
+the other's files. Failure leaves a non-zero exit, a `FAIL` line in `/root/backups/epe/backup.log` and
+`FAIL` in `/root/backups/epe/backup-epe-live.status`; there is no MTA on the host, so that status file is
+the alarm — `cat /root/backups/epe/backup-epe-live.status` must read `OK` with today's date. **To restore:**
+`/root/backups/epe/verify-restore.sh <stem> <live_db> [schema]` gunzips the newest dump of that stem into a
+throwaway `epe_bkverify_*` database, row-counts every table against live, and drops the throwaway — run it
+first, read the data out of the throwaway, and only then touch live. Tracked copies of both scripts live in
+`scripts/`; the host copies are authoritative. **There is still no off-host copy** (BUG-014): all three
+stems are on one disk. `N8N_ENCRYPTION_KEY` is a Portainer stack environment variable and is in no dump —
+restoring the n8n schema under a different key gives unusable credentials.
 
 ## Local tooling
 

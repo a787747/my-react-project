@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 20 |
+| 🔴 Open | 19 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 20 |
+| 🟢 Closed | 21 |
 
 ---
 
@@ -79,7 +79,7 @@
 ---
 
 ### BUG-032: The daily backup dumps the 2025 archive, not the live campaign database
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: ⚠️ High
 - Location: host `92.51.45.147`, `crontab`: `0 3 * * * /root/backups/epe/backup-performance-db.sh`; the script runs `docker exec postgres_n8n pg_dump -U admin -d postgres -n performance_db …`.
 - Description: `-d postgres` is the **2025 archive** database. The live campaign database is `epe_2026` (same schema name `performance_db`, different database), and **no cron job, systemd timer or script anywhere on the host dumps it**. Verified 2026-08-21: the only backup job is the one above; `grep -rl 'epe_2026' /etc/cron* /etc/systemd/system` returns nothing; and the 2026-08-21 dump's table list contains `invite_tokens` and `score_corrections` but **not** `period_results`, `auth_sessions` or `evaluation_period_participants` — three tables that exist only in `epe_2026`. The job itself is healthy: 10 dumps, 14-day prune, clean log, ~34 KB each.
@@ -87,6 +87,11 @@
 - How to fix: add `epe_2026` to the same script (a second `pg_dump -d epe_2026`, its own filename stem, the same size check and prune), then verify by restoring one dump into a throwaway DB — the project's established evidence standard. Do it before H1 is activated. Pairs with [BUG-014] (still no off-host copy).
 - H1 impact: no wrong number today. It is the blast radius of every other risk in the campaign.
 - Found: 2026-08-21 docs hygiene, `docs/DOCS_HYGIENE_2026-08-21.md`. Not named in any brief report — `docs/HANDOVER.md` said only "Backups: daily on-host, 14 days, restore-verified", which was true of the archive and read as true of live.
+- Also found while fixing: the same archive job dumps `-n performance_db` only, so the **n8n application schema** `postgres.public` — 58 workflows, 7 credentials, 8 settings, 41 webhook registrations — was covered by nothing either. No cron line, no systemd timer, and `docker inspect n8n-n8n-1` shows **zero mounts**, so it existed in exactly one place. Losing it meant rebuilding 58 workflows and every credential by hand.
+- Fix (2026-08-21): new host job `/root/backups/epe/backup-epe-live.sh`, cron `20 3 * * *` (00:20 UTC, twenty minutes after the archive job so they never contend). It dumps `epe_2026` in full and `postgres -n public` separately — `-n public` rather than the whole database because the archive job already owns `-n performance_db`, so the two jobs cover every schema of both databases with no overlap. Same 14-day window, `-Fc | gzip -9`, `chmod 600`, size check and shared `backup.log` as the archive job. Pruning is stem-scoped, so neither job can delete the other's files. `backup-performance-db.sh` is byte-identical before and after — md5 `a9f748541cad6379d8949ce91dab51e0` — and its 10 dumps were still 10 after the new job ran. Tracked copies: `scripts/backup-epe-live.sh`, `scripts/verify-restore.sh`.
+- Verification (2026-08-21): the entry point was fired **by cron**, not by hand — `/var/log/syslog` `CRON[542920]: (root) CMD (/root/backups/epe/backup-epe-live.sh)` at 11:45:01 UTC — and both restore proofs used the files that run produced. `epe_2026` dump restored into throwaway `epe_bkverify_epe_2026_20260821_114620`: `pg_restore --exit-on-error` exit 0, **17 tables, 0 mismatches** against live (users 89, participants 178, coefficients 80, evaluations/scores/`period_results` 0). n8n dump restored into `epe_bkverify_n8n_app_20260821_114608`: exit 0, **52 tables, 0 mismatches** (`workflow_entity` 58, `webhook_entity` 41, `credentials_entity` 7, `settings` 8). Both throwaways dropped; `pg_database` back to `epe_2026` + `postgres`. Retention proven with two 20-day-old decoy files: the cron run logged `pruned=1 retained=1` per stem and no decoy survived — note the archive job's own prune has never fired (every line reads `pruned=0`; its oldest dump is 9 days old). Failure path proven by running the real script against a nonexistent container: exit 1, `FAIL` line in `backup.log` carrying `pg_dump`'s own stderr, `FAIL` in the status file, partial dump removed. Disk: 34 GB free of 50 GB (33 % used); the new dumps add 387 400 B/day, ≈5.3 MB per 14-day window.
+- Not covered by this fix, deliberately: no off-host copy ([BUG-014], still open — Alexander has not named a target), no alerting push (the status file is a pull check; there is no MTA on the host), no point-in-time recovery (daily logical dumps, worst case ~24 h of campaign writes), and `N8N_ENCRYPTION_KEY` is a Portainer env var in no dump — the 7 credential rows restore but are unreadable under a different key.
+- Report: `docs/BACKUP_FIX_2026-08-2x.md`.
 
 ---
 
@@ -193,6 +198,7 @@
 - Description: Weekly off-host copy (Timeweb S3, write-only key) was not implemented. Outstanding since 13 Aug.
 - Why it matters: a host disk failure loses the only copies. Restore-verified on-host dumps exist.
 - Fix: pick a target and a write-only key. Alexander said “later”.
+- Progress (2026-08-21): **the stakes went up.** BUG-032's fix put `epe_2026` and the n8n application schema (58 workflows, 7 credentials, 8 settings) into the daily on-host job, so the one disk on `92.51.45.147` now holds the live campaign database, the n8n backend and every backup of both. A host or disk loss takes all of it together. Still open — the backup brief made closing it conditional on Alexander naming a target in that conversation, and he did not; no S3 sync was configured. Related: `N8N_ENCRYPTION_KEY` lives only in the Portainer stack environment and is in no dump, so an off-host copy of the dumps alone would still not restore working credentials.
 
 ### BUG-015: Stale Keychain admin password
 - Status: 🔴 OPEN
