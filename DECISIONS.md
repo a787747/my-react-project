@@ -438,6 +438,34 @@ Do not close H1 on 31 Aug evening; leave it `active` until calibration week is d
 ### D-0820-15 — Drafts persist in localStorage, no logout sweep for H1
 All three forms use `epe:evaluation-draft:{evaluator}:{subject}`; logout/401 remove only `user` and `token`.
 
+## 2026-08-20 evening — visibility and copy (Alexander, one line each)
+
+Taken after the user-facing copy & visibility audit (`docs/USER_FACING_COPY_2026-08-2x.md`) and implemented
+the same night in `docs/PRELAUNCH_FIXES_2026-08-2x.md`; re-verified against live definitions in
+`docs/PREFLIGHT_H1_2026-08-2x.md`.
+
+### D-0820-16 — The manager sees the subordinate's real self-review; nothing is hidden from them
+`API: Check Self Review` honours `user_id` when it is the actor, a direct report of the actor, or any subject for `admin`/`c_level`; anything else falls back to the actor's own row (no 403, no leak). Per-criterion comments are the subordinate's own, not `general_comment` repeated. Reverses the pre-20-Aug behaviour that showed the manager their own self-review labelled as the subordinate's (BUG-024).
+
+### D-0820-17 — Subject-visible results are sealed on the server until a separate release decision
+Not in the browser. `API: My Profile V5` attaches score fields only to self rows and computes profile stats from self-evaluations only; `API: Get Evaluation Details FIXED` answers 404 unless the caller is the evaluator, `admin`/`c_level`, or the subject of their own self-evaluation. HR is not privileged (D-0820-11). **When and how subjects see their own results is a later, separate decision** — no result-release mechanism was built (BUG-025).
+
+### D-0820-18 — Manager dashboard status flags are real
+Completion flags (`has_self_review`, `has_evaluated_manager`, `evaluated_by_actor`) ride on the enriched `/api/employees` payload; the dashboard no longer calls the HR-only `hr/evaluation-status`, which 403'd for managers and made every subordinate look idle.
+
+### D-0820-19 — `c_level_only` level texts are admin/c_level-only; the criteria wording stays unchanged
+`level_1_desc`…`level_10_desc` of `c_level_only` rows are stripped below `admin`/`c_level`; titles and descriptions stay visible to everyone, matching what `CriteriaOverview` renders. The catalogue text itself — including criterion 1's level ladder — was deliberately **not** rewritten (BUG-026).
+
+### D-0820-20 — Out-of-scope people are told, not left with dead links
+`/api/employees` returns `actor_is_in_scope`; `TaskStatusContext` drives `OutOfScopeNotice` on Welcome / SelfReview / ManagerEvaluation and hides «Самооценка», «Оценить руководителя» and the task panel. `NOT_IN_SCOPE` on the submit routes stays as server-side defence.
+
+### D-0820-21 — Defects found on the way are fixed immediately, not filed
+Reaffirmed for the pre-launch window: a defect surfaced while proving something else is fixed in the same brief and named in its report, rather than deferred to a queue. `docs/POSTVERIFY_BATCH_2026-08-2x.md` §8–9 (BUG-031 and the stale-stand import) are the pattern.
+
+---
+
+## 2026-08-21 decisions (one line each)
+
 ### D-0821-1 — Containers are non-activatable reporting constructs
 A period with children is a container: no Activate control, API refuses activation (422 `CONTAINER_NOT_ACTIVATABLE`) and close (422 `CONTAINER_NOT_CLOSABLE`); a period with evaluations can never become one; child dates lie within the parent's; reparenting a leaf is always safe.
 
@@ -446,3 +474,6 @@ Closing a leaf period atomically stores per participant into `period_results`: r
 
 ### D-0821-3 — Annual display: out-of-scope excluded from the mean, index is a sum (confirms D-0819-1 interpretation)
 Annual rating = AVG of persisted finals over in-scope periods with data only — no zero-fill, «вне охвата» marked; «нет данных» visible but excluded from the mean; annual index = SUM of persisted period indices; audience admin + c_level (D-0820-11).
+
+### D-0821-4 — The read-only trio stays in H1 scope; no grades are invented for them
+Cem Durukan (21), Hemra Ashyrov (40) and Mekan Yusupov (61) remain `is_in_scope=true` for H1 with `grade_id IS NULL` and `manager_id IS NULL`. They are September readers, not H1 writers: `can_evaluate=false` blocks the evaluation and correction paths, and `can_be_evaluated=false` in all three relation filters of `API: Submit Evaluation` means they can never acquire a `manager_score` — so `final_rating` and `bonus_index` persist as NULL rather than as a coefficient-1.00 money row. Nobody assigns them a grade to make a number appear. Resolves M2 of `docs/PERIODS_VERIFY_2026-08-2x.md`, which that report and `docs/POSTVERIFY_BATCH_2026-08-2x.md` both left open as Alexander's call; the decision post-dates both. Scope freezes at close, so this holds for the whole of H1.

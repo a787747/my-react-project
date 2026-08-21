@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 11 |
+| 🔴 Open | 20 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 20 |
 
@@ -78,6 +78,18 @@
 
 ---
 
+### BUG-032: The daily backup dumps the 2025 archive, not the live campaign database
+- Status: 🔴 OPEN
+- Severity: ⚠️ High
+- Location: host `92.51.45.147`, `crontab`: `0 3 * * * /root/backups/epe/backup-performance-db.sh`; the script runs `docker exec postgres_n8n pg_dump -U admin -d postgres -n performance_db …`.
+- Description: `-d postgres` is the **2025 archive** database. The live campaign database is `epe_2026` (same schema name `performance_db`, different database), and **no cron job, systemd timer or script anywhere on the host dumps it**. Verified 2026-08-21: the only backup job is the one above; `grep -rl 'epe_2026' /etc/cron* /etc/systemd/system` returns nothing; and the 2026-08-21 dump's table list contains `invite_tokens` and `score_corrections` but **not** `period_results`, `auth_sessions` or `evaluation_period_participants` — three tables that exist only in `epe_2026`. The job itself is healthy: 10 dumps, 14-day prune, clean log, ~34 KB each.
+- Why it matters: `epe_2026` holds the users, the password hashes, the H1 participant scope, and — from the first submission — every evaluation of the campaign. Closing a period is irreversible by design: there is no reopen route and no route that writes or deletes `period_results`, so **the documented recovery from a mistaken or premature close is "a database restore"** — of a database that has no restore point. Today the loss would be 89 user rows and two registrations; after H1 opens it is the campaign.
+- How to fix: add `epe_2026` to the same script (a second `pg_dump -d epe_2026`, its own filename stem, the same size check and prune), then verify by restoring one dump into a throwaway DB — the project's established evidence standard. Do it before H1 is activated. Pairs with [BUG-014] (still no off-host copy).
+- H1 impact: no wrong number today. It is the blast radius of every other risk in the campaign.
+- Found: 2026-08-21 docs hygiene, `docs/DOCS_HYGIENE_2026-08-21.md`. Not named in any brief report — `docs/HANDOVER.md` said only "Backups: daily on-host, 14 days, restore-verified", which was true of the archive and read as true of live.
+
+---
+
 ## 📌 Medium
 
 ### BUG-009: Employee profile and history still have no period filter
@@ -106,6 +118,46 @@
 - Fix: after H1 launch, upgrade in a dedicated pass and rebuild.
 
 ---
+
+### BUG-033: After a period closes, no screen can spend the frozen bonus index
+- Status: 🔴 OPEN
+- Severity: 📌 Medium
+- Location: `src/hooks/useFinalScoresMatrix.js:149` (requests the matrix with no `period_id`); `src/pages/BonusCalculation.jsx`; `src/pages/AdminAnnualRollup.jsx`.
+- Description: the money screens ask `API: evaluations-matrix` without `period_id`, so the server falls back to `WHERE is_active = true AND status = 'active'`. The moment H1 closes there is no active period: the API returns `no_period → data: []` and Итоговые баллы, Калькуляция бонусов **and** the evaluations matrix all render empty. The frozen `bonus_index` then exists only on Годовые итоги, which has no budget field, no point-value field, no payout column and no grade-A exclusion filter — all of which live on `BonusCalculation.jsx`.
+- Why it matters: the bonus is paid **after** the period closes. The screen that computes payouts goes blank at exactly the moment it is needed, and the number that was carefully frozen cannot be spent from it.
+- Fix: add a period selector (the server already accepts `?period_id=` and `useEvaluationsMatrix(periodId)` already takes the argument — nobody passes it), or read `period_results` on the money screens.
+- H1 impact: none in August. Needed in September.
+- Source: M3 of `docs/PERIODS_VERIFY_2026-08-2x.md`; still listed open in `docs/POSTVERIFY_BATCH_2026-08-2x.md`.
+
+### BUG-034: Admin → Сотрудники evaluation circles never load (`setLoadingStatuses` has no state)
+- Status: 🔴 OPEN
+- Severity: 📌 Medium
+- Location: `src/pages/AdminUsers.jsx:103` and `:127` call `setLoadingStatuses(true/false)`; no `useState` declares it anywhere in the file or the repo.
+- Description: the status-loading effect throws `ReferenceError` on its first line inside the `try`, is swallowed by the `catch`, and then throws again in the `finally` — an unhandled rejection. `selfReviewsStatus` and `evaluationStatuses` are never populated, so the evaluation-status circles stay empty for every row.
+- Why it matters: the classification pass Alexander runs on this screen still works (the circles are not classification), but the screen silently reports that nobody has done anything, and the console carries an unhandled rejection on every list load.
+- Fix: declare the state, or delete both calls.
+- Source: §6 of `docs/ADMIN_USERS_SORT_2026-08-2x.md`, confirmed in the working tree 2026-08-21.
+
+### BUG-036: Copy that contradicts behaviour, including a button that can only 409
+- Status: 🔴 OPEN
+- Severity: 📌 Medium
+- Location: `src/components/SelfReviewStatusCard.jsx` («Оценить новые критерии») against `API: Submit Self Review`, which ignores `is_update`; plus `src/pages/Welcome.jsx`, `src/components/SessionExpiryWarning.jsx`, `src/pages/Login.jsx`, `src/pages/ManagerEvaluation.jsx`.
+- Description: rows 2, 3, 7, 8, 9 and 10 of the §4.8 copy-vs-behaviour table are still open after the 20 Aug fixes closed rows 1 and 5. The functional one is row 7: «Оценить новые критерии» is rendered, is clickable, and **always** returns 409. The rest are false or incomplete statements — «Все данные видят только C-level менеджеры» (admin, HR statuses and `/team-scores` also see data); «Критерий для оценки руководителя» used as if it were the criterion's name (it is `Качество управления и развитие команды`); «Руководитель не назначен» shown to C-level who correctly have none; the draft notice not saying the draft is browser-local and expires in 7 days; the login placeholder `name@company.com` when registration requires `@sedamedical.com`.
+- Why it matters: a button that cannot succeed trains people to distrust the product on their first real task, and a confidentiality promise that is broader than the implementation is the kind of statement an employee will test.
+- Fix: either remove the button or implement `is_update`; correct the five copy strings. Neither needs a workflow change except row 7.
+- Source: §4.8 of `docs/USER_FACING_COPY_2026-08-2x.md`; re-checked in the §4.8 table of `docs/PRELAUNCH_FIXES_2026-08-2x.md`.
+
+---
+
+### BUG-029: Criterion weight of 0 silently behaves as 1.0 in the bonus index
+- Status: 🔴 OPEN
+- Severity: 🟢 Low–Medium (latent hardening gap — no currently-wrong number; no zero weight or zero grade coefficient exists on live today)
+- Location: LIVE `API: Manage Periods` → `Compute Close Results` (`const weight = Number(crit.weight) || 1.0;`); LIVE `API: Get Score Coefficients` → `Format Response` (`weight: parseFloat(row.weight) || 1.0`); `src/hooks/useFinalScoresMatrix.js:84`.
+- Description: `|| 1.0` treats 0 as absent. Setting a criterion's weight to 0 — the natural way an admin would express "this criterion should not count toward the bonus" — makes it count with weight 1.0 instead. The same applies to a grade coefficient of 0. A score *coefficient* of 0 is handled correctly (it zeroes the term); only weight and grade coefficient are trapped.
+- Why it matters: the bonus index is the money-allocation number. An admin who zeroes a weight to remove a criterion from the pool gets the opposite of what they asked for, silently, with no validation error. Because the index has no denominator (HANDOVER §4), the mistake inflates that person's share of the pool rather than merely mis-scaling it. Since 2026-08-21 the wrong number is also *frozen* into `period_results` at close and cannot be recomputed.
+- Repro: set `criteria.weight = 0` for any active criterion, open Итоговые баллы / Калькуляция бонусов — the criterion contributes `score × coefficient × 1.0`. Close the period — the same value is persisted.
+- How to fix: use `Number.isFinite(w) && w >= 0 ? w : 1.0` on both sides (the close compute node and the coefficients API), so an explicit 0 means 0 and only NULL/garbage defaults to 1.0. Add a `CHECK (weight > 0)` or an explicit UI affordance for "exclude this criterion" if 0 must stay illegal. The two sides must change together or the server/client parity breaks.
+- H1 impact: none today (no zero weights on live; re-measured 2026-08-21: zero criteria with `weight IS NULL OR weight <= 0`, zero `score_coefficients` rows with `coefficient IS NULL OR coefficient <= 0`). Fix before anyone edits the criteria catalogue.
 
 ## 📝 Low
 
@@ -151,6 +203,61 @@
 - Fix: Alexander changes the admin password and updates or deletes the Keychain item.
 
 ---
+
+### BUG-035: `errorHandler.js` overwrites 401 / 403 / 429 server messages
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: `src/utils/errorHandler.js:30-40`.
+- Description: the interceptor replaces the server's message for 401, 403 and 429 with fixed Russian strings. `CAPABILITY_FORBIDDEN` therefore reaches the user as the generic «Доступ запрещен. Недостаточно прав». The 20 Aug Russian-message pass covered 400/404/409/422 only, and the workflow strings behind these three codes are still English underneath.
+- Why it matters: the read-only C-level trio hitting the correction gate, and any non-admin clicking a `/admin/periods` control, get a message that does not say what actually happened.
+- Fix: surface the server's `message` when present; keep the fixed string as the fallback.
+- Source: leftovers of `docs/PRELAUNCH_FIXES_2026-08-2x.md`.
+
+### BUG-037: «Создать период» is still rendered for c_level and HR
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: `src/pages/AdminPeriods.jsx:393-399` — the header button has no `canManage` gate; rename, reparent, activate and close all do (`:71`, `:557`, `:567`, `:582`, `:604`).
+- Description: `/admin/periods` is wrapped in `AdminRoute`, which admits admin, c_level and hr. The 21 Aug hardening gated the four controls the brief named; the create button was outside that list. The server answers 403 (`POST api/periods/create` is admin-only), so this is presentation, not access.
+- Why it matters: same family as [BUG-013] — a non-admin is shown a write control and learns it is forbidden only by clicking it.
+- Fix: put the button behind the same `canManage`.
+- Source: §2 "boundary kept" of `docs/POSTVERIFY_BATCH_2026-08-2x.md`, which names it explicitly as left open for Alexander's decision.
+
+### BUG-038: The guard contract fails open when `required_roles` is omitted
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: LIVE `EPE: Auth Guard` → `Authorize`: `if (parsed.required_roles.length && !parsed.required_roles.includes(...))`; `Verify JWT` normalises a missing or non-array value to `[]`.
+- Description: a route whose `Prepare Guard Input` omits `required_roles` authenticates without authorizing — any valid session passes. None of the current routes is affected; all declare explicit roles, and the seven periods routes were checked one by one.
+- Why it matters: the failure mode of a future route is "silently open", not "loudly broken". That is the wrong default for the only authorization layer in the system.
+- Fix: default-deny on an empty/absent `required_roles`, or a test that asserts every generated `Prepare Guard Input` declares one.
+- Source: observations of `docs/PERIODS_VERIFY_2026-08-2x.md`.
+
+### BUG-039: The `can_be_evaluated` submit guard and two `finalOf` branches have no test
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: `tests/routeGuardWorkflows.test.js` (no assertion on `AND subj.can_be_evaluated = true`); `tests/periodsHierarchy.test.js` (the `c_level_only` and corrections branches of the close computation are covered by static fixtures only).
+- Description: LIVE `API: Submit Evaluation` carries `AND subj.can_be_evaluated = true` in all three relation filters — verified 2026-08-21, and it is what keeps ids 21 / 40 / 61 out of every money number (D-0821-4). Nothing fails if a regeneration drops it. Separately, `score_corrections` was empty and no `c_level_direct` evaluation existed on either proof stand, so the correction-averaging and `c_level_only` branches of the close computation never executed end-to-end; both are textually identical to the client's, which production does exercise.
+- Why it matters: the first guard is the only thing standing between a data gap and a coefficient-1.00 bonus row for three people. The second pair decides the money for criterion 1, the heaviest in the catalogue (weight 5.00).
+- Fix: one assertion in `tests/routeGuardWorkflows.test.js`; seed the next proof stand with a c_level score, at least one correction, and a grade coefficient other than 1.00.
+- Source: `docs/POSTVERIFY_BATCH_2026-08-2x.md` ("this guard has no static test") and the observations of `docs/PERIODS_VERIFY_2026-08-2x.md`.
+
+### BUG-040: `deploy_epe_frontend.sh` requires `rg` on PATH and fails closed without it
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: `scripts/deploy_epe_frontend.sh` — the two safety gates (refuse if a legacy `:5678` URL remains; refuse if the `/webhook` base is absent) call `rg`.
+- Description: ripgrep is not installed on the delivery laptop, so the deploy refuses. On 2026-08-21 the gates were run by hand and the script re-run with a shell shim mapping `rg -q` to `grep -rqE`; gate semantics were preserved, not bypassed.
+- Why it matters: failing closed is correct, but the workaround is manual and undocumented at the point of use, which is exactly where a rushed deploy skips it.
+- Fix: install ripgrep, or fall back to `grep -rqE` inside the script when `rg` is absent.
+- Source: `docs/POSTVERIFY_BATCH_2026-08-2x.md` live-deploy note.
+
+---
+
+### BUG-028: Stale top-level workflow export (evaluations-matrix)
+- Status: 🔴 OPEN
+- Severity: 🟢 Low
+- Location: `n8n_workflows/API_ evaluations-matrix.json`
+- Description: The top-level export is the pre-guard, pre-period-binding 4-node workflow. Live runs the generated version (`scripts/build_route_guard_deferred.py` → `route_guard_deferred/evaluations-matrix.json`). Anything importing or trusting the top-level file gets an unguarded, all-periods-mixed matrix — it cost the 2026-08-21 throwaway stand one debug cycle.
+- Why it matters: A future session or stand that seeds from the stale export silently reintroduces an unauthenticated period-mixing matrix.
+- How to fix: Refresh top-level exports from live after each PUT (deploy_periods_hierarchy.py already does this for Manage Periods), or drop top-level duplicates of generator-owned workflows keeping only the id-bearing metadata.
 
 ## ✅ Closed
 
@@ -258,23 +365,6 @@
 - Fix: allowed for admin or c_level; evaluator = token actor; same `AVG(score_val)`.
 - Verification: employee/manager/HR 403; admin and Bayram 200; formula AVG. Live `updatedAt=2026-08-19T19:43:38.525Z`. See `docs/CLEVEL_DIRECT_ENABLE_2026-08-2x.md`.
 
-### BUG-028: Stale top-level workflow export (evaluations-matrix)
-- Status: 🔴 OPEN
-- Severity: 🟢 Low
-- Location: `n8n_workflows/API_ evaluations-matrix.json`
-- Description: The top-level export is the pre-guard, pre-period-binding 4-node workflow. Live runs the generated version (`scripts/build_route_guard_deferred.py` → `route_guard_deferred/evaluations-matrix.json`). Anything importing or trusting the top-level file gets an unguarded, all-periods-mixed matrix — it cost the 2026-08-21 throwaway stand one debug cycle.
-- Why it matters: A future session or stand that seeds from the stale export silently reintroduces an unauthenticated period-mixing matrix.
-- How to fix: Refresh top-level exports from live after each PUT (deploy_periods_hierarchy.py already does this for Manage Periods), or drop top-level duplicates of generator-owned workflows keeping only the id-bearing metadata.
-
-### BUG-029: Criterion weight of 0 silently behaves as 1.0 in the bonus index
-- Status: 🔴 OPEN
-- Severity: 🟢 Low–Medium (latent hardening gap — no currently-wrong number; no zero weight or zero grade coefficient exists on live today)
-- Location: LIVE `API: Manage Periods` → `Compute Close Results` (`const weight = Number(crit.weight) || 1.0;`); LIVE `API: Get Score Coefficients` → `Format Response` (`weight: parseFloat(row.weight) || 1.0`); `src/hooks/useFinalScoresMatrix.js:84`.
-- Description: `|| 1.0` treats 0 as absent. Setting a criterion's weight to 0 — the natural way an admin would express "this criterion should not count toward the bonus" — makes it count with weight 1.0 instead. The same applies to a grade coefficient of 0. A score *coefficient* of 0 is handled correctly (it zeroes the term); only weight and grade coefficient are trapped.
-- Why it matters: the bonus index is the money-allocation number. An admin who zeroes a weight to remove a criterion from the pool gets the opposite of what they asked for, silently, with no validation error. Because the index has no denominator (HANDOVER §4), the mistake inflates that person's share of the pool rather than merely mis-scaling it. Since 2026-08-21 the wrong number is also *frozen* into `period_results` at close and cannot be recomputed.
-- Repro: set `criteria.weight = 0` for any active criterion, open Итоговые баллы / Калькуляция бонусов — the criterion contributes `score × coefficient × 1.0`. Close the period — the same value is persisted.
-- How to fix: use `Number.isFinite(w) && w >= 0 ? w : 1.0` on both sides (the close compute node and the coefficients API), so an explicit 0 means 0 and only NULL/garbage defaults to 1.0. Add a `CHECK (weight > 0)` or an explicit UI affordance for "exclude this criterion" if 0 must stay illegal. The two sides must change together or the server/client parity breaks.
-- H1 impact: none today (no zero weights on live; re-measured 2026-08-21: zero criteria with `weight IS NULL OR weight <= 0`, zero `score_coefficients` rows with `coefficient IS NULL OR coefficient <= 0`). Fix before anyone edits the criteria catalogue.
 
 ### BUG-030: A failed coefficients call silently un-weighted the whole bonus screen
 - Status: 🟢 CLOSED

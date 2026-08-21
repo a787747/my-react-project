@@ -706,6 +706,27 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - Nothing keys on period name at runtime (verified); migrations 010/012 are name-keyed one-time seeds — do not re-run after renames.
 - Throwaway DB `epe_hier_20260821_0549` kept for audit; container `epe-hier-n8n` removed.
 
+## 2026-08-21 — Periods hierarchy acceptance verification (read-only gate)
+
+**What was done:**
+- Read-only acceptance gate on the periods-hierarchy build. Live workflow definitions read out of `postgres.workflow_entity` rather than repo exports (BUG-028); `epe_2026`, the 2025 archive and the surviving throwaway stand read by SELECT only. No PUT, no deploy, no DB write, no mail.
+- Formula fidelity checked fragment-for-fragment: final cell against `src/utils/matrixUtils.js`, bonus index against `src/hooks/useFinalScoresMatrix.js`, and a ten-row catalogue of mirrored quirks (zero weight → 1.0, rounding order, level 0, persistence precision, the one client-only early return that is not mirrored).
+- Persisted numbers re-derived **by hand** from criterion rows, weights and coefficients: 36.30 / 68.40 / annual 104.70 and 6.0 / 8.0 / annual 7.0, to the last digit.
+- Authorization of all seven periods routes, close semantics (refusal order, atomicity, idempotence, irreversibility, blast radius), and a fresh live baseline table.
+
+**Results:**
+- **Verdict: accept, no blocker**, with seven named microfixes M1–M7.
+- Two of the seven were real money-or-schedule defects that the build report could not have shown: M6 — a solo failure of the coefficients or grades fetch rendered a full, plausible, **unweighted** bonus table with no error (became BUG-030); and M7 — «container» was the derived state `child_count > 0`, so detaching the last child would have made a full-year period activatable and closable.
+- Baseline drifted during the audit, in a good way: Alexander performed the designated UX walk-through on live — created period id 5 «Annual 2026» and attached H1 to it. Nothing activated or closed; all four data tables still 0.
+- Also flagged: M2 (ids 21/40/61 in H1 scope with no grade and no manager), M3 (no screen can spend the frozen index after close), M5 (three stale documents), the production-PII throwaway DB, and `main` 9 commits ahead of origin.
+- Report: `docs/PERIODS_VERIFY_2026-08-2x.md`.
+
+**Notes / Gotchas:**
+- `api_proof.json`'s `cross_check` was a bare slogan string; a run that compared nothing would have written it just as happily. Proof artifacts must record the compared tuples.
+- `rating_*` and `final_rating` are different quantities and will not reconcile — by design. Recorded in `CALCULATION_MAP.md` §A.1 by the follow-up batch.
+- The guard contract fails open on an omitted `required_roles`; none of the current routes is affected.
+- Findings were produced by six independent read-only audits then put through an adversarial pass instructed to refute; four claims were downgraded or withdrawn and are reported at corrected severity.
+
 ## 2026-08-21 — Post-verification batch: money-screen honesty, annual-type gate, sibling overlap
 
 **What was done:**
@@ -728,3 +749,23 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - `n8n import:workflow` always assigns a new workflow id (the file's `id` is ignored), so a stand accumulates duplicates — deactivate the old ones and verify the active definition node-for-node before trusting a proof.
 - `scripts/deploy_epe_frontend.sh` needs `rg` on PATH; it is not installed here, so the deploy failed closed. The two gates were run by hand and the script re-run with a `grep` shim.
 - Verification rider confirmed present, unchanged: LIVE `API: Submit Evaluation` carries `AND subj.can_be_evaluated = true` in all three relation filters (manager / subordinate / c_level_direct), so 21/40/61 can never acquire a coefficient-1.00 money row. No static test covers it.
+
+## 2026-08-21 — Docs hygiene (HANDOVER vs live, after the 20–21 Aug sprint)
+
+**What was done:**
+- Read the eight reports dated 20–21 Aug (USER_FACING_COPY, PRELAUNCH_FIXES, PREFLIGHT_H1, ADMIN_USERS_SORT, TENDER_CATEGORY, PERIODS_HIERARCHY, PERIODS_VERIFY, POSTVERIFY_BATCH), then re-measured every fact **against live** — SSH + `postgres_n8n` SELECT, `readlink /var/www/epe/current`, `openssl` cert, `docker inspect`, `iptables -S`, one unauthenticated GET probe. Reports located claims; live settled them. No PUT, no deploy, no DB write, no mail.
+- Rewrote `docs/HANDOVER.md` from that snapshot, same 10-section structure. **§4 copied verbatim — md5 `93e5bab464151d463b259b69e5914eaf` before and after.** Two figures inside §4 are now older than the document and are flagged in a note above it rather than edited in place.
+- `DECISIONS.md`: added D-0820-16 … D-0820-21 (Alexander's six visibility/copy decisions of the 20 Aug evening) and D-0821-4 (read-only trio stays in H1 scope, no grades invented). D-0821-1..3 were already logged by the periods brief — no duplicates.
+- `bugs.md`: reconciled BUG-001…031 against the reports and added nine open rows (BUG-032…040) so every leftover named in POSTVERIFY_BATCH / PERIODS_VERIFY is either a row or explicitly triaged in the report. Moved BUG-028 and BUG-029 out of the «Closed» section, where they sat while open. Counts 20 open / 20 closed.
+- `PROJECT_RULES.md`: added the throwaway-stand pattern and its ports. `AGENTS.md`: corrected the file pointers and the stale "Phase 0, do not change code" goal.
+
+**Results:**
+- Live, 2026-08-21 08:21–08:40 UTC: workflows 58 / 33 active / 3 inactive / 22 archived; **41** webhooks (19 GET, 20 POST, 2 OPTIONS); periods `1 Annual 2025 closed`, `2 H1-2026 draft parent=5` 87/89, `5 Annual 2026 draft annual` 1 child; `evaluations` / `scores` / `corrections` / `period_results` **0/0/0/0**; users 89, registered 2 (ids 2 and 47), sessions 6 with 1 unexpired; frontend `20260821T072859Z`; Auth Guard `updatedAt=2026-08-18T16:34:30.674Z` `active=false`; `API: Manage Periods` `2026-08-21T07:28:10.039Z`, 61 nodes / 7 webhooks; cert LE YE1 to 2026-11-17; archive 73/234/644/3. `npm test` **236/236**. `npm audit` 15 (11 high).
+- Migration 013 confirmed on live with both anti-zero CHECKs, PK, three FKs and `idx_period_results_user`.
+- Report: `docs/DOCS_HYGIENE_2026-08-21.md`, with a live-vs-report inconsistencies section.
+
+**Notes / Gotchas:**
+- **New live finding, not in any report: the daily backup dumps the wrong database.** `/root/backups/epe/backup-performance-db.sh` runs `pg_dump -d postgres -n performance_db` — the 2025 archive. No cron job, timer or script anywhere on the host dumps `epe_2026`. Proven from the dump's own table list: it carries `invite_tokens` and `score_corrections` but not `period_results`, `auth_sessions` or `evaluation_period_participants`. BUG-032, High. Closing a period is irreversible and its documented recovery is "a database restore".
+- Classification is moving under the documentation: live `work_category` is 48 general / 41 project today against 46 / 43 in the 20 Aug report — so the criteria-count distribution in §4 (35/11/38/5) is now 37/11/36/5. Expected; Alexander is doing the classification himself.
+- `docs/EVALUATION_METHODOLOGY.md`, which `AGENTS.md` calls the business contract that code must conform to, **does not exist and never has**. Flagged, not written — that document is Alexander's to own.
+- `postgres_n8n` holds `epe_2026` and `postgres` only; every throwaway stand DB and container from the 21 Aug briefs is gone, as their housekeeping claimed.

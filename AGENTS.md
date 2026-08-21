@@ -19,18 +19,21 @@ Alexander and the chat-side architect assistant **have no code access. You do.**
 
 ## Current goal
 
-**Phase 0 — deep review, read-only.** Produce an assessment. Do not change code, config, workflows, or data.
+**Phase 2 — H1 is built and paused.** Phase 0 (review) and Phase 1 (architecture decision) are done; their
+outputs are `docs/REVIEW_H1.md` and §5 of `docs/HANDOVER.md`. The H1 surface is deployed, guarded, proven
+and **not activated**: period id 2 is `draft`, and Alexander paused the launch on 2026-08-21. Read
+`docs/HANDOVER.md` for the live state before assuming anything about this list.
 
 Season goal: H1 evaluation → H2 evaluation → annual aggregation. The system ran a full cycle last year; last year's scores exist and are in use.
 
 Phases, in order: 0 review → 1 architecture decision → 2 stabilize for H1 → 3 rebuild and extend. Migrating off n8n belongs to Phase 3, in the window between H1 and H2. If a rebuild would threaten the H1 deadline, the deadline wins — say so plainly.
 
-## Success criteria for Phase 0
+## Standing quality bar (was the Phase 0 criteria; it outlived Phase 0)
 
-- A review written to `docs/REVIEW.md`, covering the standard passes (bugs, security, architecture, performance) plus the domain checks in `docs/REVIEW_CHECKLIST.md`.
 - **Report every finding at every severity.** Do not pre-filter to "important ones only" — filtering is a separate later pass.
 - Each finding carries: location (file/line or workflow node), the real-world consequence, and a concrete fix.
-- A verdict: *can H1 be run on this system — yes or no*, plus the minimum blocker list.
+- Reviews cover the standard passes (bugs, security, architecture, performance) plus the domain checks in `REVIEW_CHECKLIST.md` (repo root).
+- Every brief ends in a dated report in `docs/`, an entry in `PROGRESS.md`, and rows in `bugs.md` for what it did not fix.
 
 ## Hard constraints
 
@@ -76,12 +79,14 @@ macOS arm64 (M3 Pro), Docker Desktop, several unrelated projects on the same mac
 
 ## Project files
 
-`PLAN.md` · `PROGRESS.md` · `DECISIONS.md` · `PROJECT_RULES.md` · `docs/REVIEW.md` · `docs/EVALUATION_METHODOLOGY.md`
+`docs/HANDOVER.md` (start here) · `PROGRESS.md` · `DECISIONS.md` · `bugs.md` · `PROJECT_RULES.md` · `REVIEW_CHECKLIST.md` · `docs/REVIEW_H1.md` · `docs/CALCULATION_MAP.md`
 
-`EVALUATION_METHODOLOGY.md` is the business contract Alexander owns: role groups, criteria, weights, scale, aggregation, calibration. Code conforms to it, never the reverse — a divergence is an implementation bug.
+`PLAN.md` is still the Phase-0 revival plan (HTTP :8080, closed ports) and is historical — do not plan from it.
 
-Read `docs/REVIEW_CHECKLIST.md` before any review work. Update `PROGRESS.md` before the session ends. If these files do not exist, reconstruct them from the code and say that you did.
+**`docs/EVALUATION_METHODOLOGY.md` does not exist.** It is described here as the business contract Alexander owns — role groups, criteria, weights, scale, aggregation, calibration, with code conforming to it and never the reverse — but no such file has ever been in the repo. Until he writes one, the de facto contract is the criteria catalogue and the three formulas in `docs/HANDOVER.md` §3–§4, and "a divergence from the methodology" cannot be checked against anything. Do not fabricate the file; say it is missing.
+
+Read `REVIEW_CHECKLIST.md` (repo root — not `docs/`) before any review work. Update `PROGRESS.md` before the session ends. If a named file does not exist, say so plainly rather than inventing it.
 
 ## Session start
 
-Read `PLAN.md`, the last 3–5 entries of `PROGRESS.md`, `DECISIONS.md`, `PROJECT_RULES.md`, the compose file, the n8n export, and the database schema. Then, in ten lines or fewer: what the system is, what state it is in, the three largest risks, and what you propose to do now. At most three blocking questions.
+Read `docs/HANDOVER.md`, the last 3–5 entries of `PROGRESS.md`, `DECISIONS.md`, `PROJECT_RULES.md`, and the one report relevant to the brief. Treat `n8n_workflows/` exports as untrusted — at least one is stale against live; the truth is `workflow_entity` in `postgres_n8n`. Then, in ten lines or fewer: what the system is, what state it is in, the three largest risks, and what you propose to do now. At most three blocking questions.

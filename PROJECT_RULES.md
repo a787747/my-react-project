@@ -1,6 +1,6 @@
 # EPE — project rules (ports, naming, diagnosis)
 
-This file did not exist. `AGENTS.md` pointed at it for a reserved port range that was never written down. These are the **live facts** from `infra/caddy-compose.yml`, `infra/n8n-stack.yml`, and `~/.ssh/config` Host `epe-vps-tunnel`, verified 2026-08-20. There is no separate reserved-range document.
+This file did not exist. `AGENTS.md` pointed at it for a reserved port range that was never written down. These are the **live facts** from `infra/caddy-compose.yml`, `infra/n8n-stack.yml`, and `~/.ssh/config` Host `epe-vps-tunnel`, verified 2026-08-20 and re-checked 2026-08-21 (ports and firewall chain unchanged; the throwaway-stand and local-tooling sections were added then). There is no separate reserved-range document.
 
 ## Compose and names
 
@@ -27,7 +27,46 @@ SSH tunnel alias `epe-vps-tunnel` (avoids the changing home-IP allowlist):
 | `127.0.0.1:25678` | `127.0.0.1:5678` | n8n editor / API |
 | `127.0.0.1:29000` | `127.0.0.1:9000` | Portainer |
 
-Firewall (not a port-range file): 80/443 open; 5432/5431/8000/9000/2377/7946 restricted; 5678 DROP on `eth0`. SSH 22 stays public.
+Proof stands (created and destroyed per brief, never left running): n8n **25679** on VPS loopback; local
+`vite` **5199** / **5299** on the laptop. See the stand section below.
+
+Firewall (not a port-range file): 80/443 open; 5432/5431/8000/9000/2377/7946/4789 restricted **to one
+allowlisted source IP** (Alexander's home address — it changes, which is why the SSH tunnel exists);
+5678 DROP on `eth0`. SSH 22 stays public. Re-read from `iptables -S EPE-DOCKER-USER` on 2026-08-21.
+
+## Throwaway proof stands (the pattern that produced the 20–21 Aug proofs)
+
+Nothing is proven against live. Every behavioural proof since 2026-08-20 ran on an isolated stand: an n8n
+container on the **VPS loopback** talking to a throwaway database restored from a dated dump of live.
+`scripts/setup_hierarchy_throwaway.sh` is the reference implementation; `scripts/seed_*_throwaway.sql`
+supply the fixtures and `scripts/prove_*.py` record the checks.
+
+| Thing | Fact |
+|---|---|
+| Stand n8n container | `epe-prelaunch-n8n` (20 Aug) / `epe-hier-n8n` (21 Aug) — **same pinned image digest as live**, `--network n8n_default` |
+| Stand port | `127.0.0.1:25679` **on the VPS**, published to loopback only. Reach it from the laptop with `ssh -N -L 25679:127.0.0.1:25679 root@92.51.45.147`, then `http://127.0.0.1:25679/webhook` |
+| Throwaway DB | `epe_prelaunch_<stamp>` / `epe_hier_<stamp>`, restored from a dated dump of live into `postgres_n8n`. **The prefix is load-bearing** — the drop loop refuses any name that does not match it, so `epe_2026` can never be a candidate |
+| Local frontend against the stand | `vite` on `:5199` (20 Aug) / `:5299` (21 Aug) with `VITE_DEV_API_PROXY=http://127.0.0.1:25679`. `.claude/launch.json` carries the `epe-hier-vite` launcher |
+| Teardown | Drop the DB and remove the container at the end of the brief. A stand DB is a **second copy of production personal data** outside the backup regime — it is not a place to leave things |
+
+Stand traps that already cost time, all of them silent:
+
+- `docker cp <dir> container:/path` **nests** the directory when the target already exists, leaving the
+  previous file at the top level — which is then what `n8n import:workflow --input=<dir>/` imports. Clear
+  the container-side directory first.
+- `n8n import:workflow` **always assigns a new workflow id**; the file's `id` is ignored. A stand
+  accumulates duplicates, and the old one may still be the active definition. Deactivate the old ids and
+  verify the active graph node-for-node against the repo before trusting any proof.
+- Generate the workflow from its builder script; do **not** copy a tracked top-level export. At least one
+  of those exports is stale against live (BUG-028).
+- A proof artifact must record the compared values, not a summary string. A run that compared nothing
+  writes the same slogan as a run that compared everything.
+
+## Local tooling
+
+`scripts/deploy_epe_frontend.sh` calls `rg` in both of its safety gates. Ripgrep is **not** installed on
+the delivery laptop, so the deploy fails closed until it is (BUG-040). Run the two gates by hand — legacy
+`:5678` absent, `/webhook` base present — before any shim.
 
 ## Hard constraints (repeat)
 
