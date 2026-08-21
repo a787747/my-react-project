@@ -21,7 +21,7 @@ import {
   LayoutDashboard, Settings, LogOut, Users, ClipboardList, Calendar, 
   Star, User, BarChart3, TrendingUp, Grid3x3, Calculator, Award, 
   UserCheck, BookOpen, ClipboardCheck, CheckCircle2, Shield, Info, 
-  Coins, Menu, X, ChevronDown 
+  Coins, Menu, X, ChevronDown, CalendarRange
 } from 'lucide-react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
@@ -233,6 +233,7 @@ const Sidebar = ({ user }) => {
             <NavItem to="/admin/evaluations-matrix" icon={Grid3x3} label="Матрица оценок" onClick={closeMobileMenu} />
             <NavItem to="/admin/final-scores" icon={Award} label="Итоговые баллы" onClick={closeMobileMenu} />
             <NavItem to="/admin/bonus-calculation" icon={Coins} label="Калькуляция бонусов" onClick={closeMobileMenu} />
+            <NavItem to="/admin/annual-rollup" icon={CalendarRange} label="Годовые итоги" onClick={closeMobileMenu} />
             {safeUser.role === 'admin' && (
               <NavItem to="/admin/score-calculator" icon={Calculator} label="Калькуляция баллов" onClick={closeMobileMenu} />
             )}

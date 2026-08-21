@@ -2818,11 +2818,20 @@ def build_save_user(credential_id: str, guard_workflow_id: str) -> dict[str, Any
     return workflow("API: Admin Save User (GUI Mode)", nodes_list, connections)
 
 
-# ── 17. Manage Periods — GET api/periods, POST api/periods/create, POST …/activate
-# GET response: {status:'success', data:[...]}
-# Create: atomic CTE period+participants; always draft/inactive; half_year or annual only.
-# Activate: reject if switching away from active period with evaluations (409);
-#   set both status/is_active; reject closed target.
+# ── 17. Manage Periods — period CRUD, hierarchy, close-time persistence, roll-up
+# GET api/periods: catalogue incl. child_count/has_evaluations/has_results.
+# POST api/periods/create: atomic CTE period+participants; always draft/inactive;
+#   half_year or annual only; optional parent_period_id (container attach at birth).
+# POST api/periods/activate: refuses containers (422, D-0821-1), closed targets,
+#   and switching away from an active period with evaluations (409).
+# POST api/periods/rename: any period; unique-name guarded. Nothing keys on name.
+# POST api/periods/reparent: attach/detach a child; containers are reporting
+#   constructs, so reparenting is always safe. A period with evaluations can
+#   never become a parent; child dates must lie within the parent's.
+# POST api/periods/close: leaf-only, active-only; computes and stores per-person
+#   results in one atomic statement (D-0821-2). Second close changes zero rows.
+# GET api/periods/annual-rollup: admin + c_level; persisted results only —
+#   out-of-scope excluded from the mean, index is a sum (D-0821-3 / D-0819-1).
 
 PERIODS_GET_BUILD = """
 const guard = $('Run Auth Guard GET').first().json;
@@ -2842,7 +2851,13 @@ return {
         (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp
           WHERE epp.period_id = evaluation_periods.id) AS participant_count,
         (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp
-          WHERE epp.period_id = evaluation_periods.id AND epp.is_in_scope = true) AS in_scope_count
+          WHERE epp.period_id = evaluation_periods.id AND epp.is_in_scope = true) AS in_scope_count,
+        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods child
+          WHERE child.parent_period_id = evaluation_periods.id) AS child_count,
+        EXISTS(SELECT 1 FROM performance_db.evaluations e
+          WHERE e.period_id = evaluation_periods.id) AS has_evaluations,
+        EXISTS(SELECT 1 FROM performance_db.period_results pr
+          WHERE pr.period_id = evaluation_periods.id) AS has_results
       FROM performance_db.evaluation_periods
       ORDER BY start_date DESC
     `,
@@ -2903,18 +2918,104 @@ if (!VALID_TYPES.includes(rawType)) {
   return { json: { http_status: 422, body: { success: false, error: 'INVALID_TYPE', message: 'Тип периода должен быть half_year или annual' } } };
 }
 
+const rawParent = body.parent_period_id;
+let parentId = null;
+if (rawParent !== undefined && rawParent !== null && String(rawParent).trim() !== '') {
+  parentId = parseInt(rawParent, 10);
+  if (!Number.isFinite(parentId) || parentId < 1) {
+    return { json: { http_status: 422, body: { success: false, error: 'INVALID_PARENT', message: 'Идентификатор родительского периода должен быть положительным целым числом' } } };
+  }
+}
+
 const safeName = name.replace(/'/g, "''");
 // Always start as draft and inactive; ignore client-supplied status
 return {
   json: {
     ok: true,
+    name: safeName,
+    start_date: startDate,
     end_date: endDate,
+    period_type: rawType,
+    parent_id: parentId,
+    sql: `
+SELECT
+  EXISTS(SELECT 1 FROM performance_db.evaluation_periods x
+         WHERE x.name = '${safeName}') AS name_taken,
+  p.id AS parent_id,
+  p.start_date AS parent_start,
+  p.end_date AS parent_end,
+  p.status AS parent_status,
+  p.parent_period_id AS parent_parent_id,
+  EXISTS(SELECT 1 FROM performance_db.evaluations e
+         WHERE e.period_id = ${parentId === null ? -1 : parentId}) AS parent_has_evaluations
+FROM (SELECT 1) one
+LEFT JOIN performance_db.evaluation_periods p
+  ON p.id = ${parentId === null ? -1 : parentId}
+    `,
+  },
+};
+""".strip()
+
+PERIODS_CREATE_BUILD = """
+const prev = $('Validate Period Create').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const check = $input.all().map(item => item.json).find(item => item.name_taken !== undefined);
+if (!check) {
+  return { json: { http_status: 500, body: { success: false, error: 'CHECK_FAILED', message: 'Не удалось проверить условия создания периода' } } };
+}
+if (check.name_taken) {
+  return { json: { http_status: 409, body: { success: false, error: 'PERIOD_NAME_TAKEN', message: 'Период с таким названием уже существует' } } };
+}
+const parentId = prev.parent_id;
+const asDate = (value) => String(value ?? '').slice(0, 10);
+if (parentId !== null) {
+  if (check.parent_id === null || check.parent_id === undefined) {
+    return { json: { http_status: 404, body: { success: false, error: 'PARENT_NOT_FOUND', message: 'Родительский период не найден' } } };
+  }
+  if (check.parent_parent_id !== null && check.parent_parent_id !== undefined) {
+    return { json: { http_status: 422, body: { success: false, error: 'PARENT_IS_CHILD', message: 'Контейнер не может быть вложен в другой контейнер' } } };
+  }
+  if (check.parent_status === 'active') {
+    return { json: { http_status: 422, body: { success: false, error: 'PARENT_ACTIVE', message: 'Активный период не может быть контейнером' } } };
+  }
+  if (check.parent_has_evaluations) {
+    return { json: { http_status: 422, body: { success: false, error: 'PARENT_HAS_EVALUATIONS', message: 'Период с оценками не может стать контейнером' } } };
+  }
+  if (asDate(prev.start_date) < asDate(check.parent_start) || asDate(prev.end_date) > asDate(check.parent_end)) {
+    return { json: { http_status: 422, body: { success: false, error: 'CHILD_DATES_OUTSIDE_PARENT', message: 'Даты дочернего периода должны находиться внутри дат контейнера' } } };
+  }
+}
+const safeName = prev.name;
+const startDate = prev.start_date;
+const endDate = prev.end_date;
+const rawType = prev.period_type;
+const parentLiteral = parentId === null ? 'NULL' : String(parentId);
+// Re-assert every precondition inside the INSERT itself: zero rows on a race.
+const insertGate = parentId === null
+  ? `NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods x WHERE x.name = '${safeName}')`
+  : `NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods x WHERE x.name = '${safeName}')
+     AND EXISTS (
+       SELECT 1 FROM performance_db.evaluation_periods p
+       WHERE p.id = ${parentId}
+         AND p.parent_period_id IS NULL
+         AND p.status != 'active'
+         AND p.start_date <= '${startDate}'::date
+         AND p.end_date >= '${endDate}'::date
+         AND NOT EXISTS (SELECT 1 FROM performance_db.evaluations e WHERE e.period_id = p.id)
+     )`;
+return {
+  json: {
+    ok: true,
+    parent_id: parentId,
     sql: `
 WITH new_period AS (
   INSERT INTO performance_db.evaluation_periods
-    (name, start_date, end_date, is_active, period_type, status)
-  VALUES ('${safeName}', '${startDate}', '${endDate}', false, '${rawType}', 'draft')
-  RETURNING id, name, start_date, end_date, is_active, period_type, status
+    (name, start_date, end_date, is_active, period_type, status, parent_period_id)
+  SELECT '${safeName}', '${startDate}'::date, '${endDate}'::date, false, '${rawType}', 'draft', ${parentLiteral}
+  WHERE ${insertGate}
+  RETURNING id, name, start_date, end_date, is_active, period_type, status, parent_period_id
 ),
 participants AS (
   INSERT INTO performance_db.evaluation_period_participants
@@ -2939,24 +3040,26 @@ participants AS (
   RETURNING user_id
 )
 SELECT np.id, np.name, np.start_date, np.end_date, np.is_active, np.period_type, np.status,
+       np.parent_period_id,
        count(p.user_id)::integer AS participants_added
 FROM new_period np
 LEFT JOIN participants p ON true
-GROUP BY np.id, np.name, np.start_date, np.end_date, np.is_active, np.period_type, np.status
+GROUP BY np.id, np.name, np.start_date, np.end_date, np.is_active, np.period_type, np.status,
+         np.parent_period_id
     `,
   },
 };
 """.strip()
 
 PERIODS_CREATE_FORMAT = """
-const prev = $('Validate Period Create').first().json;
+const prev = $('Build Create SQL').first().json;
 if (prev.http_status) {
   return { json: prev };
 }
 const row = $input.all().map(item => item.json).find(item => item.id !== undefined);
 if (!row) {
   return {
-    json: { http_status: 500, body: { status: 'error', message: 'Period creation failed' } },
+    json: { http_status: 409, body: { success: false, error: 'CREATE_CONFLICT', message: 'Условия создания периода изменились — обновите страницу и повторите' } },
   };
 }
 return {
@@ -2973,6 +3076,7 @@ return {
         is_active: row.is_active,
         period_type: row.period_type,
         status: row.status,
+        parent_period_id: row.parent_period_id,
       },
       participants_added: row.participants_added,
     },
@@ -3000,22 +3104,33 @@ if (!Number.isFinite(periodId) || periodId < 1) {
     },
   };
 }
-// Check: is there a currently-active period that has evaluations (would block the switch)?
+// Check the target (containers are never activatable, D-0821-1) and any
+// currently-active period that has evaluations (would block the switch).
 return {
   json: {
     ok: true,
     target_period_id: periodId,
     sql: `
       SELECT
-        p.id AS current_active_id,
-        p.name AS current_active_name,
-        EXISTS(
-          SELECT 1 FROM performance_db.evaluations WHERE period_id = p.id LIMIT 1
-        ) AS has_evaluations
-      FROM performance_db.evaluation_periods p
-      WHERE (p.is_active = true OR p.status = 'active')
-        AND p.id != ${periodId}
-      LIMIT 1
+        t.id AS target_id,
+        t.status AS target_status,
+        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods c
+          WHERE c.parent_period_id = ${periodId}) AS target_child_count,
+        cur.id AS current_active_id,
+        cur.name AS current_active_name,
+        cur.has_evaluations
+      FROM (SELECT 1) one
+      LEFT JOIN performance_db.evaluation_periods t ON t.id = ${periodId}
+      LEFT JOIN (
+        SELECT p.id, p.name,
+          EXISTS(
+            SELECT 1 FROM performance_db.evaluations WHERE period_id = p.id LIMIT 1
+          ) AS has_evaluations
+        FROM performance_db.evaluation_periods p
+        WHERE (p.is_active = true OR p.status = 'active')
+          AND p.id != ${periodId}
+        LIMIT 1
+      ) cur ON true
     `,
   },
 };
@@ -3026,9 +3141,41 @@ const prev = $('Validate Period Activate').first().json;
 if (prev.http_status) {
   return { json: prev };
 }
-const check = $input.all().map(item => item.json).find(item => item.current_active_id !== undefined);
+const check = $input.all().map(item => item.json).find(item => item.target_child_count !== undefined);
+if (!check) {
+  return { json: { http_status: 500, body: { success: false, error: 'CHECK_FAILED', message: 'Не удалось проверить условия активации' } } };
+}
+if (check.target_id === null || check.target_id === undefined) {
+  return {
+    json: {
+      http_status: 404,
+      body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' },
+    },
+  };
+}
+// Containers are non-activatable reporting constructs (D-0821-1)
+if (Number(check.target_child_count) > 0) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'CONTAINER_NOT_ACTIVATABLE',
+        message: 'Контейнерный период нельзя активировать: он объединяет дочерние периоды',
+      },
+    },
+  };
+}
+if (check.target_status === 'closed') {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'PERIOD_CLOSED', message: 'Закрытый период нельзя активировать' },
+    },
+  };
+}
 // Reject if switching away from an active period that already has evaluations
-if (check && check.has_evaluations) {
+if (check.current_active_id !== null && check.current_active_id !== undefined && check.has_evaluations) {
   return {
     json: {
       http_status: 409,
@@ -3045,17 +3192,27 @@ return {
   json: {
     ok: true,
     sql: `
-WITH deactivated AS (
+WITH activatable AS (
+  SELECT id FROM performance_db.evaluation_periods
+  WHERE id = ${periodId}
+    AND status != 'closed'
+    AND NOT EXISTS (
+      SELECT 1 FROM performance_db.evaluation_periods c
+      WHERE c.parent_period_id = ${periodId}
+    )
+),
+deactivated AS (
   UPDATE performance_db.evaluation_periods
   SET is_active = false, status = 'draft'
   WHERE (is_active = true OR status = 'active') AND id != ${periodId}
+    AND EXISTS (SELECT 1 FROM activatable)
   RETURNING id
 ),
 activated AS (
   UPDATE performance_db.evaluation_periods
   SET is_active = true, status = 'active'
-  WHERE id = ${periodId}
-    AND status != 'closed'
+  WHERE id IN (SELECT id FROM activatable)
+    AND (SELECT count(*) FROM deactivated) >= 0
   RETURNING id, name, start_date, end_date, is_active, status, period_type
 )
 SELECT a.*, (SELECT count(*)::integer FROM deactivated) AS deactivated_count
@@ -3101,6 +3258,708 @@ return {
 """.strip()
 
 
+PERIODS_RENAME_VALIDATE = """
+const guard = $('Run Auth Guard RENAME').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const body = guard.request.body || guard.request;
+const periodId = parseInt(body.period_id, 10);
+if (!Number.isFinite(periodId) || periodId < 1) {
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' } } };
+}
+const name = String(body.name || '').trim();
+if (!name || name.length > 100) {
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_NAME', message: 'Укажите название периода длиной не более 100 символов' } } };
+}
+const safeName = name.replace(/'/g, "''");
+return {
+  json: {
+    ok: true,
+    period_id: periodId,
+    name: safeName,
+    sql: `
+      SELECT t.id AS target_id,
+        EXISTS(SELECT 1 FROM performance_db.evaluation_periods x
+               WHERE x.name = '${safeName}' AND x.id != ${periodId}) AS name_taken
+      FROM (SELECT 1) one
+      LEFT JOIN performance_db.evaluation_periods t ON t.id = ${periodId}
+    `,
+  },
+};
+""".strip()
+
+PERIODS_RENAME_BUILD = """
+const prev = $('Validate Period Rename').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const check = $input.all().map(item => item.json).find(item => item.name_taken !== undefined);
+if (!check) {
+  return { json: { http_status: 500, body: { success: false, error: 'CHECK_FAILED', message: 'Не удалось проверить условия переименования' } } };
+}
+if (check.target_id === null || check.target_id === undefined) {
+  return { json: { http_status: 404, body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' } } };
+}
+if (check.name_taken) {
+  return { json: { http_status: 409, body: { success: false, error: 'PERIOD_NAME_TAKEN', message: 'Период с таким названием уже существует' } } };
+}
+const periodId = Number(prev.period_id);
+const safeName = prev.name;
+return {
+  json: {
+    ok: true,
+    sql: `
+UPDATE performance_db.evaluation_periods
+SET name = '${safeName}'
+WHERE id = ${periodId}
+  AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods x
+                  WHERE x.name = '${safeName}' AND x.id != ${periodId})
+RETURNING id, name, start_date, end_date, is_active, status, period_type, parent_period_id
+    `,
+  },
+};
+""".strip()
+
+PERIODS_RENAME_FORMAT = """
+const prev = $('Build Rename SQL').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.id !== undefined);
+if (!row) {
+  return { json: { http_status: 409, body: { success: false, error: 'RENAME_CONFLICT', message: 'Название уже занято — обновите страницу и повторите' } } };
+}
+return {
+  json: {
+    http_status: 200,
+    body: { status: 'success', message: 'Period renamed', data: row },
+  },
+};
+""".strip()
+
+PERIODS_REPARENT_VALIDATE = """
+const guard = $('Run Auth Guard REPARENT').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const body = guard.request.body || guard.request;
+const periodId = parseInt(body.period_id, 10);
+if (!Number.isFinite(periodId) || periodId < 1) {
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' } } };
+}
+const rawParent = body.parent_period_id;
+let parentId = null;
+if (rawParent !== undefined && rawParent !== null && String(rawParent).trim() !== '') {
+  parentId = parseInt(rawParent, 10);
+  if (!Number.isFinite(parentId) || parentId < 1) {
+    return { json: { http_status: 422, body: { success: false, error: 'INVALID_PARENT', message: 'Идентификатор родительского периода должен быть положительным целым числом' } } };
+  }
+}
+if (parentId !== null && parentId === periodId) {
+  return { json: { http_status: 422, body: { success: false, error: 'SELF_PARENT', message: 'Период нельзя вложить в самого себя' } } };
+}
+return {
+  json: {
+    ok: true,
+    period_id: periodId,
+    parent_id: parentId,
+    sql: `
+      SELECT
+        t.id AS child_id,
+        t.start_date AS child_start,
+        t.end_date AS child_end,
+        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods c
+          WHERE c.parent_period_id = ${periodId}) AS child_child_count,
+        p.id AS parent_id,
+        p.start_date AS parent_start,
+        p.end_date AS parent_end,
+        p.status AS parent_status,
+        p.parent_period_id AS parent_parent_id,
+        EXISTS(SELECT 1 FROM performance_db.evaluations e
+               WHERE e.period_id = ${parentId === null ? -1 : parentId}) AS parent_has_evaluations
+      FROM (SELECT 1) one
+      LEFT JOIN performance_db.evaluation_periods t ON t.id = ${periodId}
+      LEFT JOIN performance_db.evaluation_periods p ON p.id = ${parentId === null ? -1 : parentId}
+    `,
+  },
+};
+""".strip()
+
+PERIODS_REPARENT_BUILD = """
+const prev = $('Validate Period Reparent').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const check = $input.all().map(item => item.json).find(item => item.child_child_count !== undefined);
+if (!check) {
+  return { json: { http_status: 500, body: { success: false, error: 'CHECK_FAILED', message: 'Не удалось проверить условия привязки' } } };
+}
+if (check.child_id === null || check.child_id === undefined) {
+  return { json: { http_status: 404, body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' } } };
+}
+if (Number(check.child_child_count) > 0) {
+  return { json: { http_status: 422, body: { success: false, error: 'CHILD_IS_CONTAINER', message: 'Контейнер нельзя вложить в другой период' } } };
+}
+const periodId = Number(prev.period_id);
+const parentId = prev.parent_id;
+const asDate = (value) => String(value ?? '').slice(0, 10);
+if (parentId === null) {
+  return {
+    json: {
+      ok: true,
+      sql: `
+UPDATE performance_db.evaluation_periods
+SET parent_period_id = NULL
+WHERE id = ${periodId}
+RETURNING id, name, parent_period_id
+      `,
+    },
+  };
+}
+if (check.parent_id === null || check.parent_id === undefined) {
+  return { json: { http_status: 404, body: { success: false, error: 'PARENT_NOT_FOUND', message: 'Родительский период не найден' } } };
+}
+if (check.parent_parent_id !== null && check.parent_parent_id !== undefined) {
+  return { json: { http_status: 422, body: { success: false, error: 'PARENT_IS_CHILD', message: 'Контейнер не может быть вложен в другой контейнер' } } };
+}
+if (check.parent_status === 'active') {
+  return { json: { http_status: 422, body: { success: false, error: 'PARENT_ACTIVE', message: 'Активный период не может быть контейнером' } } };
+}
+// A period that has evaluations can never become a container
+if (check.parent_has_evaluations) {
+  return { json: { http_status: 422, body: { success: false, error: 'PARENT_HAS_EVALUATIONS', message: 'Период с оценками не может стать контейнером' } } };
+}
+if (asDate(check.child_start) < asDate(check.parent_start) || asDate(check.child_end) > asDate(check.parent_end)) {
+  return { json: { http_status: 422, body: { success: false, error: 'CHILD_DATES_OUTSIDE_PARENT', message: 'Даты дочернего периода должны находиться внутри дат контейнера' } } };
+}
+return {
+  json: {
+    ok: true,
+    sql: `
+UPDATE performance_db.evaluation_periods
+SET parent_period_id = ${parentId}
+WHERE id = ${periodId}
+  AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods c
+                  WHERE c.parent_period_id = ${periodId})
+  AND EXISTS (
+    SELECT 1 FROM performance_db.evaluation_periods p
+    WHERE p.id = ${parentId}
+      AND p.parent_period_id IS NULL
+      AND p.status != 'active'
+      AND p.start_date <= (SELECT start_date FROM performance_db.evaluation_periods WHERE id = ${periodId})
+      AND p.end_date >= (SELECT end_date FROM performance_db.evaluation_periods WHERE id = ${periodId})
+      AND NOT EXISTS (SELECT 1 FROM performance_db.evaluations e WHERE e.period_id = p.id)
+  )
+RETURNING id, name, parent_period_id
+    `,
+  },
+};
+""".strip()
+
+PERIODS_REPARENT_FORMAT = """
+const prev = $('Build Reparent SQL').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.id !== undefined);
+if (!row) {
+  return { json: { http_status: 409, body: { success: false, error: 'REPARENT_CONFLICT', message: 'Условия привязки изменились — обновите страницу и повторите' } } };
+}
+return {
+  json: {
+    http_status: 200,
+    body: { status: 'success', message: 'Period reparented', data: row },
+  },
+};
+""".strip()
+
+PERIODS_CLOSE_VALIDATE = """
+const guard = $('Run Auth Guard CLOSE').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const body = guard.request.body || guard.request;
+const periodId = parseInt(body.period_id, 10);
+if (!Number.isFinite(periodId) || periodId < 1) {
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' } } };
+}
+return {
+  json: {
+    ok: true,
+    period_id: periodId,
+    actor_id: Number(guard.identity.id),
+    sql: `
+      SELECT
+        t.id AS target_id,
+        t.name AS target_name,
+        t.status AS target_status,
+        t.is_active AS target_is_active,
+        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods c
+          WHERE c.parent_period_id = ${periodId}) AS child_count,
+        (SELECT COUNT(*)::integer FROM performance_db.evaluations e
+          WHERE e.period_id = ${periodId}) AS evaluation_count,
+        EXISTS(SELECT 1 FROM performance_db.period_results pr
+          WHERE pr.period_id = ${periodId}) AS has_results,
+        (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp
+          WHERE epp.period_id = ${periodId}) AS participant_count
+      FROM (SELECT 1) one
+      LEFT JOIN performance_db.evaluation_periods t ON t.id = ${periodId}
+    `,
+  },
+};
+""".strip()
+
+# The dataset mirrors the evaluations-matrix per-criterion subqueries exactly:
+# same predicates, same latest-by-updated_at rule, same correction lookups —
+# so the persisted final cell is the matrix cell by construction (D-0820-12).
+PERIODS_CLOSE_DATASET_SQL = """
+WITH criteria_data AS (
+  SELECT c.id, c.weight, c.c_level_only,
+    COALESCE(
+      (SELECT json_object_agg(sc.score_level, sc.coefficient)
+       FROM performance_db.score_coefficients sc WHERE sc.criteria_id = c.id),
+      '{}'::json
+    ) AS score_coefficients
+  FROM performance_db.criteria c
+  WHERE c.is_active = true
+)
+SELECT
+  epp.user_id,
+  epp.is_in_scope,
+  u.role,
+  g.coefficient AS grade_coefficient,
+  (SELECT ROUND(AVG(e.calculated_score)::numeric, 2)
+     FROM performance_db.evaluations e
+     WHERE e.subject_id = epp.user_id AND e.period_id = ${periodId}
+       AND e.is_self_evaluation = false AND e.evaluation_source = 'manager') AS rating_manager,
+  (SELECT ROUND(AVG(e.calculated_score)::numeric, 2)
+     FROM performance_db.evaluations e
+     WHERE e.subject_id = epp.user_id AND e.period_id = ${periodId}
+       AND e.is_self_evaluation = false AND e.evaluation_source = 'subordinate') AS rating_upward,
+  (SELECT ROUND(AVG(e.calculated_score)::numeric, 2)
+     FROM performance_db.evaluations e
+     WHERE e.subject_id = epp.user_id AND e.period_id = ${periodId}
+       AND e.is_self_evaluation = false AND e.evaluation_source = 'c_level_direct') AS rating_c_level_direct,
+  (SELECT e.calculated_score
+     FROM performance_db.evaluations e
+     WHERE e.subject_id = epp.user_id AND e.period_id = ${periodId}
+       AND e.is_self_evaluation = true
+     ORDER BY e.updated_at DESC LIMIT 1) AS rating_self,
+  EXISTS(SELECT 1 FROM performance_db.evaluations e
+     WHERE e.subject_id = epp.user_id AND e.period_id = ${periodId}) AS has_data,
+  (SELECT json_agg(json_build_object(
+      'criteria_id', cd.id,
+      'c_level_only', cd.c_level_only,
+      'weight', cd.weight,
+      'score_coefficients', cd.score_coefficients,
+      'manager_score', (
+        SELECT es.score_value
+        FROM performance_db.evaluations e
+        JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id
+        WHERE e.subject_id = epp.user_id
+          AND e.is_self_evaluation = false
+          AND e.evaluation_source = 'manager'
+          AND cd.c_level_only = false
+          AND es.criteria_id = cd.id
+          AND e.period_id = ${periodId}
+        ORDER BY e.updated_at DESC
+        LIMIT 1
+      ),
+      'c_level_score', (
+        SELECT es.score_value
+        FROM performance_db.evaluations e
+        JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id
+        WHERE e.subject_id = epp.user_id
+          AND e.evaluation_source = 'c_level_direct'
+          AND cd.c_level_only = true
+          AND es.criteria_id = cd.id
+          AND e.period_id = ${periodId}
+        ORDER BY e.updated_at DESC
+        LIMIT 1
+      ),
+      'mid_level_correction', (
+        SELECT sc2.correction_score
+        FROM performance_db.score_corrections sc2
+        WHERE sc2.subject_id = epp.user_id
+          AND sc2.criteria_id = cd.id
+          AND sc2.correction_level = 'mid_level'
+          AND sc2.period_id = ${periodId}
+        LIMIT 1
+      ),
+      'c_level_correction', (
+        SELECT sc2.correction_score
+        FROM performance_db.score_corrections sc2
+        WHERE sc2.subject_id = epp.user_id
+          AND sc2.criteria_id = cd.id
+          AND sc2.correction_level = 'c_level'
+          AND sc2.period_id = ${periodId}
+        LIMIT 1
+      )
+    ) ORDER BY cd.id)
+   FROM criteria_data cd) AS criteria
+FROM performance_db.evaluation_period_participants epp
+JOIN performance_db.users u ON u.id = epp.user_id
+LEFT JOIN performance_db.grades g ON u.grade_id = g.id
+WHERE epp.period_id = ${periodId}
+ORDER BY epp.user_id
+""".strip()
+
+PERIODS_CLOSE_DATASET_BUILD = """
+const prev = $('Validate Period Close').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const check = $input.all().map(item => item.json).find(item => item.child_count !== undefined);
+if (!check) {
+  return { json: { http_status: 500, body: { success: false, error: 'CHECK_FAILED', message: 'Не удалось проверить условия закрытия' } } };
+}
+if (check.target_id === null || check.target_id === undefined) {
+  return { json: { http_status: 404, body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' } } };
+}
+if (Number(check.child_count) > 0) {
+  return { json: { http_status: 422, body: { success: false, error: 'CONTAINER_NOT_CLOSABLE', message: 'Контейнер не закрывается: закрываются его дочерние периоды' } } };
+}
+if (check.target_status === 'closed') {
+  if (check.has_results) {
+    // Idempotent second close: zero rows changed, results untouched.
+    return {
+      json: {
+        http_status: 200,
+        body: {
+          success: true,
+          already_closed: true,
+          results_stored: 0,
+          message: `Период «${check.target_name}» уже закрыт; сохранённые результаты не изменены`,
+        },
+      },
+    };
+  }
+  return { json: { http_status: 409, body: { success: false, error: 'PERIOD_ALREADY_CLOSED', message: 'Период уже закрыт (без сохранённых результатов)' } } };
+}
+if (check.target_status !== 'active') {
+  return { json: { http_status: 422, body: { success: false, error: 'PERIOD_NOT_ACTIVE', message: 'Закрыть можно только активный период' } } };
+}
+if (Number(check.participant_count) === 0) {
+  return { json: { http_status: 422, body: { success: false, error: 'NO_PARTICIPANTS', message: 'У периода нет участников — закрывать нечего' } } };
+}
+const periodId = Number(prev.period_id);
+return {
+  json: {
+    ok: true,
+    period_id: periodId,
+    actor_id: prev.actor_id,
+    evaluation_count: Number(check.evaluation_count),
+    sql: `
+""" + PERIODS_CLOSE_DATASET_SQL + """
+    `,
+  },
+};
+""".strip()
+
+# Final cell and bonus index replicate the client pipeline verbatim:
+# matrixUtils.getCriterionFinalScore + useFinalScoresMatrix.calculateCriterionScore
+# (formula #3 — weighted sum WITHOUT dividing by sum of weights, × grade coef).
+PERIODS_CLOSE_COMPUTE = """
+const prev = $('Build Close Dataset Query').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const rows = $input.all().map(item => item.json).filter(item => item.user_id !== undefined);
+if (rows.length === 0) {
+  return { json: { http_status: 422, body: { success: false, error: 'NO_PARTICIPANTS', message: 'У периода нет участников — закрывать нечего' } } };
+}
+const periodId = Number(prev.period_id);
+const actorId = Number(prev.actor_id);
+
+// matrixUtils.getCriterionFinalScore — the matrix final cell (D-0820-12)
+const finalOf = (crit) => {
+  if (crit.c_level_only) {
+    return crit.c_level_score != null ? Number(crit.c_level_score) : null;
+  }
+  if (crit.manager_score == null) return null;
+  const scores = [Number(crit.manager_score)];
+  if (crit.mid_level_correction != null) scores.push(Number(crit.mid_level_correction));
+  if (crit.c_level_correction != null) scores.push(Number(crit.c_level_correction));
+  return scores.reduce((acc, s) => acc + s, 0) / scores.length;
+};
+
+// useFinalScoresMatrix.calculateCriterionScore — score × coef(round(clamp)) × weight.
+// `|| 1.0` mirrors the client exactly (parseFloat(weight) || 1.0 in the
+// score-coefficients API): a zero/absent weight or grade behaves as 1.0.
+const weightedOf = (raw, crit) => {
+  const weight = Number(crit.weight) || 1.0;
+  const coefficients = crit.score_coefficients || {};
+  const level = Math.max(0, Math.min(10, Math.round(raw)));
+  const coefficient = coefficients[level] != null ? Number(coefficients[level]) : 1.0;
+  return raw * coefficient * weight;
+};
+
+const numLit = (value, digits) => (value == null ? 'NULL' : Number(value).toFixed(digits));
+const values = [];
+let inScopeCount = 0;
+let noDataCount = 0;
+for (const row of rows) {
+  const inScope = row.is_in_scope === true || row.is_in_scope === 'true';
+  let hasData = inScope && (row.has_data === true || row.has_data === 'true');
+  let finalRating = null;
+  let bonusIndex = null;
+  let ratingManager = null;
+  let ratingUpward = null;
+  let ratingCLevel = null;
+  let ratingSelf = null;
+  if (hasData) {
+    ratingManager = row.rating_manager;
+    ratingUpward = row.rating_upward;
+    ratingCLevel = row.rating_c_level_direct;
+    ratingSelf = row.rating_self;
+    const finals = [];
+    let weightedSum = 0;
+    for (const crit of (row.criteria || [])) {
+      const raw = finalOf(crit);
+      if (raw !== null) {
+        finals.push(raw);
+        weightedSum += weightedOf(raw, crit);
+      }
+    }
+    if (finals.length > 0) {
+      finalRating = finals.reduce((acc, s) => acc + s, 0) / finals.length;
+      const gradeCoefficient = Number(row.grade_coefficient) || 1.0;
+      bonusIndex = weightedSum * gradeCoefficient;
+    }
+  }
+  if (inScope) inScopeCount += 1;
+  if (inScope && !hasData) noDataCount += 1;
+  values.push(`(${Number(row.user_id)}, ${inScope}, ${hasData}, ` +
+    `${numLit(ratingManager, 2)}, ${numLit(ratingUpward, 2)}, ${numLit(ratingCLevel, 2)}, ${numLit(ratingSelf, 2)}, ` +
+    `${numLit(finalRating, 4)}, ${numLit(bonusIndex, 4)})`);
+}
+
+// One atomic statement: preconditions re-asserted in `target`; a second close
+// (or any race) selects zero target rows and therefore changes zero rows.
+return {
+  json: {
+    ok: true,
+    period_id: periodId,
+    in_scope_count: inScopeCount,
+    no_data_count: noDataCount,
+    sql: `
+WITH target AS (
+  SELECT id FROM performance_db.evaluation_periods
+  WHERE id = ${periodId}
+    AND status = 'active' AND is_active = true
+    AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods c
+                    WHERE c.parent_period_id = ${periodId})
+    AND NOT EXISTS (SELECT 1 FROM performance_db.period_results pr
+                    WHERE pr.period_id = ${periodId})
+    AND (SELECT COUNT(*) FROM performance_db.evaluations e
+         WHERE e.period_id = ${periodId}) = ${prev.evaluation_count}
+  FOR UPDATE
+),
+ins AS (
+  INSERT INTO performance_db.period_results
+    (period_id, user_id, is_in_scope, has_data, rating_manager, rating_upward,
+     rating_c_level_direct, rating_self, final_rating, bonus_index, closed_by)
+  SELECT ${periodId}, v.user_id::integer, v.is_in_scope, v.has_data,
+         v.rating_manager::numeric(10,2), v.rating_upward::numeric(10,2),
+         v.rating_c_level_direct::numeric(10,2), v.rating_self::numeric(10,2),
+         v.final_rating::numeric(10,4), v.bonus_index::numeric(14,4), ${actorId}
+  FROM (VALUES
+${values.join(',\\n')}
+  ) AS v(user_id, is_in_scope, has_data, rating_manager, rating_upward,
+         rating_c_level_direct, rating_self, final_rating, bonus_index)
+  WHERE EXISTS (SELECT 1 FROM target)
+  RETURNING user_id
+),
+closed AS (
+  UPDATE performance_db.evaluation_periods
+  SET status = 'closed', is_active = false
+  WHERE id = ${periodId}
+    AND EXISTS (SELECT 1 FROM target)
+    AND (SELECT count(*) FROM ins) >= 0
+  RETURNING id
+)
+SELECT
+  (SELECT COUNT(*)::integer FROM ins) AS results_stored,
+  (SELECT COUNT(*)::integer FROM closed) AS period_closed
+    `,
+  },
+};
+""".strip()
+
+PERIODS_CLOSE_FORMAT = """
+const prev = $('Compute Close Results').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.period_closed !== undefined);
+if (!row || Number(row.period_closed) !== 1) {
+  return {
+    json: {
+      http_status: 409,
+      body: { success: false, error: 'CLOSE_CONFLICT', message: 'Состояние периода изменилось во время закрытия — обновите страницу и повторите' },
+    },
+  };
+}
+return {
+  json: {
+    http_status: 200,
+    body: {
+      success: true,
+      closed: true,
+      period_id: prev.period_id,
+      results_stored: Number(row.results_stored),
+      in_scope: prev.in_scope_count,
+      no_data: prev.no_data_count,
+      message: 'Период закрыт; результаты сохранены',
+    },
+  },
+};
+""".strip()
+
+# Annual roll-up reads period_results ONLY — no live join against editable
+# inputs. Mean over in-scope periods with data; index is a plain sum (D-0819-1,
+# D-0821-3): out-of-scope periods are excluded, never zero-filled.
+PERIODS_ROLLUP_BUILD = """
+const guard = $('Run Auth Guard ROLLUP').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const request = guard.request || {};
+const query = request.query || {};
+const containerId = parseInt(query.container_id ?? query.containerId, 10);
+if (!Number.isFinite(containerId) || containerId < 1) {
+  return { json: { http_status: 422, body: { success: false, error: 'INVALID_CONTAINER_ID', message: 'Идентификатор контейнера должен быть положительным целым числом' } } };
+}
+return {
+  json: {
+    ok: true,
+    container_id: containerId,
+    sql: `
+SELECT json_build_object(
+  'container', (
+    SELECT json_build_object(
+      'id', p.id, 'name', p.name, 'start_date', p.start_date, 'end_date', p.end_date,
+      'status', p.status, 'period_type', p.period_type
+    )
+    FROM performance_db.evaluation_periods p WHERE p.id = ${containerId}
+  ),
+  'children', COALESCE((
+    SELECT json_agg(json_build_object(
+      'id', c.id, 'name', c.name, 'start_date', c.start_date, 'end_date', c.end_date,
+      'status', c.status, 'is_active', c.is_active,
+      'has_results', EXISTS(SELECT 1 FROM performance_db.period_results pr
+                            WHERE pr.period_id = c.id)
+    ) ORDER BY c.start_date, c.id)
+    FROM performance_db.evaluation_periods c WHERE c.parent_period_id = ${containerId}
+  ), '[]'::json),
+  'rows', COALESCE((
+    SELECT json_agg(person_row ORDER BY sort_name)
+    FROM (
+      SELECT u.full_name AS sort_name, json_build_object(
+        'user_id', u.id,
+        'full_name', u.full_name,
+        'job_title', u.job_title,
+        'department_name', d.name,
+        'grade_code', g.code,
+        'results', (
+          SELECT COALESCE(json_object_agg(pr.period_id, json_build_object(
+            'in_scope', pr.is_in_scope,
+            'has_data', pr.has_data,
+            'final_rating', pr.final_rating,
+            'bonus_index', pr.bonus_index
+          )), '{}'::json)
+          FROM performance_db.period_results pr
+          WHERE pr.user_id = u.id
+            AND pr.period_id IN (SELECT id FROM performance_db.evaluation_periods
+                                 WHERE parent_period_id = ${containerId})
+        ),
+        'annual_rating', (
+          SELECT ROUND(AVG(pr.final_rating)::numeric, 4)
+          FROM performance_db.period_results pr
+          WHERE pr.user_id = u.id
+            AND pr.period_id IN (SELECT id FROM performance_db.evaluation_periods
+                                 WHERE parent_period_id = ${containerId})
+            AND pr.is_in_scope = true
+            AND pr.final_rating IS NOT NULL
+        ),
+        'annual_index', (
+          SELECT ROUND(SUM(pr.bonus_index)::numeric, 4)
+          FROM performance_db.period_results pr
+          WHERE pr.user_id = u.id
+            AND pr.period_id IN (SELECT id FROM performance_db.evaluation_periods
+                                 WHERE parent_period_id = ${containerId})
+            AND pr.is_in_scope = true
+            AND pr.bonus_index IS NOT NULL
+        )
+      ) AS person_row
+      FROM performance_db.users u
+      LEFT JOIN performance_db.departments d ON u.department_id = d.id
+      LEFT JOIN performance_db.grades g ON u.grade_id = g.id
+      WHERE u.role != 'admin'
+        AND EXISTS (
+          SELECT 1 FROM performance_db.period_results pr
+          WHERE pr.user_id = u.id
+            AND pr.is_in_scope = true
+            AND pr.period_id IN (SELECT id FROM performance_db.evaluation_periods
+                                 WHERE parent_period_id = ${containerId})
+        )
+    ) t
+  ), '[]'::json)
+) AS payload
+    `,
+  },
+};
+""".strip()
+
+PERIODS_ROLLUP_FORMAT = """
+const prev = $('Build Rollup Query').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.payload !== undefined);
+const payload = row ? row.payload : null;
+if (!payload || !payload.container) {
+  return { json: { http_status: 404, body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' } } };
+}
+const children = payload.children || [];
+if (children.length === 0) {
+  return { json: { http_status: 422, body: { success: false, error: 'NOT_A_CONTAINER', message: 'Период не является контейнером: у него нет дочерних периодов' } } };
+}
+return {
+  json: {
+    http_status: 200,
+    body: {
+      success: true,
+      container: payload.container,
+      children,
+      rows: payload.rows || [],
+    },
+  },
+};
+""".strip()
+
+
 def build_manage_periods(credential_id: str, guard_workflow_id: str) -> dict[str, Any]:
     nodes_list = [
         # GET trigger
@@ -3133,16 +3992,25 @@ def build_manage_periods(credential_id: str, guard_workflow_id: str) -> dict[str
         run_guard_node("periods-run-guard-create", "Run Auth Guard CREATE", [-250, 0], guard_workflow_id),
         node("periods-create-validate", "Validate Period Create", "n8n-nodes-base.code",
              [0, 0], {"jsCode": PERIODS_CREATE_VALIDATE}),
-        node("periods-create-execute", "Execute Period Create", "n8n-nodes-base.postgres",
+        node("periods-create-check", "Check Create Preconditions", "n8n-nodes-base.postgres",
              [250, 0],
              {"operation": "executeQuery",
               "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
               "options": {}},
              type_version=2.6,
              credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-create-build", "Build Create SQL", "n8n-nodes-base.code",
+             [500, 0], {"jsCode": PERIODS_CREATE_BUILD}),
+        node("periods-create-execute", "Execute Period Create", "n8n-nodes-base.postgres",
+             [750, 0],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
         node("periods-create-format", "Format Create Response", "n8n-nodes-base.code",
-             [500, 0], {"jsCode": PERIODS_CREATE_FORMAT}),
-        respond_node("periods-respond-create", "Respond CREATE", [740, 0]),
+             [1000, 0], {"jsCode": PERIODS_CREATE_FORMAT}),
+        respond_node("periods-respond-create", "Respond CREATE", [1240, 0]),
         # ACTIVATE trigger
         node("periods-webhook-activate", "Webhook ACTIVATE", "n8n-nodes-base.webhook", [-700, 200],
              {"httpMethod": "POST", "path": "api/periods/activate",
@@ -3172,6 +4040,122 @@ def build_manage_periods(credential_id: str, guard_workflow_id: str) -> dict[str
         node("periods-activate-format", "Format Activate Response", "n8n-nodes-base.code",
              [1000, 200], {"jsCode": PERIODS_ACTIVATE_FORMAT}),
         respond_node("periods-respond-activate", "Respond ACTIVATE", [1240, 200]),
+        # RENAME trigger
+        node("periods-webhook-rename", "Webhook RENAME", "n8n-nodes-base.webhook", [-700, 400],
+             {"httpMethod": "POST", "path": "api/periods/rename",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-periods-rename"),
+        node("periods-guard-input-rename", "Prepare Guard Input RENAME", "n8n-nodes-base.code",
+             [-480, 400], {"jsCode": guard_input_js(["admin"])}),
+        run_guard_node("periods-run-guard-rename", "Run Auth Guard RENAME", [-250, 400], guard_workflow_id),
+        node("periods-rename-validate", "Validate Period Rename", "n8n-nodes-base.code",
+             [0, 400], {"jsCode": PERIODS_RENAME_VALIDATE}),
+        node("periods-rename-check", "Check Rename Preconditions", "n8n-nodes-base.postgres",
+             [250, 400],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-rename-build", "Build Rename SQL", "n8n-nodes-base.code",
+             [500, 400], {"jsCode": PERIODS_RENAME_BUILD}),
+        node("periods-rename-execute", "Execute Rename", "n8n-nodes-base.postgres",
+             [750, 400],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-rename-format", "Format Rename Response", "n8n-nodes-base.code",
+             [1000, 400], {"jsCode": PERIODS_RENAME_FORMAT}),
+        respond_node("periods-respond-rename", "Respond RENAME", [1240, 400]),
+        # REPARENT trigger
+        node("periods-webhook-reparent", "Webhook REPARENT", "n8n-nodes-base.webhook", [-700, 600],
+             {"httpMethod": "POST", "path": "api/periods/reparent",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-periods-reparent"),
+        node("periods-guard-input-reparent", "Prepare Guard Input REPARENT", "n8n-nodes-base.code",
+             [-480, 600], {"jsCode": guard_input_js(["admin"])}),
+        run_guard_node("periods-run-guard-reparent", "Run Auth Guard REPARENT", [-250, 600], guard_workflow_id),
+        node("periods-reparent-validate", "Validate Period Reparent", "n8n-nodes-base.code",
+             [0, 600], {"jsCode": PERIODS_REPARENT_VALIDATE}),
+        node("periods-reparent-check", "Check Reparent Preconditions", "n8n-nodes-base.postgres",
+             [250, 600],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-reparent-build", "Build Reparent SQL", "n8n-nodes-base.code",
+             [500, 600], {"jsCode": PERIODS_REPARENT_BUILD}),
+        node("periods-reparent-execute", "Execute Reparent", "n8n-nodes-base.postgres",
+             [750, 600],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-reparent-format", "Format Reparent Response", "n8n-nodes-base.code",
+             [1000, 600], {"jsCode": PERIODS_REPARENT_FORMAT}),
+        respond_node("periods-respond-reparent", "Respond REPARENT", [1240, 600]),
+        # CLOSE trigger
+        node("periods-webhook-close", "Webhook CLOSE", "n8n-nodes-base.webhook", [-700, 800],
+             {"httpMethod": "POST", "path": "api/periods/close",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-periods-close"),
+        node("periods-guard-input-close", "Prepare Guard Input CLOSE", "n8n-nodes-base.code",
+             [-480, 800], {"jsCode": guard_input_js(["admin"])}),
+        run_guard_node("periods-run-guard-close", "Run Auth Guard CLOSE", [-250, 800], guard_workflow_id),
+        node("periods-close-validate", "Validate Period Close", "n8n-nodes-base.code",
+             [0, 800], {"jsCode": PERIODS_CLOSE_VALIDATE}),
+        node("periods-close-check", "Load Close Target", "n8n-nodes-base.postgres",
+             [250, 800],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-close-dataset-build", "Build Close Dataset Query", "n8n-nodes-base.code",
+             [500, 800], {"jsCode": PERIODS_CLOSE_DATASET_BUILD}),
+        node("periods-close-dataset", "Load Close Dataset", "n8n-nodes-base.postgres",
+             [750, 800],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS user_id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-close-compute", "Compute Close Results", "n8n-nodes-base.code",
+             [1000, 800], {"jsCode": PERIODS_CLOSE_COMPUTE}),
+        node("periods-close-execute", "Execute Close", "n8n-nodes-base.postgres",
+             [1250, 800],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS period_closed WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-close-format", "Format Close Response", "n8n-nodes-base.code",
+             [1500, 800], {"jsCode": PERIODS_CLOSE_FORMAT}),
+        respond_node("periods-respond-close", "Respond CLOSE", [1740, 800]),
+        # ROLLUP trigger (admin + c_level; D-0820-11 audience)
+        node("periods-webhook-rollup", "Webhook ROLLUP", "n8n-nodes-base.webhook", [-700, 1000],
+             {"httpMethod": "GET", "path": "api/periods/annual-rollup",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-periods-annual-rollup"),
+        node("periods-guard-input-rollup", "Prepare Guard Input ROLLUP", "n8n-nodes-base.code",
+             [-480, 1000], {"jsCode": guard_input_js(["admin", "c_level"])}),
+        run_guard_node("periods-run-guard-rollup", "Run Auth Guard ROLLUP", [-250, 1000], guard_workflow_id),
+        node("periods-rollup-build", "Build Rollup Query", "n8n-nodes-base.code",
+             [0, 1000], {"jsCode": PERIODS_ROLLUP_BUILD}),
+        node("periods-rollup-load", "Load Rollup", "n8n-nodes-base.postgres",
+             [250, 1000],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::json AS payload WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-rollup-format", "Format Rollup Response", "n8n-nodes-base.code",
+             [500, 1000], {"jsCode": PERIODS_ROLLUP_FORMAT}),
+        respond_node("periods-respond-rollup", "Respond ROLLUP", [740, 1000]),
     ]
     connections = {
         # GET path
@@ -3185,7 +4169,9 @@ def build_manage_periods(credential_id: str, guard_workflow_id: str) -> dict[str
         "Webhook CREATE": connect("Prepare Guard Input CREATE"),
         "Prepare Guard Input CREATE": connect("Run Auth Guard CREATE"),
         "Run Auth Guard CREATE": connect("Validate Period Create"),
-        "Validate Period Create": connect("Execute Period Create"),
+        "Validate Period Create": connect("Check Create Preconditions"),
+        "Check Create Preconditions": connect("Build Create SQL"),
+        "Build Create SQL": connect("Execute Period Create"),
         "Execute Period Create": connect("Format Create Response"),
         "Format Create Response": connect("Respond CREATE"),
         # ACTIVATE path
@@ -3197,6 +4183,42 @@ def build_manage_periods(credential_id: str, guard_workflow_id: str) -> dict[str
         "Build Activation SQL": connect("Execute Activation"),
         "Execute Activation": connect("Format Activate Response"),
         "Format Activate Response": connect("Respond ACTIVATE"),
+        # RENAME path
+        "Webhook RENAME": connect("Prepare Guard Input RENAME"),
+        "Prepare Guard Input RENAME": connect("Run Auth Guard RENAME"),
+        "Run Auth Guard RENAME": connect("Validate Period Rename"),
+        "Validate Period Rename": connect("Check Rename Preconditions"),
+        "Check Rename Preconditions": connect("Build Rename SQL"),
+        "Build Rename SQL": connect("Execute Rename"),
+        "Execute Rename": connect("Format Rename Response"),
+        "Format Rename Response": connect("Respond RENAME"),
+        # REPARENT path
+        "Webhook REPARENT": connect("Prepare Guard Input REPARENT"),
+        "Prepare Guard Input REPARENT": connect("Run Auth Guard REPARENT"),
+        "Run Auth Guard REPARENT": connect("Validate Period Reparent"),
+        "Validate Period Reparent": connect("Check Reparent Preconditions"),
+        "Check Reparent Preconditions": connect("Build Reparent SQL"),
+        "Build Reparent SQL": connect("Execute Reparent"),
+        "Execute Reparent": connect("Format Reparent Response"),
+        "Format Reparent Response": connect("Respond REPARENT"),
+        # CLOSE path
+        "Webhook CLOSE": connect("Prepare Guard Input CLOSE"),
+        "Prepare Guard Input CLOSE": connect("Run Auth Guard CLOSE"),
+        "Run Auth Guard CLOSE": connect("Validate Period Close"),
+        "Validate Period Close": connect("Load Close Target"),
+        "Load Close Target": connect("Build Close Dataset Query"),
+        "Build Close Dataset Query": connect("Load Close Dataset"),
+        "Load Close Dataset": connect("Compute Close Results"),
+        "Compute Close Results": connect("Execute Close"),
+        "Execute Close": connect("Format Close Response"),
+        "Format Close Response": connect("Respond CLOSE"),
+        # ROLLUP path
+        "Webhook ROLLUP": connect("Prepare Guard Input ROLLUP"),
+        "Prepare Guard Input ROLLUP": connect("Run Auth Guard ROLLUP"),
+        "Run Auth Guard ROLLUP": connect("Build Rollup Query"),
+        "Build Rollup Query": connect("Load Rollup"),
+        "Load Rollup": connect("Format Rollup Response"),
+        "Format Rollup Response": connect("Respond ROLLUP"),
     }
     return workflow("API: Manage Periods", nodes_list, connections)
 

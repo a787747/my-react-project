@@ -46,6 +46,7 @@ const AdminAllEvaluations = lazy(() => import('./pages/AdminAllEvaluations'));
 const AdminEvaluationsMatrix = lazy(() => import('./pages/AdminEvaluationsMatrix'));
 const AdminFinalScores = lazy(() => import('./pages/AdminFinalScores'));
 const BonusCalculation = lazy(() => import('./pages/BonusCalculation'));
+const AdminAnnualRollup = lazy(() => import('./pages/AdminAnnualRollup'));
 const ManagerEvaluation = lazy(() => import('./pages/ManagerEvaluation'));
 const ManagerSubordinatesMatrix = lazy(() => import('./pages/ManagerSubordinatesMatrix'));
 const Welcome = lazy(() => import('./pages/Welcome'));
@@ -288,6 +289,14 @@ function AppContent() {
               <AdminRoute user={user}>
                 <BonusCalculation user={user} />
               </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/annual-rollup"
+            element={
+              <ReportingRoute user={user}>
+                <AdminAnnualRollup />
+              </ReportingRoute>
             }
           />
           <Route

@@ -58,6 +58,10 @@ export const API_ENDPOINTS = {
   PERIODS: `${API_BASE_URL}/api/periods`,
   PERIODS_CREATE: `${API_BASE_URL}/api/periods/create`,
   PERIODS_ACTIVATE: `${API_BASE_URL}/api/periods/activate`,
+  PERIODS_RENAME: `${API_BASE_URL}/api/periods/rename`,
+  PERIODS_REPARENT: `${API_BASE_URL}/api/periods/reparent`,
+  PERIODS_CLOSE: `${API_BASE_URL}/api/periods/close`,
+  PERIODS_ANNUAL_ROLLUP: `${API_BASE_URL}/api/periods/annual-rollup`,
   
   // ============================================
   // АДМИН: ПОЛЬЗОВАТЕЛИ

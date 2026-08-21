@@ -1,36 +1,91 @@
 /**
  * AdminPeriods - Страница управления периодами оценки и регистрацией
- * 
- * Назначение: Создание, активация и управление периодами оценки.
+ *
+ * Назначение: Создание, активация, переименование, закрытие периодов,
+ *             привязка периодов к контейнерам (Annual → H1/H2).
  *             Получение постоянной ссылки для регистрации сотрудников.
- * Доступ: admin, c_level
- * 
- * Функционал:
- * - Список всех периодов
- * - Создание нового периода
- * - Активация/деактивация периодов
- * - Получение постоянной invite-ссылки для регистрации
+ * Доступ: admin, c_level, hr (просмотр); действия — только admin (API 403)
+ *
+ * Контейнер = период с дочерними периодами. Контейнеры не активируются
+ * (кнопки нет; API отвечает 422) и не закрываются — закрываются их дочерние
+ * периоды. Закрытие периода фиксирует результаты (period_results) навсегда.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import apiClient from '../api/client';
-import { Calendar, Plus, CheckCircle, Circle, Loader2, Save, X, Link2, Copy, Check, UserPlus } from 'lucide-react';
-import { API_ENDPOINTS, API_BASE_URL } from '../config/api';
+import {
+  Calendar, Plus, CheckCircle, Circle, Loader2, Save, X, Link2, Copy, Check,
+  UserPlus, Pencil, FolderTree, Lock, CornerDownRight, Layers
+} from 'lucide-react';
+import { API_ENDPOINTS } from '../config/api';
+import handleApiError from '../utils/errorHandler';
 import logger from '../utils/logger';
+
+const isContainer = (period) => Number(period?.child_count) > 0;
+
+/** Родителем может стать период верхнего уровня без оценок и не активный. */
+const canBeParent = (period, childId = null) =>
+  period &&
+  period.id !== childId &&
+  !period.parent_period_id &&
+  !period.has_evaluations &&
+  period.status !== 'active';
+
+/** Плоский список → дерево: контейнер, под ним дети (по возрастанию дат). */
+const orderPeriods = (periods) => {
+  const byParent = new Map();
+  periods.forEach((p) => {
+    if (p.parent_period_id) {
+      const list = byParent.get(p.parent_period_id) || [];
+      list.push(p);
+      byParent.set(p.parent_period_id, list);
+    }
+  });
+  const ordered = [];
+  const seen = new Set();
+  periods.forEach((p) => {
+    if (p.parent_period_id) return;
+    ordered.push({ ...p, depth: 0 });
+    seen.add(p.id);
+    (byParent.get(p.id) || [])
+      .slice()
+      .sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)))
+      .forEach((child) => {
+        ordered.push({ ...child, depth: 1 });
+        seen.add(child.id);
+      });
+  });
+  // Дети с отсутствующим родителем (не должно случаться) — в конец, видимыми.
+  periods.forEach((p) => {
+    if (!seen.has(p.id)) ordered.push({ ...p, depth: 0 });
+  });
+  return ordered;
+};
 
 const AdminPeriods = ({ user }) => {
   const [periods, setPeriods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(null);
-  
+  const [closing, setClosing] = useState(null);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     name: '',
     start_date: '',
-    end_date: ''
+    end_date: '',
+    period_type: 'half_year',
+    parent_period_id: ''
   });
+
+  // Rename modal
+  const [renameModal, setRenameModal] = useState({ open: false, period: null, name: '' });
+  const [renaming, setRenaming] = useState(false);
+
+  // Reparent modal
+  const [reparentModal, setReparentModal] = useState({ open: false, period: null, parentId: '' });
+  const [reparenting, setReparenting] = useState(false);
 
   // Invite token states
   const [generatingInvite, setGeneratingInvite] = useState(false);
@@ -55,9 +110,15 @@ const AdminPeriods = ({ user }) => {
     }
   };
 
+  const orderedPeriods = useMemo(() => orderPeriods(periods), [periods]);
+  const eligibleParents = useMemo(
+    () => periods.filter((p) => canBeParent(p)),
+    [periods]
+  );
+
   const handleActivate = async (periodId) => {
     const period = periods.find((item) => item.id === periodId);
-    if (!period || period.status === 'closed') {
+    if (!period || period.status === 'closed' || isContainer(period)) {
       return;
     }
 
@@ -73,26 +134,104 @@ const AdminPeriods = ({ user }) => {
       await fetchPeriods();
     } catch (error) {
       logger.error('Ошибка активации:', error);
-      alert('Не удалось активировать период');
+      alert(handleApiError(error));
     } finally {
       setActivating(null);
     }
   };
 
+  const handleClose = async (periodId) => {
+    const period = periods.find((item) => item.id === periodId);
+    if (!period || !period.is_active || isContainer(period)) {
+      return;
+    }
+    if (!window.confirm(
+      `Закрыть период «${period.name}»?\n\n` +
+      'Результаты всех участников (рейтинги по источникам, итоговая оценка и бонусный индекс) ' +
+      'будут рассчитаны и сохранены без возможности изменения. Период станет закрытым. ' +
+      'Действие необратимо.'
+    )) {
+      return;
+    }
+    try {
+      setClosing(periodId);
+      const response = await apiClient.post(API_ENDPOINTS.PERIODS_CLOSE, { period_id: periodId });
+      const body = response.data || {};
+      alert(
+        body.already_closed
+          ? body.message
+          : `Период закрыт. Сохранено результатов: ${body.results_stored} (в охвате: ${body.in_scope}, без данных: ${body.no_data}).`
+      );
+      await fetchPeriods();
+    } catch (error) {
+      logger.error('Ошибка закрытия периода:', error);
+      alert(handleApiError(error));
+    } finally {
+      setClosing(null);
+    }
+  };
+
   const handleCreate = async (e) => {
     e.preventDefault();
-    
+
     try {
       setCreating(true);
-      await apiClient.post(API_ENDPOINTS.PERIODS_CREATE, formData);
+      const payload = {
+        name: formData.name,
+        start_date: formData.start_date,
+        end_date: formData.end_date,
+        period_type: formData.period_type
+      };
+      if (formData.parent_period_id) {
+        payload.parent_period_id = Number(formData.parent_period_id);
+      }
+      await apiClient.post(API_ENDPOINTS.PERIODS_CREATE, payload);
       setIsModalOpen(false);
-      setFormData({ name: '', start_date: '', end_date: '' });
+      setFormData({ name: '', start_date: '', end_date: '', period_type: 'half_year', parent_period_id: '' });
       await fetchPeriods();
     } catch (error) {
       logger.error('Ошибка создания:', error);
-      alert('Не удалось создать период');
+      alert(handleApiError(error));
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleRename = async (e) => {
+    e.preventDefault();
+    if (!renameModal.period) return;
+    try {
+      setRenaming(true);
+      await apiClient.post(API_ENDPOINTS.PERIODS_RENAME, {
+        period_id: renameModal.period.id,
+        name: renameModal.name
+      });
+      setRenameModal({ open: false, period: null, name: '' });
+      await fetchPeriods();
+    } catch (error) {
+      logger.error('Ошибка переименования:', error);
+      alert(handleApiError(error));
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const handleReparent = async (e) => {
+    e.preventDefault();
+    if (!reparentModal.period) return;
+    try {
+      setReparenting(true);
+      await apiClient.post(API_ENDPOINTS.PERIODS_REPARENT, {
+        period_id: reparentModal.period.id,
+        parent_period_id: reparentModal.parentId ? Number(reparentModal.parentId) : null
+      });
+      setReparentModal({ open: false, period: null, parentId: '' });
+      await fetchPeriods();
+    } catch (error) {
+      logger.error('Ошибка привязки:', error);
+      alert(handleApiError(error));
+    } finally {
+      setReparenting(false);
     }
   };
 
@@ -158,6 +297,41 @@ const AdminPeriods = ({ user }) => {
       month: 'long',
       year: 'numeric'
     });
+  };
+
+  const renderStatus = (period) => {
+    if (isContainer(period)) {
+      return (
+        <div className="flex items-center gap-2">
+          <Layers className="w-5 h-5 text-indigo-500" />
+          <span className="text-sm font-medium text-indigo-600">Контейнер</span>
+        </div>
+      );
+    }
+    if (period.is_active) {
+      return (
+        <div className="flex items-center gap-2">
+          <CheckCircle className="w-5 h-5 text-green-600" />
+          <span className="text-sm font-medium text-green-700">Активен</span>
+        </div>
+      );
+    }
+    if (period.status === 'closed') {
+      return (
+        <div className="flex items-center gap-2">
+          <Lock className="w-5 h-5 text-gray-500" />
+          <span className="text-sm text-gray-600">
+            Закрыт{period.has_results ? ' · результаты сохранены' : ''}
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2">
+        <Circle className="w-5 h-5 text-gray-400" />
+        <span className="text-sm text-gray-500">Неактивен</span>
+      </div>
+    );
   };
 
   if (loading) {
@@ -246,8 +420,8 @@ const AdminPeriods = ({ user }) => {
               <button
                 onClick={handleCopyLink}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all ${
-                  copied 
-                    ? 'bg-green-600 text-white' 
+                  copied
+                    ? 'bg-green-600 text-white'
                     : 'bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100'
                 }`}
               >
@@ -265,7 +439,7 @@ const AdminPeriods = ({ user }) => {
               </button>
             </div>
             <p className="text-xs text-emerald-600 mt-2">
-              Отправьте эту ссылку на <strong>all@sedamedical.com</strong>. 
+              Отправьте эту ссылку на <strong>all@sedamedical.com</strong>.
               Сотрудники смогут зарегистрироваться только если их email уже есть в системе.
             </p>
           </div>
@@ -293,31 +467,33 @@ const AdminPeriods = ({ user }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {periods.map((period) => (
-                  <tr 
+                {orderedPeriods.map((period) => (
+                  <tr
                     key={period.id}
                     className={`hover:bg-gray-50 transition-colors ${
                       period.is_active ? 'bg-green-50/30' : ''
-                    }`}
+                    } ${isContainer(period) ? 'bg-indigo-50/30' : ''}`}
                   >
                     {/* Статус */}
                     <td className="px-6 py-4">
-                      {period.is_active ? (
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="w-5 h-5 text-green-600" />
-                          <span className="text-sm font-medium text-green-700">Активен</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Circle className="w-5 h-5 text-gray-400" />
-                          <span className="text-sm text-gray-500">Неактивен</span>
-                        </div>
-                      )}
+                      {renderStatus(period)}
                     </td>
 
                     {/* Название */}
                     <td className="px-6 py-4">
-                      <div className="font-semibold text-gray-900">{period.name}</div>
+                      <div className="flex items-center gap-2">
+                        {period.depth > 0 && (
+                          <CornerDownRight className="w-4 h-4 text-gray-300 shrink-0" />
+                        )}
+                        <div>
+                          <div className="font-semibold text-gray-900">{period.name}</div>
+                          {isContainer(period) && (
+                            <div className="text-xs text-indigo-500">
+                              дочерних периодов: {period.child_count}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </td>
 
                     {/* Даты */}
@@ -329,35 +505,80 @@ const AdminPeriods = ({ user }) => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm text-gray-700">
-                        {period.in_scope_count != null
-                          ? `${period.in_scope_count}${period.participant_count != null ? ` / ${period.participant_count}` : ''}`
-                          : '—'}
+                        {isContainer(period)
+                          ? '—'
+                          : period.in_scope_count != null
+                            ? `${period.in_scope_count}${period.participant_count != null ? ` / ${period.participant_count}` : ''}`
+                            : '—'}
                       </div>
                     </td>
 
                     {/* Действия */}
                     <td className="px-6 py-4 text-right">
-                      {!period.is_active && period.status !== 'closed' && (
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
                         <button
-                          onClick={() => handleActivate(period.id)}
-                          disabled={activating === period.id}
-                          className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                          onClick={() => setRenameModal({ open: true, period, name: period.name })}
+                          className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="Переименовать"
                         >
-                          {activating === period.id ? (
-                            <span className="flex items-center gap-2">
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Активация...
-                            </span>
-                          ) : (
-                            'Активировать'
-                          )}
+                          <Pencil className="w-4 h-4" />
                         </button>
-                      )}
-                      {period.is_active && (
-                        <span className="px-4 py-2 bg-green-100 text-green-700 text-sm font-medium rounded-lg">
-                          Текущий период
-                        </span>
-                      )}
+
+                        {!isContainer(period) && (
+                          <button
+                            onClick={() => setReparentModal({
+                              open: true,
+                              period,
+                              parentId: period.parent_period_id ? String(period.parent_period_id) : ''
+                            })}
+                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            title="Привязать к контейнеру / отвязать"
+                          >
+                            <FolderTree className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        {/* Контейнеры не активируются: кнопки нет (D-0821-1) */}
+                        {!period.is_active && period.status !== 'closed' && !isContainer(period) && (
+                          <button
+                            onClick={() => handleActivate(period.id)}
+                            disabled={activating === period.id}
+                            className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                          >
+                            {activating === period.id ? (
+                              <span className="flex items-center gap-2">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Активация...
+                              </span>
+                            ) : (
+                              'Активировать'
+                            )}
+                          </button>
+                        )}
+
+                        {period.is_active && !isContainer(period) && (
+                          <>
+                            <span className="px-4 py-2 bg-green-100 text-green-700 text-sm font-medium rounded-lg">
+                              Текущий период
+                            </span>
+                            <button
+                              onClick={() => handleClose(period.id)}
+                              disabled={closing === period.id}
+                              className="px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-900 transition-colors disabled:opacity-50"
+                              title="Рассчитать и сохранить результаты, закрыть период"
+                            >
+                              {closing === period.id ? (
+                                <span className="flex items-center gap-2">
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  Закрытие...
+                                </span>
+                              ) : (
+                                'Закрыть период'
+                              )}
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -393,11 +614,25 @@ const AdminPeriods = ({ user }) => {
                   <input
                     type="text"
                     required
-                    placeholder="Q1 2025, Annual Review 2025, etc."
+                    placeholder="H2-2026, Annual 2026, etc."
                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Тип периода
+                  </label>
+                  <select
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    value={formData.period_type}
+                    onChange={(e) => setFormData({ ...formData, period_type: e.target.value })}
+                  >
+                    <option value="half_year">Полугодовой</option>
+                    <option value="annual">Годовой</option>
+                  </select>
                 </div>
 
                 <div>
@@ -426,10 +661,32 @@ const AdminPeriods = ({ user }) => {
                   />
                 </div>
 
+                {eligibleParents.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Родительский период (контейнер)
+                    </label>
+                    <select
+                      className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      value={formData.parent_period_id}
+                      onChange={(e) => setFormData({ ...formData, parent_period_id: e.target.value })}
+                    >
+                      <option value="">— без контейнера —</option>
+                      {eligibleParents.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Даты нового периода должны лежать внутри дат контейнера.
+                    </p>
+                  </div>
+                )}
+
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm text-blue-800">
                     <strong>Примечание:</strong> Новый период будет создан в неактивном состоянии.
-                    Вы сможете активировать его позже.
+                    Вы сможете активировать его позже. Контейнер (период с дочерними периодами)
+                    активировать нельзя — он служит для годовой сводки.
                   </p>
                 </div>
               </div>
@@ -459,6 +716,121 @@ const AdminPeriods = ({ user }) => {
                       Создать
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка переименования */}
+      {renameModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <form onSubmit={handleRename}>
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-900">Переименовать период</h2>
+                <button
+                  type="button"
+                  onClick={() => setRenameModal({ open: false, period: null, name: '' })}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+              <div className="p-6 space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Новое название
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={100}
+                  autoFocus
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={renameModal.name}
+                  onChange={(e) => setRenameModal({ ...renameModal, name: e.target.value })}
+                />
+                <p className="text-xs text-gray-400">
+                  Название — только подпись: расчёты, охват и права привязаны к идентификатору периода.
+                </p>
+              </div>
+              <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRenameModal({ open: false, period: null, name: '' })}
+                  className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  disabled={renaming || !renameModal.name.trim()}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-md disabled:opacity-50"
+                >
+                  {renaming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                  Сохранить
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка привязки к контейнеру */}
+      {reparentModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <form onSubmit={handleReparent}>
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-900">
+                  Контейнер для «{reparentModal.period?.name}»
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setReparentModal({ open: false, period: null, parentId: '' })}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+              <div className="p-6 space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Родительский период
+                </label>
+                <select
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={reparentModal.parentId}
+                  onChange={(e) => setReparentModal({ ...reparentModal, parentId: e.target.value })}
+                >
+                  <option value="">— без контейнера (отвязать) —</option>
+                  {periods
+                    .filter((p) => canBeParent(p, reparentModal.period?.id))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                </select>
+                <p className="text-xs text-gray-400">
+                  Контейнер — отчётная конструкция для годовой сводки; привязка и отвязка безопасны.
+                  Родителем может быть только период без оценок; даты дочернего периода должны лежать
+                  внутри дат контейнера.
+                </p>
+              </div>
+              <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setReparentModal({ open: false, period: null, parentId: '' })}
+                  className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  disabled={reparenting}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-md disabled:opacity-50"
+                >
+                  {reparenting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                  Сохранить
                 </button>
               </div>
             </form>
