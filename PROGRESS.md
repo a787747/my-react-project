@@ -705,3 +705,26 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - Top-level export `API_ evaluations-matrix.json` is the STALE pre-guard version (BUG-028); live truth is the `build_route_guard_deferred.py` output. Cost one throwaway debug cycle.
 - Nothing keys on period name at runtime (verified); migrations 010/012 are name-keyed one-time seeds — do not re-run after renames.
 - Throwaway DB `epe_hier_20260821_0549` kept for audit; container `epe-hier-n8n` removed.
+
+## 2026-08-21 — Post-verification batch: money-screen honesty, annual-type gate, sibling overlap
+
+**What was done:**
+- M6/BUG-030: `useFinalScoresMatrix` no longer swallows a failed coefficients or grades fetch. `Promise.allSettled`, per-request classification, explicit error state («Коэффициенты не загружены — расчёт невозможен» etc.); both money screens return an error card with retry before any table renders.
+- M1: `/admin/periods` gates rename/reparent/activate/close behind `isAdmin(user.role)`; close is confirmed by typing the period name (modal, submit disabled until exact match).
+- M7: activate and close refuse `period_type='annual'` independently of `child_count` (422 `ANNUAL_PERIOD_NOT_ACTIVATABLE` / `ANNUAL_PERIOD_NOT_CLOSABLE`), re-asserted inside the write.
+- M4: create/reparent reject an overlapping sibling (422 `SIBLING_DATES_OVERLAP`); roll-up header shows «закрыто N из M дочерних периодов» + child date ranges; detaching a child with `has_results` confirms that annual numbers will move.
+- Docs: BUG-010 re-scoped (not closed), BUG-029 + BUG-030 + BUG-031 added, PERIODS_HIERARCHY provenance corrected, CALCULATION_MAP records that `rating_*` and `final_rating` do not reconcile by design; `prove_periods_hierarchy.py` cross-check records the compared tuples and fails on a vacuous run.
+
+**Results:**
+- Tests 213 → **236 pass / 0 fail**; eslint debt unchanged (34 before, 34 after); build clean.
+- Stand (`epe_hier_20260821_0710`, restored from current live): ALL CHECKS PASSED, incl. childless-annual 422 on both routes, one-day and contained sibling overlaps 422, and the canonical H1 01.01–30.06 + H2 01.07–31.12 split passing.
+- Live: `API: Manage Periods` `updatedAt=2026-08-21T07:28:10.039Z` (9 Code nodes changed, 61 nodes / 7 webhooks unchanged, guard frozen, active preserved); frontend `20260821T072859Z`; H1 `draft,false` 87/89; all four data tables 0; webhooks 41.
+- Housekeeping: `epe_hier_20260821_0549` and the fresh `epe_hier_20260821_0710` dropped; `epe-hier-n8n` removed; dumps `_0547`/`_0548` deleted; `git push origin main` done (`78dbeb1..70d218f`).
+- Report: `docs/POSTVERIFY_BATCH_2026-08-2x.md`.
+
+**Notes / Gotchas:**
+- **BUG-031, found while proving:** the n8n Postgres node returns `date` columns as UTC-serialised JS Dates, so `String(v).slice(0,10)` is one calendar day early in Moscow. Creating a child that ends on the container's last day was refused — that is exactly the September H2 attach. Date containment is now decided in SQL; never compare a client `YYYY-MM-DD` against a date that crossed the Postgres node.
+- `docker cp <dir> container:/path` **nests** when the target directory already exists, so `n8n import:workflow` re-imported the previous file. Two diagnoses were made against a stand silently running old code before this was caught.
+- `n8n import:workflow` always assigns a new workflow id (the file's `id` is ignored), so a stand accumulates duplicates — deactivate the old ones and verify the active definition node-for-node before trusting a proof.
+- `scripts/deploy_epe_frontend.sh` needs `rg` on PATH; it is not installed here, so the deploy failed closed. The two gates were run by hand and the script re-run with a `grep` shim.
+- Verification rider confirmed present, unchanged: LIVE `API: Submit Evaluation` carries `AND subj.can_be_evaluated = true` in all three relation filters (manager / subordinate / c_level_direct), so 21/40/61 can never acquire a coefficient-1.00 money row. No static test covers it.

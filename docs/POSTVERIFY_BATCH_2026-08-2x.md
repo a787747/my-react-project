@@ -309,7 +309,7 @@ Rendered checks (vite `:5299` → stand) are quoted inline in §1, §2, §5 and 
 | Container `epe-hier-n8n` | **removed** (project-owned; nothing else touched) |
 | Duplicate dumps `_0547`, `_0548` | **deleted** in `backups/2026-08-21-periods-hierarchy/` and in `/tmp` on the host. `_0549` kept, as instructed |
 | Databases remaining on `postgres_n8n` | **`epe_2026` only** (plus n8n's own `postgres`) |
-| `git push origin main` | see below |
+| `git push origin main` | **pushed** — `78dbeb1..70d218f`; `main` was 9 commits ahead, now 0. The laptop is no longer the only copy of what runs on live (BUG-014, no off-host *backup*, is a separate matter and stays open) |
 
 Two dumps now sit in `backups/2026-08-21-periods-hierarchy/`: `_0549` (kept per the brief) and `_0710` (this
 brief's stand source, and the only dump that reflects live *after* migration 013 and the Annual 2026
