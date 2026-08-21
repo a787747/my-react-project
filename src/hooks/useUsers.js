@@ -29,10 +29,11 @@ export const useUsers = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  // Загрузка данных
-  const fetchData = useCallback(async () => {
+  // Загрузка данных. silent=true after a row save: keep the table mounted
+  // so sort, filters, page, and window scroll are not reset.
+  const fetchData = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       
       const res = await apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA);
@@ -48,7 +49,7 @@ export const useUsers = () => {
       logger.error('Ошибка загрузки пользователей:', err);
       setError('Не удалось загрузить список пользователей');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -64,8 +65,8 @@ export const useUsers = () => {
 
       await apiClient.post(API_ENDPOINTS.ADMIN_SAVE_USER, payload);
       
-      // Перезагружаем данные после сохранения
-      await fetchData();
+      // Silent reload: a full-page spinner would unmount the table and jump to top
+      await fetchData({ silent: true });
       
       return { success: true };
     } catch (err) {

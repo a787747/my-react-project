@@ -12,17 +12,20 @@
  * - filters: текущие фильтры
  * - searchInput: значение поля поиска
  * - currentPage: текущая страница
- * - filteredUsers: отфильтрованный список
- * - paginatedUsers: список для текущей страницы
+ * - filteredUsers: отфильтрованный список (порядок API; счётчик «Найдено»)
+ * - paginatedUsers: список для текущей страницы (уже отсортированный)
  * - totalPages: общее количество страниц
+ * - sortField / sortDirection: текущая сортировка (null = порядок API)
  * - setSearchInput: установить поиск
  * - handleFilterChange: изменить фильтр
- * - resetFilters: сбросить фильтры
+ * - handleSort: переключить сортировку по колонке
+ * - resetFilters: сбросить фильтры и сортировку
  * - setCurrentPage: установить страницу
  */
 
 import { useState, useEffect, useMemo } from 'react';
 import { UI_CONFIG } from '../config/constants';
+import { sortUsers } from '../utils/userSort';
 
 // Начальные значения фильтров
 const initialFilters = {
@@ -37,6 +40,8 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
   const [filters, setFilters] = useState(initialFilters);
   const [searchInput, setSearchInput] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
 
   // Debounce для поиска - обновляем фильтр через 300мс после ввода
   useEffect(() => {
@@ -73,15 +78,20 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
     });
   }, [users, filters]);
 
+  const sortedUsers = useMemo(
+    () => sortUsers(filteredUsers, sortField, sortDirection),
+    [filteredUsers, sortField, sortDirection]
+  );
+
   // Пагинация
   const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
   
   const paginatedUsers = useMemo(() => {
-    return filteredUsers.slice(
+    return sortedUsers.slice(
       (currentPage - 1) * itemsPerPage,
       currentPage * itemsPerPage
     );
-  }, [filteredUsers, currentPage, itemsPerPage]);
+  }, [sortedUsers, currentPage, itemsPerPage]);
 
   // Обработчик изменения фильтра
   const handleFilterChange = (key, value) => {
@@ -93,6 +103,18 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
   const resetFilters = () => {
     setFilters(initialFilters);
     setSearchInput('');
+    setSortField(null);
+    setSortDirection('asc');
+    setCurrentPage(1);
+  };
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
     setCurrentPage(1);
   };
 
@@ -103,8 +125,11 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
     filteredUsers,
     paginatedUsers,
     totalPages,
+    sortField,
+    sortDirection,
     setSearchInput,
     handleFilterChange,
+    handleSort,
     resetFilters,
     setCurrentPage
   };

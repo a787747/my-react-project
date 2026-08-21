@@ -188,7 +188,10 @@ const AdminUsers = ({ user }) => {
     setSearchInput,
     handleFilterChange,
     resetFilters,
-    setCurrentPage
+    setCurrentPage,
+    sortField,
+    sortDirection,
+    handleSort
   } = useUserFilters(usersWithStatus, UI_CONFIG.ITEMS_PER_PAGE);
 
   // Состояние модального окна
@@ -221,6 +224,7 @@ const AdminUsers = ({ user }) => {
 
   // Сохранение пользователя
   const handleSave = async (formData, existingUserId) => {
+    const scrollY = window.scrollY;
     const result = await saveUser(formData, existingUserId);
     
     if (result.success) {
@@ -229,6 +233,11 @@ const AdminUsers = ({ user }) => {
         'success'
       );
       handleCloseModal();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo(0, scrollY);
+        });
+      });
     } else {
       showToast(result.error || 'Ошибка при сохранении', 'error');
     }
@@ -332,6 +341,9 @@ const AdminUsers = ({ user }) => {
         onSubordinateEvaluationClick={canOpenDossier ? handleSubordinateEvaluationClick : undefined}
         showSelfReviewScore={true}
         showThreeColumns={true}
+        sortField={sortField}
+        sortDirection={sortDirection}
+        onSort={handleSort}
       />
 
       {/* Пагинация */}

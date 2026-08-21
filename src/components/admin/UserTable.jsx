@@ -14,10 +14,39 @@
  * - onSubordinateEvaluationClick: function(user) - колбэк при клике на оценки от сотрудников (опционально)
  * - showSelfReviewScore: boolean - показывать ли балл самооценки (опционально)
  * - showThreeColumns: boolean - показывать ли 3 колонки статусов (Self, Сотрудники, Manager)
+ * - sortField / sortDirection / onSort: клиентская сортировка (опционально; без onSort заголовки статичны)
  */
 
 import React from 'react';
-import { Pencil, Mail, Users, CheckCircle, Circle, Clock, Crown, Star, Eye, UserCheck } from 'lucide-react';
+import { Pencil, Mail, Users, CheckCircle, Circle, Clock, Crown, Star, Eye, UserCheck, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
+
+const SortIcon = ({ field, sortField, sortDirection }) => {
+  if (sortField !== field) {
+    return <ArrowUpDown className="w-3 h-3 text-gray-300" />;
+  }
+  return sortDirection === 'asc'
+    ? <ChevronUp className="w-3 h-3 text-indigo-600" />
+    : <ChevronDown className="w-3 h-3 text-indigo-600" />;
+};
+
+const SortButton = ({ field, label, sortField, sortDirection, onSort, title }) => {
+  const active = sortField === field;
+  const next = active && sortDirection === 'asc' ? 'по убыванию' : 'по возрастанию';
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={`Сортировать: ${label}, ${next}`}
+      onClick={() => onSort(field)}
+      className={`inline-flex items-center gap-1 uppercase hover:text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 rounded ${
+        active ? 'text-indigo-600' : 'text-gray-500'
+      }`}
+    >
+      {label}
+      <SortIcon field={field} sortField={sortField} sortDirection={sortDirection} />
+    </button>
+  );
+};
 
 const UserTable = ({ 
   users, 
@@ -28,8 +57,12 @@ const UserTable = ({
   onManagerEvaluationClick, 
   onSubordinateEvaluationClick,
   showSelfReviewScore = false,
-  showThreeColumns = false
+  showThreeColumns = false,
+  sortField = null,
+  sortDirection = 'asc',
+  onSort
 }) => {
+  const sortable = typeof onSort === 'function';
   
   // Получение данных самооценки для пользователя
   const getSelfReviewData = (userId) => {
@@ -120,10 +153,43 @@ const UserTable = ({
         <table className="w-full text-left border-collapse">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Сотрудник</th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Роль / Категория</th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Отдел / Грейд</th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Менеджер</th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+                {sortable ? (
+                  <div className="flex flex-col items-start gap-1">
+                    <SortButton field="name" label="Сотрудник" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+                    <SortButton field="registered" label="Рег." title="Статус регистрации" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+                  </div>
+                ) : (
+                  'Сотрудник'
+                )}
+              </th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+                {sortable ? (
+                  <div className="flex flex-col items-start gap-1">
+                    <SortButton field="role" label="Роль" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+                    <SortButton field="category" label="Категория" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+                  </div>
+                ) : (
+                  'Роль / Категория'
+                )}
+              </th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+                {sortable ? (
+                  <div className="flex flex-col items-start gap-1">
+                    <SortButton field="department" label="Отдел" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+                    <SortButton field="grade" label="Грейд" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+                  </div>
+                ) : (
+                  'Отдел / Грейд'
+                )}
+              </th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+                {sortable ? (
+                  <SortButton field="manager" label="Менеджер" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+                ) : (
+                  'Менеджер'
+                )}
+              </th>
               <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-center">
                 {showThreeColumns ? 'Статусы оценок' : 'Статус (Само. / Рук.)'}
               </th>

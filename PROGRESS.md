@@ -658,3 +658,30 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - The employees `can_evaluate` predicate was in the 15:46 PUT all along (generator line 1440); only the proof was missing.
 - Report-only leftovers: empty «Мои задачи» box for the read-only trio; matrix correction inputs 403 via interceptor for them; `level_0_desc` outside the stripped list (empty today on both c_level_only rows).
 - Constraints held: Auth Guard `2026-08-18T16:34:30.674Z`/inactive re-read at finish; H1 still draft/false; sessions still 4; archive untouched.
+
+## 2026-08-20 — Admin users column sort (classification pass)
+
+**What was done:**
+- Frontend-only: sortable headers on Admin → Сотрудники (name, role, category, department, grade, manager, registration). Sort orders the current «Найдено» set; counts unchanged.
+- Save no longer flips `loading` (silent refetch) and restores `window.scrollY`, so sort, filters, page, and scroll survive a row edit.
+- `npm test` 192/192. Deploy `./scripts/deploy_epe_frontend.sh`. Previous stamp `20260820T154749Z` left on disk.
+
+**Results:**
+- Live `current` = `releases/20260820T165040Z`. H1 not touched. No workflow / schema / API change.
+- Report: `docs/ADMIN_USERS_SORT_2026-08-2x.md`. Rendered proof is Alexander’s own check on `/admin/users`.
+
+**Notes / Gotchas:**
+- TeamView uses the same table without `onSort` — headers there stay static.
+- Pre-existing: `setLoadingStatuses` is undefined in `AdminUsers.jsx`; evaluation circles can fail to load. Not part of this brief.
+
+## 2026-08-20 — `work_category = 'tender'` wiring (read-only)
+
+**What was done:**
+- Read-only: live `epe_2026` + 2025 archive SELECT counts/schema; live `API: Admin Save User (GUI Mode)` Validate node; deployed `20260820T165040Z`; src Admin modal/filter/import + manager-form filter. No PUT, no deploy, no DB write, no mail.
+
+**Results:**
+- Tender is a leftover UI option. Live API allow-list is `general`/`project` only (422 `INVALID_WORK_CATEGORY`). Derivation `is_project_participant = (work_category === 'project')` never runs for tender. Live counts: epe_2026 46 general / 43 project / 0 tender; archive 46 / 27 / 0.
+- Manager form for a tender non-manager would be the same as general: criteria 3, 4, 12 (not 8, 13). Report: `docs/TENDER_CATEGORY_2026-08-2x.md`.
+
+**Notes / Gotchas:**
+- Column is `varchar(50)` with no CHECK; enum `work_category_type` includes `tender`/`hybrid` but is unused by the column. Raw SQL could store tender; the portal cannot.
