@@ -2822,14 +2822,16 @@ def build_save_user(credential_id: str, guard_workflow_id: str) -> dict[str, Any
 # GET api/periods: catalogue incl. child_count/has_evaluations/has_results.
 # POST api/periods/create: atomic CTE period+participants; always draft/inactive;
 #   half_year or annual only; optional parent_period_id (container attach at birth).
-# POST api/periods/activate: refuses containers (422, D-0821-1), closed targets,
-#   and switching away from an active period with evaluations (409).
+# POST api/periods/activate: refuses containers (422, D-0821-1), annual periods
+#   (422, D-0821-4 — a year is a reporting container whatever its children),
+#   closed targets, and switching away from an active period with evaluations (409).
 # POST api/periods/rename: any period; unique-name guarded. Nothing keys on name.
 # POST api/periods/reparent: attach/detach a child; containers are reporting
 #   constructs, so reparenting is always safe. A period with evaluations can
-#   never become a parent; child dates must lie within the parent's.
-# POST api/periods/close: leaf-only, active-only; computes and stores per-person
-#   results in one atomic statement (D-0821-2). Second close changes zero rows.
+#   never become a parent; child dates must lie within the parent's and must not
+#   overlap an existing sibling (the annual index is a SUM — overlap double-counts).
+# POST api/periods/close: leaf-only, active-only, never annual; computes and stores
+#   per-person results in one atomic statement (D-0821-2). Second close: zero rows.
 # GET api/periods/annual-rollup: admin + c_level; persisted results only —
 #   out-of-scope excluded from the mean, index is a sum (D-0821-3 / D-0819-1).
 
@@ -2928,6 +2930,11 @@ if (rawParent !== undefined && rawParent !== null && String(rawParent).trim() !=
 }
 
 const safeName = name.replace(/'/g, "''");
+// child_inside_parent is decided by Postgres, never in JS: the Postgres node
+// hands date columns back as JS Date objects serialised in UTC, so a date read
+// here is one calendar day early in Moscow time. Comparing a client
+// YYYY-MM-DD string against that refused a child ending on the parent's own
+// last day — i.e. the canonical H2 01.07-31.12 under an annual container.
 // Always start as draft and inactive; ignore client-supplied status
 return {
   json: {
@@ -2947,7 +2954,12 @@ SELECT
   p.status AS parent_status,
   p.parent_period_id AS parent_parent_id,
   EXISTS(SELECT 1 FROM performance_db.evaluations e
-         WHERE e.period_id = ${parentId === null ? -1 : parentId}) AS parent_has_evaluations
+         WHERE e.period_id = ${parentId === null ? -1 : parentId}) AS parent_has_evaluations,
+  ('${startDate}'::date >= p.start_date AND '${endDate}'::date <= p.end_date) AS child_inside_parent,
+  (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods sib
+     WHERE sib.parent_period_id = ${parentId === null ? -1 : parentId}
+       AND sib.start_date <= '${endDate}'::date
+       AND sib.end_date >= '${startDate}'::date) AS sibling_overlap_count
 FROM (SELECT 1) one
 LEFT JOIN performance_db.evaluation_periods p
   ON p.id = ${parentId === null ? -1 : parentId}
@@ -2969,7 +2981,6 @@ if (check.name_taken) {
   return { json: { http_status: 409, body: { success: false, error: 'PERIOD_NAME_TAKEN', message: 'Период с таким названием уже существует' } } };
 }
 const parentId = prev.parent_id;
-const asDate = (value) => String(value ?? '').slice(0, 10);
 if (parentId !== null) {
   if (check.parent_id === null || check.parent_id === undefined) {
     return { json: { http_status: 404, body: { success: false, error: 'PARENT_NOT_FOUND', message: 'Родительский период не найден' } } };
@@ -2983,8 +2994,15 @@ if (parentId !== null) {
   if (check.parent_has_evaluations) {
     return { json: { http_status: 422, body: { success: false, error: 'PARENT_HAS_EVALUATIONS', message: 'Период с оценками не может стать контейнером' } } };
   }
-  if (asDate(prev.start_date) < asDate(check.parent_start) || asDate(prev.end_date) > asDate(check.parent_end)) {
+  // NULL (unknown) refuses too: only an explicit "inside" passes.
+  const insideParent = check.child_inside_parent === true || check.child_inside_parent === 'true';
+  if (!insideParent) {
     return { json: { http_status: 422, body: { success: false, error: 'CHILD_DATES_OUTSIDE_PARENT', message: 'Даты дочернего периода должны находиться внутри дат контейнера' } } };
+  }
+  // The annual index is a SUM over children: overlapping siblings double-count
+  // the overlap, and the roll-up has no way to show that it happened.
+  if (Number(check.sibling_overlap_count) > 0) {
+    return { json: { http_status: 422, body: { success: false, error: 'SIBLING_DATES_OVERLAP', message: 'Даты пересекаются с другим дочерним периодом этого контейнера' } } };
   }
 }
 const safeName = prev.name;
@@ -3004,6 +3022,12 @@ const insertGate = parentId === null
          AND p.start_date <= '${startDate}'::date
          AND p.end_date >= '${endDate}'::date
          AND NOT EXISTS (SELECT 1 FROM performance_db.evaluations e WHERE e.period_id = p.id)
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM performance_db.evaluation_periods sib
+       WHERE sib.parent_period_id = ${parentId}
+         AND sib.start_date <= '${endDate}'::date
+         AND sib.end_date >= '${startDate}'::date
      )`;
 return {
   json: {
@@ -3114,6 +3138,7 @@ return {
       SELECT
         t.id AS target_id,
         t.status AS target_status,
+        t.period_type AS target_period_type,
         (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods c
           WHERE c.parent_period_id = ${periodId}) AS target_child_count,
         cur.id AS current_active_id,
@@ -3174,6 +3199,20 @@ if (check.target_status === 'closed') {
     },
   };
 }
+// An annual period is a reporting container whatever its children happen to be:
+// detaching the last child must not turn a whole year into a campaign period.
+if (String(check.target_period_type) === 'annual') {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'ANNUAL_PERIOD_NOT_ACTIVATABLE',
+        message: 'Годовой период — контейнер отчётности: активировать можно только полугодовой период',
+      },
+    },
+  };
+}
 // Reject if switching away from an active period that already has evaluations
 if (check.current_active_id !== null && check.current_active_id !== undefined && check.has_evaluations) {
   return {
@@ -3196,6 +3235,7 @@ WITH activatable AS (
   SELECT id FROM performance_db.evaluation_periods
   WHERE id = ${periodId}
     AND status != 'closed'
+    AND period_type != 'annual'
     AND NOT EXISTS (
       SELECT 1 FROM performance_db.evaluation_periods c
       WHERE c.parent_period_id = ${periodId}
@@ -3369,6 +3409,8 @@ if (rawParent !== undefined && rawParent !== null && String(rawParent).trim() !=
 if (parentId !== null && parentId === periodId) {
   return { json: { http_status: 422, body: { success: false, error: 'SELF_PARENT', message: 'Период нельзя вложить в самого себя' } } };
 }
+// child_inside_parent is decided by Postgres for the same reason as create:
+// dates that cross the Postgres node arrive shifted by the timezone offset.
 return {
   json: {
     ok: true,
@@ -3387,7 +3429,13 @@ return {
         p.status AS parent_status,
         p.parent_period_id AS parent_parent_id,
         EXISTS(SELECT 1 FROM performance_db.evaluations e
-               WHERE e.period_id = ${parentId === null ? -1 : parentId}) AS parent_has_evaluations
+               WHERE e.period_id = ${parentId === null ? -1 : parentId}) AS parent_has_evaluations,
+        (t.start_date >= p.start_date AND t.end_date <= p.end_date) AS child_inside_parent,
+        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods sib
+           WHERE sib.parent_period_id = ${parentId === null ? -1 : parentId}
+             AND sib.id != ${periodId}
+             AND sib.start_date <= t.end_date
+             AND sib.end_date >= t.start_date) AS sibling_overlap_count
       FROM (SELECT 1) one
       LEFT JOIN performance_db.evaluation_periods t ON t.id = ${periodId}
       LEFT JOIN performance_db.evaluation_periods p ON p.id = ${parentId === null ? -1 : parentId}
@@ -3413,7 +3461,6 @@ if (Number(check.child_child_count) > 0) {
 }
 const periodId = Number(prev.period_id);
 const parentId = prev.parent_id;
-const asDate = (value) => String(value ?? '').slice(0, 10);
 if (parentId === null) {
   return {
     json: {
@@ -3440,8 +3487,14 @@ if (check.parent_status === 'active') {
 if (check.parent_has_evaluations) {
   return { json: { http_status: 422, body: { success: false, error: 'PARENT_HAS_EVALUATIONS', message: 'Период с оценками не может стать контейнером' } } };
 }
-if (asDate(check.child_start) < asDate(check.parent_start) || asDate(check.child_end) > asDate(check.parent_end)) {
+// NULL (unknown) refuses too: only an explicit "inside" passes.
+const insideParent = check.child_inside_parent === true || check.child_inside_parent === 'true';
+if (!insideParent) {
   return { json: { http_status: 422, body: { success: false, error: 'CHILD_DATES_OUTSIDE_PARENT', message: 'Даты дочернего периода должны находиться внутри дат контейнера' } } };
+}
+// The annual index is a SUM over children: overlapping siblings double-count.
+if (Number(check.sibling_overlap_count) > 0) {
+  return { json: { http_status: 422, body: { success: false, error: 'SIBLING_DATES_OVERLAP', message: 'Даты пересекаются с другим дочерним периодом этого контейнера' } } };
 }
 return {
   json: {
@@ -3460,6 +3513,13 @@ WHERE id = ${periodId}
       AND p.start_date <= (SELECT start_date FROM performance_db.evaluation_periods WHERE id = ${periodId})
       AND p.end_date >= (SELECT end_date FROM performance_db.evaluation_periods WHERE id = ${periodId})
       AND NOT EXISTS (SELECT 1 FROM performance_db.evaluations e WHERE e.period_id = p.id)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM performance_db.evaluation_periods sib
+    WHERE sib.parent_period_id = ${parentId}
+      AND sib.id != ${periodId}
+      AND sib.start_date <= (SELECT end_date FROM performance_db.evaluation_periods WHERE id = ${periodId})
+      AND sib.end_date >= (SELECT start_date FROM performance_db.evaluation_periods WHERE id = ${periodId})
   )
 RETURNING id, name, parent_period_id
     `,
@@ -3510,6 +3570,7 @@ return {
         t.name AS target_name,
         t.status AS target_status,
         t.is_active AS target_is_active,
+        t.period_type AS target_period_type,
         (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods c
           WHERE c.parent_period_id = ${periodId}) AS child_count,
         (SELECT COUNT(*)::integer FROM performance_db.evaluations e
@@ -3652,6 +3713,11 @@ if (check.target_status === 'closed') {
   }
   return { json: { http_status: 409, body: { success: false, error: 'PERIOD_ALREADY_CLOSED', message: 'Период уже закрыт (без сохранённых результатов)' } } };
 }
+// Annual periods never close, with or without children: closing a childless
+// annual would freeze a full year of has_data=false rows forever.
+if (String(check.target_period_type) === 'annual') {
+  return { json: { http_status: 422, body: { success: false, error: 'ANNUAL_PERIOD_NOT_CLOSABLE', message: 'Годовой период — контейнер отчётности: закрываются его дочерние периоды' } } };
+}
 if (check.target_status !== 'active') {
   return { json: { http_status: 422, body: { success: false, error: 'PERIOD_NOT_ACTIVE', message: 'Закрыть можно только активный период' } } };
 }
@@ -3763,6 +3829,7 @@ WITH target AS (
   SELECT id FROM performance_db.evaluation_periods
   WHERE id = ${periodId}
     AND status = 'active' AND is_active = true
+    AND period_type != 'annual'
     AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods c
                     WHERE c.parent_period_id = ${periodId})
     AND NOT EXISTS (SELECT 1 FROM performance_db.period_results pr

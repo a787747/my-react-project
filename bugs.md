@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 10 |
+| 🔴 Open | 11 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 18 |
+| 🟢 Closed | 20 |
 
 ---
 
@@ -64,14 +64,17 @@
 - Fix (2026-08-19): endpoint constants remain authoritative; the duplicate Axios `baseURL` was removed and frontend release `20260819T094626Z` deployed.
 - Verification: fresh bundle `index-CAUq0inK.js` issued only `/webhook/api/*`; real employee self/upward and manager/downward UI submissions completed without a 401 loop.
 
-### BUG-010: Period results are not persisted at close
-- Status: 🔴 OPEN
+### BUG-010: Live-joined screens rewrite history for every period that is not closed
+- Status: 🔴 OPEN (re-scoped 2026-08-21 — the persistence half shipped)
 - Severity: ⚠️ High
-- Location: no write path; HANDOVER §4 item 2 / §6.13; D-0819-1.
-- Description: The bonus index and per-source ratings exist only on screen. Closing a period stores nothing to sum later. December showed this: the index was unrecoverable after weights/coefficients changed.
-- Why it matters: H1 + H2 → annual aggregation cannot be applied. Editing grades, weights, or classification after the campaign rewrites history on the next render.
-- Fix: at period close, persist rating per source + bonus index per person. Do this after H1 launch, with the remaining employee-route period filters.
-- H1 impact: none on 31 Aug. Required before September results / annual rule.
+- Location: `API: evaluations-matrix`, `API: Get Score Coefficients`, `src/hooks/useFinalScoresMatrix.js`, `src/pages/BonusCalculation.jsx`; HANDOVER §4 item 2 / §6.13; D-0819-1.
+- Description (original): the bonus index and per-source ratings existed only on screen; closing a period stored nothing to sum later. December showed this — the index was unrecoverable once weights and coefficients changed.
+- Shipped (2026-08-21): `POST api/periods/close` computes and stores `performance_db.period_results` (migration 013) in one atomic statement, and the annual roll-up reads that table only — no live join. Proven immutable: editing `criteria.weight` and `grades.coefficient` after close left both the stored rows and the roll-up byte-identical. H1 + H2 → annual aggregation is therefore possible. See `docs/PERIODS_HIERARCHY_2026-08-2x.md`.
+- Still open — the other half: **every period that is not yet closed is still live-joined.** Итоговые баллы, Калькуляция бонусов and the evaluations matrix recompute from `criteria.weight`, `grades.coefficient` and the user's classification on each render, so editing any of those mid-campaign silently rewrites the numbers people already saw. Freezing only happens at close, which is a one-way door: before it, nothing is stable; after it, nothing is recomputable.
+- Why it matters: between 31 August and the September close, H1's numbers are only as stable as the catalogue nobody promised not to edit.
+- Fix: version the scoring inputs (weights, coefficients, grade coefficients) per period, or freeze the catalogue for the duration of an active campaign and refuse edits with a 409.
+- H1 impact: none on 31 Aug. Operational discipline during the campaign; the code fix is post-H1.
+- Related: [BUG-029] (a zero weight is read as 1.0), [BUG-030] (a failed coefficients fetch used to un-weight the screen silently).
 
 ---
 
@@ -262,3 +265,32 @@
 - Description: The top-level export is the pre-guard, pre-period-binding 4-node workflow. Live runs the generated version (`scripts/build_route_guard_deferred.py` → `route_guard_deferred/evaluations-matrix.json`). Anything importing or trusting the top-level file gets an unguarded, all-periods-mixed matrix — it cost the 2026-08-21 throwaway stand one debug cycle.
 - Why it matters: A future session or stand that seeds from the stale export silently reintroduces an unauthenticated period-mixing matrix.
 - How to fix: Refresh top-level exports from live after each PUT (deploy_periods_hierarchy.py already does this for Manage Periods), or drop top-level duplicates of generator-owned workflows keeping only the id-bearing metadata.
+
+### BUG-029: Criterion weight of 0 silently behaves as 1.0 in the bonus index
+- Status: 🔴 OPEN
+- Severity: 🟢 Low–Medium (latent hardening gap — no currently-wrong number; no zero weight or zero grade coefficient exists on live today)
+- Location: LIVE `API: Manage Periods` → `Compute Close Results` (`const weight = Number(crit.weight) || 1.0;`); LIVE `API: Get Score Coefficients` → `Format Response` (`weight: parseFloat(row.weight) || 1.0`); `src/hooks/useFinalScoresMatrix.js:84`.
+- Description: `|| 1.0` treats 0 as absent. Setting a criterion's weight to 0 — the natural way an admin would express "this criterion should not count toward the bonus" — makes it count with weight 1.0 instead. The same applies to a grade coefficient of 0. A score *coefficient* of 0 is handled correctly (it zeroes the term); only weight and grade coefficient are trapped.
+- Why it matters: the bonus index is the money-allocation number. An admin who zeroes a weight to remove a criterion from the pool gets the opposite of what they asked for, silently, with no validation error. Because the index has no denominator (HANDOVER §4), the mistake inflates that person's share of the pool rather than merely mis-scaling it. Since 2026-08-21 the wrong number is also *frozen* into `period_results` at close and cannot be recomputed.
+- Repro: set `criteria.weight = 0` for any active criterion, open Итоговые баллы / Калькуляция бонусов — the criterion contributes `score × coefficient × 1.0`. Close the period — the same value is persisted.
+- How to fix: use `Number.isFinite(w) && w >= 0 ? w : 1.0` on both sides (the close compute node and the coefficients API), so an explicit 0 means 0 and only NULL/garbage defaults to 1.0. Add a `CHECK (weight > 0)` or an explicit UI affordance for "exclude this criterion" if 0 must stay illegal. The two sides must change together or the server/client parity breaks.
+- H1 impact: none today (no zero weights on live; re-measured 2026-08-21: zero criteria with `weight IS NULL OR weight <= 0`, zero `score_coefficients` rows with `coefficient IS NULL OR coefficient <= 0`). Fix before anyone edits the criteria catalogue.
+
+### BUG-030: A failed coefficients call silently un-weighted the whole bonus screen
+- Status: 🟢 CLOSED
+- Severity: ⚠️ High
+- Location: `src/hooks/useFinalScoresMatrix.js:150` (pre-fix), consumed by `src/pages/AdminFinalScores.jsx` and `src/pages/BonusCalculation.jsx`.
+- Description: the hook fetched the matrix, the criterion coefficients and the grades in one `Promise.all`, with `.catch(() => ({ data: { data: [] } }))` on the last two. On any solo failure — an expired token giving 401, a 500, a network blip — `coefficients` became `[]`, `coefficientsMap` became `{}`, and every criterion then hit the client-only early return `if (!criteriaCoefs) { return score; }`, which returns the **raw, unweighted** cell score. A grades failure defaulted every grade coefficient to 1.00 the same way. The screen rendered a full, plausible bonus table computed without weights or level coefficients, with no error and no empty state.
+- Why it matters: the exposure was an admin distributing a real bonus pool from a silently degraded screen. The server has no equivalent branch — `Compute Close Results` reads weight and coefficients from the same SQL result as the scores — so what gets persisted at close was never affected.
+- Fix (2026-08-21): the three requests run through `Promise.allSettled`; any rejection is classified and becomes an explicit error state («Коэффициенты не загружены — расчёт невозможен», «Коэффициенты грейдов не загружены — расчёт невозможен», «Матрица оценок не загружена — расчёт невозможен»). The failure branch clears employees, criteria and period, and both money screens return an error card with a retry button before any table renders. No request in the hook substitutes a fabricated empty response any more.
+- Verification: `tests/moneyScreenGuards.test.js` (4 assertions over the hook and both screens); frontend release `20260821T072859Z` carries the strings (`useFinalScoresMatrix-D4w0eZxr.js`).
+- Residual: the client-only early return still exists for the case where the coefficients API and the matrix disagree on the active-criteria set — unreachable today (both enumerate `criteria WHERE is_active = true`) and tracked under [BUG-029]'s hardening.
+
+### BUG-031: Creating a child period ending on the container's last day was refused
+- Status: 🟢 CLOSED
+- Severity: ⚠️ High
+- Location: LIVE `API: Manage Periods` → `Validate Period Create` / `Build Create SQL` (and the same pattern in `Validate Period Reparent` / `Build Reparent SQL`).
+- Description: the child-inside-parent check compared a client-supplied `YYYY-MM-DD` string against the parent's dates as read back from Postgres. The n8n Postgres node returns `date` columns as JS `Date` objects serialised in UTC, so in Europe/Moscow a stored `2026-12-31` came back as `2026-12-30T21:00:00.000Z` and `String(v).slice(0, 10)` yielded the *previous calendar day*. The end-date test was therefore one day too strict: creating a child that ends on the container's own last day returned 422 `CHILD_DATES_OUTSIDE_PARENT`. The start-date test was one day too lenient for the same reason. The reparent path happened to work because both sides came from Postgres and the shifts cancelled.
+- Why it matters: this is exactly the H2 attach Alexander performs in September — «H2-2026» 01.07–31.12 under «Annual 2026» 01.01–31.12 — and it would have been refused with a message saying the dates are outside the container when they are not. Found by the post-verification proof, not in production.
+- Fix (2026-08-21): containment is decided by Postgres (`'start'::date >= p.start_date AND 'end'::date <= p.end_date` as `child_inside_parent`), and the Code node accepts only an explicit `true`; NULL or false refuses. The same change was applied to reparent so it no longer depends on the two shifts cancelling. The SQL re-assertions inside the INSERT/UPDATE were already date-typed and were correct throughout.
+- Verification: stand proof `create_h1_canonical` 200 + `create_h2_canonical` 200 on the canonical 01.01–30.06 / 01.07–31.12 split, `dates_outside_parent_422` still 422; `tests/periodsHierarchy.test.js` — the SQL verdict is read, JS date slicing is gone, and false/null/undefined all refuse. Live `updatedAt=2026-08-21T07:28:10.039Z`.

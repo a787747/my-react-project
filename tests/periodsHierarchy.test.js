@@ -307,3 +307,227 @@ test("compute node: corrections average into the final cell; coefficients apply 
   assert.ok(out.sql.includes("(1002, true, true, 6.00, NULL, NULL, NULL, 7.0000, 16.8000)"),
     `corrected row mismatch: ${out.sql.match(/\(1002[^)]*\)/)?.[0]}`);
 });
+
+// ── M7: period_type = 'annual' is load-bearing on activate and close ──────
+// "Container" was a derived state (child_count > 0). Detaching the last child
+// turned a full-year period into an ordinary activatable, closable period.
+
+test("activation refuses an annual period regardless of child count", () => {
+  const js = jsOf("Build Activation SQL");
+  assert.ok(js.includes("ANNUAL_PERIOD_NOT_ACTIVATABLE"), "must carry the annual refusal code");
+  assert.match(
+    js,
+    /http_status: 422[\s\S]{0,200}ANNUAL_PERIOD_NOT_ACTIVATABLE/,
+    "annual refusal must ride a 422"
+  );
+  assert.ok(
+    js.includes("Годовой период — контейнер отчётности"),
+    "message must name the annual period as a reporting container"
+  );
+  assert.ok(
+    js.includes("period_type != 'annual'"),
+    "the activatable CTE must re-assert the type inside the UPDATE"
+  );
+  assert.ok(
+    jsOf("Validate Period Activate").includes("t.period_type AS target_period_type"),
+    "the precondition query must read the target's period_type"
+  );
+});
+
+test("close refuses an annual period regardless of child count", () => {
+  const build = jsOf("Build Close Dataset Query");
+  assert.ok(build.includes("ANNUAL_PERIOD_NOT_CLOSABLE"), "must carry the annual refusal code");
+  assert.match(
+    build,
+    /http_status: 422[\s\S]{0,200}ANNUAL_PERIOD_NOT_CLOSABLE/,
+    "annual refusal must ride a 422"
+  );
+  assert.ok(build.includes("Годовой период — контейнер отчётности"), "message must be the agreed one");
+  assert.ok(
+    jsOf("Validate Period Close").includes("t.period_type AS target_period_type"),
+    "the precondition query must read the target's period_type"
+  );
+  assert.ok(
+    jsOf("Compute Close Results").includes("period_type != 'annual'"),
+    "the close target CTE must re-assert the type inside the atomic statement"
+  );
+});
+
+// ── M4: overlapping siblings double-count in the annual SUM ──────────────
+
+test("create and reparent reject a child overlapping an existing sibling", () => {
+  for (const name of ["Build Create SQL", "Build Reparent SQL"]) {
+    const js = jsOf(name);
+    assert.ok(js.includes("SIBLING_DATES_OVERLAP"), `${name}: overlap must be refused`);
+    assert.match(
+      js,
+      /http_status: 422[\s\S]{0,200}SIBLING_DATES_OVERLAP/,
+      `${name}: overlap refusal must ride a 422`
+    );
+    assert.ok(
+      /NOT EXISTS \(\s*\n?\s*SELECT 1 FROM performance_db\.evaluation_periods sib/.test(js),
+      `${name}: the write must re-assert non-overlap`
+    );
+  }
+  assert.ok(
+    jsOf("Validate Period Create").includes("AS sibling_overlap_count"),
+    "create precondition query must count overlapping siblings"
+  );
+  assert.ok(
+    jsOf("Validate Period Reparent").includes("AS sibling_overlap_count"),
+    "reparent precondition query must count overlapping siblings"
+  );
+});
+
+// ── Behavioral: execute the refusal nodes with fixtures ──────────────────
+
+/** Run a Code node that reads one named upstream node plus $input rows. */
+function runNode(nodeName, upstreamName, prevJson, inputRows) {
+  const js = jsOf(nodeName);
+  const $ = (name) => {
+    assert.equal(name, upstreamName, `${nodeName} must read ${upstreamName}`);
+    return { first: () => ({ json: prevJson }) };
+  };
+  const $input = { all: () => inputRows.map((r) => ({ json: r })) };
+  return new Function("$", "$input", js)($, $input).json;
+}
+
+test("annual period: activate 422s with zero children, half_year passes the type gate", () => {
+  const prev = { ok: true, target_period_id: 5 };
+  const annualLeaf = {
+    target_id: 5, target_status: "draft", target_period_type: "annual",
+    target_child_count: 0, current_active_id: null, current_active_name: null,
+    has_evaluations: false,
+  };
+  const refused = runNode("Build Activation SQL", "Validate Period Activate", prev, [annualLeaf]);
+  assert.equal(refused.http_status, 422);
+  assert.equal(refused.body.error, "ANNUAL_PERIOD_NOT_ACTIVATABLE");
+
+  // the same shape with period_type half_year builds SQL instead of refusing
+  const allowed = runNode("Build Activation SQL", "Validate Period Activate", prev,
+    [{ ...annualLeaf, target_period_type: "half_year" }]);
+  assert.equal(allowed.http_status, undefined, `half_year must not be refused: ${JSON.stringify(allowed.body)}`);
+  assert.ok(allowed.sql.includes("period_type != 'annual'"), "the UPDATE still re-asserts the type");
+});
+
+test("annual period: close 422s with zero children, half_year reaches the dataset step", () => {
+  const prev = { ok: true, period_id: 5, actor_id: 2 };
+  const annualActive = {
+    target_id: 5, target_name: "Annual 2026", target_status: "active", target_is_active: true,
+    target_period_type: "annual", child_count: 0, evaluation_count: 0, has_results: false,
+    participant_count: 89,
+  };
+  const refused = runNode("Build Close Dataset Query", "Validate Period Close", prev, [annualActive]);
+  assert.equal(refused.http_status, 422);
+  assert.equal(refused.body.error, "ANNUAL_PERIOD_NOT_CLOSABLE");
+
+  const allowed = runNode("Build Close Dataset Query", "Validate Period Close", prev,
+    [{ ...annualActive, target_period_type: "half_year" }]);
+  assert.equal(allowed.http_status, undefined, `half_year must not be refused: ${JSON.stringify(allowed.body)}`);
+  assert.equal(allowed.ok, true);
+});
+
+test("sibling overlap: create refuses an overlapping child, the H1/H2 split passes", () => {
+  const parent = {
+    name_taken: false, parent_id: 5, parent_start: "2026-01-01", parent_end: "2026-12-31",
+    parent_status: "draft", parent_parent_id: null, parent_has_evaluations: false,
+    // Postgres decides whether the child fits: dates that cross the n8n node
+    // arrive shifted by the timezone offset, so JS must not compare them.
+    child_inside_parent: true,
+  };
+  const prevH2 = {
+    ok: true, name: "H2-2026", start_date: "2026-07-01", end_date: "2026-12-31",
+    period_type: "half_year", parent_id: 5,
+  };
+  // H1 (01.01–30.06) already attached: the canonical H2 does not overlap it
+  const ok = runNode("Build Create SQL", "Validate Period Create", prevH2,
+    [{ ...parent, sibling_overlap_count: 0 }]);
+  assert.equal(ok.http_status, undefined, `canonical H1+H2 split must pass: ${JSON.stringify(ok.body)}`);
+  assert.ok(ok.sql.includes("sib.parent_period_id = 5"), "the INSERT must re-assert non-overlap");
+
+  // a child that does overlap the existing sibling is refused
+  const clash = runNode("Build Create SQL", "Validate Period Create",
+    { ...prevH2, name: "H2 overlapping", start_date: "2026-06-01" },
+    [{ ...parent, sibling_overlap_count: 1 }]);
+  assert.equal(clash.http_status, 422);
+  assert.equal(clash.body.error, "SIBLING_DATES_OVERLAP");
+});
+
+test("sibling overlap: reparent refuses an overlapping child", () => {
+  const prev = { ok: true, period_id: 7, parent_id: 5 };
+  const base = {
+    child_id: 7, child_start: "2026-06-01", child_end: "2026-12-31", child_child_count: 0,
+    parent_id: 5, parent_start: "2026-01-01", parent_end: "2026-12-31",
+    parent_status: "draft", parent_parent_id: null, parent_has_evaluations: false,
+    child_inside_parent: true,
+  };
+  const clash = runNode("Build Reparent SQL", "Validate Period Reparent", prev,
+    [{ ...base, sibling_overlap_count: 1 }]);
+  assert.equal(clash.http_status, 422);
+  assert.equal(clash.body.error, "SIBLING_DATES_OVERLAP");
+
+  const ok = runNode("Build Reparent SQL", "Validate Period Reparent", prev,
+    [{ ...base, child_start: "2026-07-01", sibling_overlap_count: 0 }]);
+  assert.equal(ok.http_status, undefined, `non-overlapping attach must pass: ${JSON.stringify(ok.body)}`);
+  assert.ok(ok.sql.includes("sib.parent_period_id = 5"), "the UPDATE must re-assert non-overlap");
+});
+
+test("detach stays unconditional — it is the only escape from a wrong container", () => {
+  const detached = runNode("Build Reparent SQL", "Validate Period Reparent",
+    { ok: true, period_id: 7, parent_id: null },
+    [{ child_id: 7, child_start: "2026-07-01", child_end: "2026-12-31", child_child_count: 0,
+       parent_id: null, sibling_overlap_count: 0 }]);
+  assert.equal(detached.http_status, undefined);
+  assert.ok(detached.sql.includes("SET parent_period_id = NULL"), "detach must still work");
+});
+
+// ── Parent-date containment is decided by Postgres, not by JS ─────────────
+// The n8n Postgres node returns `date` columns as JS Dates serialised in UTC,
+// so a date read out of the database is one calendar day early in Moscow time.
+// Comparing a client-supplied 'YYYY-MM-DD' against that string refused a child
+// ending on the parent's own last day — i.e. the canonical H2 01.07–31.12.
+
+test("child-inside-parent is computed in SQL and only an explicit true passes", () => {
+  for (const [validate, build] of [
+    ["Validate Period Create", "Build Create SQL"],
+    ["Validate Period Reparent", "Build Reparent SQL"],
+  ]) {
+    assert.ok(
+      jsOf(validate).includes("AS child_inside_parent"),
+      `${validate}: containment must be decided by Postgres`
+    );
+    const js = jsOf(build);
+    assert.ok(
+      js.includes("check.child_inside_parent === true"),
+      `${build}: must read the SQL verdict`
+    );
+    assert.ok(
+      !js.includes("String(value ?? '').slice(0, 10)"),
+      `${build}: must not slice timezone-shifted dates in JS`
+    );
+    assert.ok(js.includes("CHILD_DATES_OUTSIDE_PARENT"), `${build}: keeps the refusal`);
+  }
+});
+
+test("a child ending on the parent's last day is accepted, an unknown verdict is not", () => {
+  const prev = {
+    ok: true, name: "H2-2026", start_date: "2026-07-01", end_date: "2026-12-31",
+    period_type: "half_year", parent_id: 5,
+  };
+  const parent = {
+    name_taken: false, parent_id: 5, parent_start: "2026-01-01", parent_end: "2026-12-31",
+    parent_status: "draft", parent_parent_id: null, parent_has_evaluations: false,
+    sibling_overlap_count: 0,
+  };
+  const accepted = runNode("Build Create SQL", "Validate Period Create", prev,
+    [{ ...parent, child_inside_parent: true }]);
+  assert.equal(accepted.http_status, undefined,
+    `H2 ending on the container's last day must be accepted: ${JSON.stringify(accepted.body)}`);
+
+  for (const verdict of [false, null, undefined]) {
+    const refused = runNode("Build Create SQL", "Validate Period Create", prev,
+      [{ ...parent, child_inside_parent: verdict }]);
+    assert.equal(refused.http_status, 422, `verdict ${verdict} must refuse`);
+    assert.equal(refused.body.error, "CHILD_DATES_OUTSIDE_PARENT");
+  }
+});

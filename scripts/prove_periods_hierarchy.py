@@ -9,9 +9,16 @@ Proves, per the brief:
   - B in scope P2 only: annual 8.0 NOT 4.0 (anti-zero-fill), P1 out-of-scope,
     index = single term
   - C in scope P1, never evaluated: no-data marker, excluded from mean, visible
-  - persisted final/index == client pipeline over the matrix API (cross-check)
+  - persisted final/index == client pipeline over the matrix API (cross-check;
+    the compared tuples are recorded, and a vacuous run fails)
   - weight edit after close changes nothing; second close changes zero rows
   - container activation refused (422); rename safe; reparent safe
+
+Post-verification microfixes (2026-08-21, second pass):
+  - M7: a CHILDLESS annual period refuses activate and close (422), so detaching
+    the last child can never turn a year into a campaign period
+  - M4: siblings of one container may not overlap (create + reparent, 422),
+    while the canonical H1 01.01–30.06 + H2 01.07–31.12 split passes
 """
 
 from __future__ import annotations
@@ -79,6 +86,11 @@ def call(base: str, method: str, path: str, *, token: str | None = None,
         except json.JSONDecodeError:
             parsed = raw.decode("utf-8", "replace")
         return exc.code, parsed
+
+
+def child_count_of(period: dict[str, Any]) -> int:
+    """child_count from GET api/periods, whatever numeric shape it arrives in."""
+    return int(period.get("child_count") or 0)
 
 
 def require(condition: bool, message: str) -> None:
@@ -395,6 +407,11 @@ def main() -> None:
     require(status == 200, f"admin-users-data failed: {users_data}")
     grade_rows = (users_data.get("options") or {}).get("grades") or []
 
+    # Every comparison is recorded with both sides, so the artifact carries the
+    # evidence rather than a claim about it, and a run that compared nothing
+    # fails instead of writing the same reassuring string.
+    compared: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     for period_id, rows_stored in ((p1_id, rows_p1), (p2_id, rows_p2)):
         status, matrix = record(f"matrix_p{period_id}", "GET",
                                 f"api/admin/evaluations-matrix?period_id={period_id}", actor="admin")
@@ -404,20 +421,48 @@ def main() -> None:
             expected = replica.get(user_id)
             stored = rows_stored.get(user_id)
             if expected is None or stored is None:
+                skipped.append({"period_id": period_id, "user_id": user_id,
+                                "reason": "absent from matrix" if expected is None else "absent from period_results"})
                 continue
             stored_final = None if stored[-2] == "-" else float(stored[-2])
             stored_index = None if stored[-1] == "-" else float(stored[-1])
             if not (stored[1] == "true" and stored[2] == "true"):
-                continue  # out-of-scope/no-data rows carry no numbers by design
+                # out-of-scope / no-data rows carry no numbers by design
+                skipped.append({"period_id": period_id, "user_id": user_id,
+                                "reason": f"in_scope={stored[1]} has_data={stored[2]}",
+                                "stored_final": stored_final, "stored_index": stored_index})
+                continue
             if expected["final"] is None:
                 require(stored_final is None,
                         f"user {user_id} period {period_id}: client no-final but stored {stored_final}")
+                compared.append({"period_id": period_id, "user_id": user_id,
+                                 "stored_final": None, "client_final": None,
+                                 "stored_index": stored_index, "client_index": None})
                 continue
             require(stored_final is not None and abs(stored_final - expected["final"]) < 0.005,
                     f"user {user_id} period {period_id}: stored final {stored_final} != client {expected['final']}")
             require(stored_index is not None and abs(stored_index - expected["index"]) < 0.005,
                     f"user {user_id} period {period_id}: stored index {stored_index} != client {expected['index']}")
-    evidence["cross_check"] = "stored final/index match client matrix+money pipeline (<0.005)"
+            compared.append({
+                "period_id": period_id, "user_id": user_id,
+                "stored_final": stored_final, "client_final": round(expected["final"], 6),
+                "final_delta": round(abs(stored_final - expected["final"]), 6),
+                "stored_index": stored_index, "client_index": round(expected["index"], 6),
+                "index_delta": round(abs(stored_index - expected["index"]), 6),
+            })
+    numeric = [c for c in compared if c["client_final"] is not None]
+    require(len(numeric) >= 3,
+            f"cross-check compared only {len(numeric)} numeric rows — the loop went vacuous")
+    require(any(c["period_id"] == p1_id for c in numeric) and any(c["period_id"] == p2_id for c in numeric),
+            "cross-check must cover both closed periods")
+    evidence["cross_check"] = {
+        "tolerance": 0.005,
+        "numeric_comparisons": len(numeric),
+        "max_final_delta": max((c["final_delta"] for c in numeric), default=None),
+        "max_index_delta": max((c["index_delta"] for c in numeric), default=None),
+        "compared": compared,
+        "skipped": skipped,
+    }
 
     # ── 8. Immutability: weight/grade edits change nothing after close ───
     fp_before = results_fingerprint(database)
@@ -499,6 +544,112 @@ def main() -> None:
     require(by_id[p1_id]["has_results"] is True, "P1 must report has_results")
     require(by_id[2]["status"] == "draft" and by_id[2]["is_active"] is False,
             "H1 (id=2) must stay draft/inactive on the stand")
+
+    # ── 13. M7: an annual period is never a campaign period ─────────────
+    # "Container" used to be the derived state child_count > 0, so detaching the
+    # last child made a full-year period activatable and closable. period_type
+    # is now load-bearing: the refusal holds with ZERO children.
+    status, leaf = record("create_annual_leaf", "POST", "api/periods/create", actor="admin",
+                          body={"name": "Hier Annual-Leaf", "start_date": "2026-01-01",
+                                "end_date": "2026-12-31", "period_type": "annual"})
+    require(status == 200, f"annual leaf create failed: {leaf}")
+    annual_leaf_id = leaf["data"]["id"]
+    status, catalogue = record("catalogue_annual_leaf", "GET", "api/periods", actor="admin")
+    leaf_row = {p["id"]: p for p in catalogue["data"]}[annual_leaf_id]
+    require(child_count_of(leaf_row) == 0,
+            f"the annual leaf must have no children: {leaf_row}")
+
+    status, refusal = record("annual_leaf_activate_422", "POST", "api/periods/activate",
+                             actor="admin", body={"period_id": annual_leaf_id})
+    require(status == 422 and refusal.get("error") == "ANNUAL_PERIOD_NOT_ACTIVATABLE",
+            f"childless annual activation must 422: {status} {refusal}")
+    require(sql(database, f"SELECT status || '|' || is_active FROM "
+                          f"performance_db.evaluation_periods WHERE id = {annual_leaf_id}")
+            == "draft|false",
+            "the refused activation must not have changed the annual leaf")
+
+    # Close only ever looks at an ACTIVE period. Reaching that state through the
+    # API is now impossible, so the stand forces it in SQL (throwaway only) to
+    # prove the close guard independently of the activate guard.
+    sql(database, f"""
+      UPDATE performance_db.evaluation_periods
+      SET status = 'active', is_active = true WHERE id = {annual_leaf_id};
+    """)
+    status, refusal = record("annual_leaf_close_422", "POST", "api/periods/close",
+                             actor="admin", body={"period_id": annual_leaf_id})
+    require(status == 422 and refusal.get("error") == "ANNUAL_PERIOD_NOT_CLOSABLE",
+            f"childless annual close must 422: {status} {refusal}")
+    require(sql(database, f"SELECT count(*) FROM performance_db.period_results "
+                          f"WHERE period_id = {annual_leaf_id}") == "0",
+            "the refused close must not have stored any results")
+    sql(database, f"""
+      UPDATE performance_db.evaluation_periods
+      SET status = 'draft', is_active = false WHERE id = {annual_leaf_id};
+    """)
+
+    # ── 14. M4: siblings of one container may not overlap ────────────────
+    status, split = record("create_split_container", "POST", "api/periods/create", actor="admin",
+                           body={"name": "Hier Annual-Split", "start_date": "2026-01-01",
+                                 "end_date": "2026-12-31", "period_type": "annual"})
+    require(status == 200, f"split container create failed: {split}")
+    split_id = split["data"]["id"]
+
+    # the canonical split must pass, including the 30.06 / 01.07 boundary
+    status, h1 = record("create_h1_canonical", "POST", "api/periods/create", actor="admin",
+                        body={"name": "Hier H1-T", "start_date": "2026-01-01",
+                              "end_date": "2026-06-30", "period_type": "half_year",
+                              "parent_period_id": split_id})
+    require(status == 200 and h1["data"]["parent_period_id"] == split_id,
+            f"canonical H1 must attach: {status} {h1}")
+    status, h2 = record("create_h2_canonical", "POST", "api/periods/create", actor="admin",
+                        body={"name": "Hier H2-T", "start_date": "2026-07-01",
+                              "end_date": "2026-12-31", "period_type": "half_year",
+                              "parent_period_id": split_id})
+    require(status == 200 and h2["data"]["parent_period_id"] == split_id,
+            f"canonical H2 must attach beside H1: {status} {h2}")
+    h2_id = h2["data"]["id"]
+
+    # one shared day is an overlap: the annual index is a SUM
+    status, refusal = record("create_sibling_overlap_boundary_422", "POST", "api/periods/create",
+                             actor="admin",
+                             body={"name": "Hier Overlap-Edge", "start_date": "2026-06-30",
+                                   "end_date": "2026-09-30", "period_type": "half_year",
+                                   "parent_period_id": split_id})
+    require(status == 422 and refusal.get("error") == "SIBLING_DATES_OVERLAP",
+            f"a one-day overlap must 422: {status} {refusal}")
+    status, refusal = record("create_sibling_overlap_inner_422", "POST", "api/periods/create",
+                             actor="admin",
+                             body={"name": "Hier Overlap-Inner", "start_date": "2026-08-01",
+                                   "end_date": "2026-10-31", "period_type": "half_year",
+                                   "parent_period_id": split_id})
+    require(status == 422 and refusal.get("error") == "SIBLING_DATES_OVERLAP",
+            f"a contained overlap must 422: {status} {refusal}")
+    require(sql(database, f"SELECT count(*) FROM performance_db.evaluation_periods "
+                          f"WHERE parent_period_id = {split_id}") == "2",
+            "the refused creates must not have added children")
+
+    # reparent obeys the same rule, and a period is never its own sibling
+    status, loose = record("create_loose_overlapping", "POST", "api/periods/create", actor="admin",
+                           body={"name": "Hier Loose-T", "start_date": "2026-03-01",
+                                 "end_date": "2026-05-31", "period_type": "half_year"})
+    require(status == 200, f"loose period create failed: {loose}")
+    loose_id = loose["data"]["id"]
+    status, refusal = record("reparent_sibling_overlap_422", "POST", "api/periods/reparent",
+                             actor="admin",
+                             body={"period_id": loose_id, "parent_period_id": split_id})
+    require(status == 422 and refusal.get("error") == "SIBLING_DATES_OVERLAP",
+            f"attaching an overlapping child must 422: {status} {refusal}")
+    require(sql(database, f"SELECT COALESCE(parent_period_id::text, 'NULL') FROM "
+                          f"performance_db.evaluation_periods WHERE id = {loose_id}") == "NULL",
+            "the refused reparent must not have attached the period")
+
+    status, det = record("detach_h2_canonical", "POST", "api/periods/reparent", actor="admin",
+                         body={"period_id": h2_id, "parent_period_id": None})
+    require(status == 200 and det["data"]["parent_period_id"] is None, f"H2 detach failed: {det}")
+    status, reat = record("reattach_h2_canonical", "POST", "api/periods/reparent", actor="admin",
+                          body={"period_id": h2_id, "parent_period_id": split_id})
+    require(status == 200 and reat["data"]["parent_period_id"] == split_id,
+            f"re-attaching H2 beside H1 must pass — a period is not its own sibling: {reat}")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(evidence, ensure_ascii=False, indent=2, default=str))

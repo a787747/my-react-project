@@ -12,6 +12,9 @@ import {
   formatRating,
   formatIndex,
   CELL_STATES,
+  coverageSummary,
+  coverageLabel,
+  formatDateRange,
 } from "../src/utils/annualRollup.js";
 
 const closedChild = { id: 11, status: "closed", has_results: true };
@@ -78,4 +81,50 @@ test("missing annual values format as a dash, never 0", () => {
 
 test("index formats with two decimals", () => {
   assert.equal(formatIndex("27.0000").endsWith("27,00"), true);
+});
+
+// ── M4: the roll-up must say how much of the container it actually summed ──
+
+test("coverage counts closed children and the ones that carry results", () => {
+  const children = [
+    { id: 1, status: "closed", has_results: true },
+    { id: 2, status: "closed", has_results: false },
+    { id: 3, status: "draft", has_results: false },
+  ];
+  assert.deepEqual(coverageSummary(children), { total: 3, closed: 2, contributing: 1 });
+});
+
+test("one closed child of two reads as partial, never as a full year", () => {
+  const children = [
+    { id: 1, name: "H1-2026", status: "closed", has_results: true },
+    { id: 2, name: "H2-2026", status: "draft", has_results: false },
+  ];
+  assert.equal(coverageLabel(children), "закрыто 1 из 2 дочерних периодов");
+  const { contributing, total } = coverageSummary(children);
+  assert.ok(contributing < total, "partial coverage must be detectable by the page");
+});
+
+test("the live-today shape — one child, unclosed — reports 0 of 1", () => {
+  assert.equal(
+    coverageLabel([{ id: 2, name: "H1-2026", status: "draft", has_results: false }]),
+    "закрыто 0 из 1 дочернего периода"
+  );
+});
+
+test("coverage of an empty or missing child list does not throw", () => {
+  assert.deepEqual(coverageSummary(), { total: 0, closed: 0, contributing: 0 });
+  assert.deepEqual(coverageSummary(null), { total: 0, closed: 0, contributing: 0 });
+});
+
+test("child date ranges render as ДД.ММ.ГГГГ, missing dates as a dash", () => {
+  assert.equal(
+    formatDateRange({ start_date: "2026-01-01", end_date: "2026-06-30" }),
+    "01.01.2026 — 30.06.2026"
+  );
+  assert.equal(
+    formatDateRange({ start_date: "2026-07-01T00:00:00.000Z", end_date: "2026-12-31T00:00:00.000Z" }),
+    "01.07.2026 — 31.12.2026"
+  );
+  assert.equal(formatDateRange({ start_date: null, end_date: "2026-12-31" }), "—");
+  assert.equal(formatDateRange(undefined), "—");
 });

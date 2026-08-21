@@ -10,6 +10,7 @@
  * - employees: массив сотрудников с рассчитанными баллами
  * - criteriaList: список критериев с весами
  * - loading: статус загрузки
+ * - error: текст ошибки загрузки; пока он не null, чисел на экране быть не должно
  * - filters: текущие фильтры
  * - filterOptions: опции для фильтров
  * - filteredEmployees: отфильтрованный и отсортированный список
@@ -33,6 +34,18 @@ const initialFilters = {
 const initialSorting = {
   field: 'final_weighted_score',
   direction: 'desc'
+};
+
+/**
+ * Веса, коэффициенты уровней и коэффициенты грейдов — часть формулы бонуса,
+ * а не оформление. Если любой из трёх запросов не удался, экран обязан
+ * показать ошибку: молчаливый дефолт нарисовал бы правдоподобную, но
+ * невзвешенную таблицу денег (BUG-030).
+ */
+const LOAD_ERRORS = {
+  matrix: 'Матрица оценок не загружена — расчёт невозможен',
+  coefficients: 'Коэффициенты не загружены — расчёт невозможен',
+  grades: 'Коэффициенты грейдов не загружены — расчёт невозможен'
 };
 
 /**
@@ -136,6 +149,7 @@ export const useFinalScoresMatrix = () => {
   const [period, setPeriod] = useState(null);
   const [campaignActive, setCampaignActive] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filters, setFilters] = useState(initialFilters);
   const [sorting, setSortingState] = useState(initialSorting);
 
@@ -143,13 +157,44 @@ export const useFinalScoresMatrix = () => {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       
-      // Загружаем матрицу оценок, коэффициенты критериев и грейды параллельно
-      const [matrixResponse, coefficientsResponse, usersDataResponse] = await Promise.all([
+      // Загружаем матрицу оценок, коэффициенты критериев и грейды параллельно.
+      // allSettled, а не all: нужен точный список того, что не загрузилось.
+      const [matrixResult, coefficientsResult, usersDataResult] = await Promise.allSettled([
         apiClient.get(API_ENDPOINTS.ADMIN_EVALUATIONS_MATRIX),
-        apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS).catch(() => ({ data: { data: [] } })),
-        apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA).catch(() => ({ data: { options: { grades: [] } } }))
+        apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS),
+        apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA)
       ]);
+      
+      // Ни один из трёх запросов не имеет безопасного значения по умолчанию:
+      // отсутствие коэффициентов даёт невзвешенные баллы, отсутствие грейдов —
+      // коэффициент грейда 1.00 для всех. Обе подмены неотличимы от правды.
+      const failures = [];
+      if (matrixResult.status === 'rejected') {
+        logger.error('Матрица оценок не загружена:', matrixResult.reason);
+        failures.push(LOAD_ERRORS.matrix);
+      }
+      if (coefficientsResult.status === 'rejected') {
+        logger.error('Коэффициенты критериев не загружены:', coefficientsResult.reason);
+        failures.push(LOAD_ERRORS.coefficients);
+      }
+      if (usersDataResult.status === 'rejected') {
+        logger.error('Коэффициенты грейдов не загружены:', usersDataResult.reason);
+        failures.push(LOAD_ERRORS.grades);
+      }
+      if (failures.length > 0) {
+        setEmployees([]);
+        setCriteriaList([]);
+        setPeriod(null);
+        setCampaignActive(false);
+        setError(failures.join(' · '));
+        return;
+      }
+      
+      const matrixResponse = matrixResult.value;
+      const coefficientsResponse = coefficientsResult.value;
+      const usersDataResponse = usersDataResult.value;
       
       const rawEmployees = matrixResponse.data.data || [];
       setPeriod(matrixResponse.data.period || null);
@@ -217,8 +262,13 @@ export const useFinalScoresMatrix = () => {
       });
       
       setEmployees(employeesWithScores);
-    } catch (error) {
-      logger.error('Ошибка загрузки:', error);
+    } catch (err) {
+      logger.error('Ошибка загрузки:', err);
+      setEmployees([]);
+      setCriteriaList([]);
+      setPeriod(null);
+      setCampaignActive(false);
+      setError(LOAD_ERRORS.matrix);
     } finally {
       setLoading(false);
     }
@@ -311,6 +361,7 @@ export const useFinalScoresMatrix = () => {
     period,
     campaignActive,
     loading,
+    error,
     filters,
     filterOptions,
     filteredEmployees,

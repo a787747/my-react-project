@@ -75,3 +75,40 @@ export const formatIndex = (value) => {
     maximumFractionDigits: 2,
   });
 };
+
+/**
+ * Сколько дочерних периодов закрыто и сколько из них реально дало числа.
+ * Годовые значения складываются только из закрытых периодов с сохранёнными
+ * результатами; без этого счётчика годовая строка молча выглядит полной,
+ * даже когда за ней стоит одно полугодие из двух.
+ * @param {Array} children - дочерние периоды из ответа annual-rollup
+ * @returns {{total: number, closed: number, contributing: number}}
+ */
+export const coverageSummary = (children = []) => {
+  const list = Array.isArray(children) ? children : [];
+  return {
+    total: list.length,
+    closed: list.filter((c) => c && c.status === 'closed').length,
+    contributing: list.filter((c) => c && c.status === 'closed' && c.has_results).length,
+  };
+};
+
+/** «закрыто 1 из 2 дочерних периодов» — подпись охвата для шапки сводки. */
+export const coverageLabel = (children = []) => {
+  const { total, closed } = coverageSummary(children);
+  const noun = total === 1 ? 'дочернего периода' : 'дочерних периодов';
+  return `закрыто ${closed} из ${total} ${noun}`;
+};
+
+/** Диапазон дат периода: «01.01.2026 — 30.06.2026»; «—» без дат. */
+export const formatDateRange = (period) => {
+  const asDate = (value) => {
+    if (!value) return null;
+    const parts = String(value).slice(0, 10).split('-');
+    return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : null;
+  };
+  const start = asDate(period?.start_date);
+  const end = asDate(period?.end_date);
+  if (!start || !end) return '—';
+  return `${start} — ${end}`;
+};

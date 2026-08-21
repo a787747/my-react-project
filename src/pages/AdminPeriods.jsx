@@ -4,7 +4,10 @@
  * Назначение: Создание, активация, переименование, закрытие периодов,
  *             привязка периодов к контейнерам (Annual → H1/H2).
  *             Получение постоянной ссылки для регистрации сотрудников.
- * Доступ: admin, c_level, hr (просмотр); действия — только admin (API 403)
+ * Доступ: admin, c_level, hr (просмотр); действия — только admin.
+ *         Переименование, привязка, активация и закрытие рисуются только
+ *         админу (сервер и так отвечает 403): необратимую кнопку не показывают
+ *         тому, кому её нажимать нельзя.
  *
  * Контейнер = период с дочерними периодами. Контейнеры не активируются
  * (кнопки нет; API отвечает 422) и не закрываются — закрываются их дочерние
@@ -20,6 +23,7 @@ import {
 import { API_ENDPOINTS } from '../config/api';
 import handleApiError from '../utils/errorHandler';
 import logger from '../utils/logger';
+import { isAdmin } from '../utils/permissions';
 
 const isContainer = (period) => Number(period?.child_count) > 0;
 
@@ -63,6 +67,9 @@ const orderPeriods = (periods) => {
 };
 
 const AdminPeriods = ({ user }) => {
+  // Просмотр — admin, c_level, hr; изменения — только admin (API 403 остальным).
+  const canManage = isAdmin(user?.role);
+
   const [periods, setPeriods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(null);
@@ -86,6 +93,9 @@ const AdminPeriods = ({ user }) => {
   // Reparent modal
   const [reparentModal, setReparentModal] = useState({ open: false, period: null, parentId: '' });
   const [reparenting, setReparenting] = useState(false);
+
+  // Close modal: закрытие необратимо, поэтому подтверждение — ввод названия
+  const [closeModal, setCloseModal] = useState({ open: false, period: null, typed: '' });
 
   // Invite token states
   const [generatingInvite, setGeneratingInvite] = useState(false);
@@ -140,19 +150,27 @@ const AdminPeriods = ({ user }) => {
     }
   };
 
-  const handleClose = async (periodId) => {
+  const openCloseModal = (periodId) => {
     const period = periods.find((item) => item.id === periodId);
     if (!period || !period.is_active || isContainer(period)) {
       return;
     }
-    if (!window.confirm(
-      `Закрыть период «${period.name}»?\n\n` +
-      'Результаты всех участников (рейтинги по источникам, итоговая оценка и бонусный индекс) ' +
-      'будут рассчитаны и сохранены без возможности изменения. Период станет закрытым. ' +
-      'Действие необратимо.'
-    )) {
+    setCloseModal({ open: true, period, typed: '' });
+  };
+
+  /**
+   * Закрытие необратимо: маршрута на переоткрытие нет, period_results никто
+   * не переписывает, активация закрытого периода отвечает 422. Единственное
+   * восстановление — восстановление базы, поэтому подтверждение — набранное
+   * от руки название периода, а не один клик.
+   */
+  const handleClose = async (e) => {
+    e.preventDefault();
+    const period = closeModal.period;
+    if (!period || closeModal.typed.trim() !== period.name) {
       return;
     }
+    const periodId = period.id;
     try {
       setClosing(periodId);
       const response = await apiClient.post(API_ENDPOINTS.PERIODS_CLOSE, { period_id: periodId });
@@ -162,6 +180,7 @@ const AdminPeriods = ({ user }) => {
           ? body.message
           : `Период закрыт. Сохранено результатов: ${body.results_stored} (в охвате: ${body.in_scope}, без данных: ${body.no_data}).`
       );
+      setCloseModal({ open: false, period: null, typed: '' });
       await fetchPeriods();
     } catch (error) {
       logger.error('Ошибка закрытия периода:', error);
@@ -218,11 +237,27 @@ const AdminPeriods = ({ user }) => {
 
   const handleReparent = async (e) => {
     e.preventDefault();
-    if (!reparentModal.period) return;
+    const period = reparentModal.period;
+    if (!period) return;
+    // Отвязка закрытого периода с сохранёнными результатами не трогает
+    // period_results, но выводит их из среднего и суммы контейнера —
+    // годовые числа человека изменятся молча, если не сказать об этом.
+    const isDetach = !reparentModal.parentId;
+    if (isDetach && period.parent_period_id && period.has_results) {
+      const parentName = periods.find((item) => item.id === period.parent_period_id)?.name;
+      if (!window.confirm(
+        `Отвязать «${period.name}» от контейнера${parentName ? ` «${parentName}»` : ''}?\n\n` +
+        'У этого периода есть сохранённые результаты. Сами результаты останутся ' +
+        'нетронутыми, но они перестанут учитываться в годовой сводке: годовой ' +
+        'рейтинг (среднее) и годовой индекс (сумма) участников изменятся.'
+      )) {
+        return;
+      }
+    }
     try {
       setReparenting(true);
       await apiClient.post(API_ENDPOINTS.PERIODS_REPARENT, {
-        period_id: reparentModal.period.id,
+        period_id: period.id,
         parent_period_id: reparentModal.parentId ? Number(reparentModal.parentId) : null
       });
       setReparentModal({ open: false, period: null, parentId: '' });
@@ -516,15 +551,20 @@ const AdminPeriods = ({ user }) => {
                     {/* Действия */}
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2 flex-wrap">
-                        <button
-                          onClick={() => setRenameModal({ open: true, period, name: period.name })}
-                          className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                          title="Переименовать"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
+                        {/* Действия рисуются только админу: сервер и так отвечает
+                            403, но необратимую кнопку не показывают тому, кому
+                            её нажимать нельзя (M1). */}
+                        {canManage && (
+                          <button
+                            onClick={() => setRenameModal({ open: true, period, name: period.name })}
+                            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            title="Переименовать"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
 
-                        {!isContainer(period) && (
+                        {canManage && !isContainer(period) && (
                           <button
                             onClick={() => setReparentModal({
                               open: true,
@@ -539,7 +579,7 @@ const AdminPeriods = ({ user }) => {
                         )}
 
                         {/* Контейнеры не активируются: кнопки нет (D-0821-1) */}
-                        {!period.is_active && period.status !== 'closed' && !isContainer(period) && (
+                        {canManage && !period.is_active && period.status !== 'closed' && !isContainer(period) && (
                           <button
                             onClick={() => handleActivate(period.id)}
                             disabled={activating === period.id}
@@ -561,8 +601,9 @@ const AdminPeriods = ({ user }) => {
                             <span className="px-4 py-2 bg-green-100 text-green-700 text-sm font-medium rounded-lg">
                               Текущий период
                             </span>
+                            {canManage && (
                             <button
-                              onClick={() => handleClose(period.id)}
+                              onClick={() => openCloseModal(period.id)}
                               disabled={closing === period.id}
                               className="px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-900 transition-colors disabled:opacity-50"
                               title="Рассчитать и сохранить результаты, закрыть период"
@@ -576,6 +617,7 @@ const AdminPeriods = ({ user }) => {
                                 'Закрыть период'
                               )}
                             </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -770,6 +812,76 @@ const AdminPeriods = ({ user }) => {
                 >
                   {renaming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
                   Сохранить
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка закрытия периода — подтверждение вводом названия.
+          Закрытие необратимо (нет маршрута переоткрытия, period_results никем
+          не переписывается), поэтому обычного confirm здесь недостаточно. */}
+      {closeModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <form onSubmit={handleClose}>
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <Lock className="w-5 h-5 text-red-600" />
+                  Закрыть период
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setCloseModal({ open: false, period: null, typed: '' })}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">
+                  Результаты всех участников — рейтинги по источникам, итоговая оценка
+                  и бонусный индекс — будут рассчитаны и сохранены навсегда. Период
+                  станет закрытым. <strong>Действие необратимо:</strong> переоткрыть
+                  период нельзя, сохранённые результаты не пересчитываются.
+                </div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Введите название периода, чтобы подтвердить:
+                  <span className="ml-1 font-mono font-semibold text-gray-900">
+                    {closeModal.period?.name}
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  autoComplete="off"
+                  placeholder={closeModal.period?.name}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none font-mono"
+                  value={closeModal.typed}
+                  onChange={(e) => setCloseModal({ ...closeModal, typed: e.target.value })}
+                />
+              </div>
+              <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCloseModal({ open: false, period: null, typed: '' })}
+                  className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    closing === closeModal.period?.id ||
+                    closeModal.typed.trim() !== closeModal.period?.name
+                  }
+                  className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {closing === closeModal.period?.id
+                    ? <Loader2 className="w-5 h-5 animate-spin" />
+                    : <Lock className="w-5 h-5" />}
+                  Закрыть период навсегда
                 </button>
               </div>
             </form>

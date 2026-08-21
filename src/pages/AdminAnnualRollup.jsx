@@ -14,7 +14,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { CalendarRange, Loader2, AlertCircle, Info } from 'lucide-react';
 import apiClient from '../api/client';
 import { API_ENDPOINTS } from '../config/api';
-import { cellState, cellLabel, formatRating, formatIndex, CELL_STATES } from '../utils/annualRollup';
+import {
+  cellState, cellLabel, formatRating, formatIndex, CELL_STATES,
+  coverageSummary, coverageLabel, formatDateRange,
+} from '../utils/annualRollup';
 import handleApiError from '../utils/errorHandler';
 import logger from '../utils/logger';
 
@@ -87,7 +90,9 @@ const AdminAnnualRollup = () => {
 
   const children = rollup?.children || [];
   const rows = rollup?.rows || [];
-  const hasClosedResults = children.some((c) => c.status === 'closed' && c.has_results);
+  const coverage = coverageSummary(children);
+  const hasClosedResults = coverage.contributing > 0;
+  const isPartial = coverage.contributing < coverage.total;
 
   if (loadingCatalog) {
     return (
@@ -154,9 +159,41 @@ const AdminAnnualRollup = () => {
               </p>
               {children.length > 0 && (
                 <p className="text-sm mt-3 text-gray-400">
-                  Дочерние периоды: {children.map((c) => `${c.name} (${STATUS_BADGES[c.status]?.text || c.status})`).join(', ')}
+                  Дочерние периоды: {children.map((c) => `${c.name} ${formatDateRange(c)} (${STATUS_BADGES[c.status]?.text || c.status})`).join(', ')}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* Честная шапка охвата: сколько периодов контейнера реально стоит за
+              годовыми числами и какие календарные отрезки они покрывают (M4). */}
+          {rollup && hasClosedResults && (
+            <div className={`mb-6 rounded-xl border p-4 ${isPartial ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-100 shadow-sm'}`}>
+              <div className="flex items-start gap-2">
+                {isPartial
+                  ? <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  : <Info className="w-5 h-5 text-gray-400 shrink-0 mt-0.5" />}
+                <div className="text-sm">
+                  <p className={isPartial ? 'font-medium text-amber-800' : 'font-medium text-gray-700'}>
+                    {rollup.container?.name} ({formatDateRange(rollup.container)}) — {coverageLabel(children)}
+                    {isPartial && '. Годовые значения ниже покрывают только эти периоды, а не весь срок контейнера.'}
+                  </p>
+                  <ul className="mt-2 space-y-0.5 text-gray-600">
+                    {children.map((child) => (
+                      <li key={child.id} className="flex items-center gap-2">
+                        <span className="font-medium text-gray-700">{child.name}</span>
+                        <span className="text-gray-500">{formatDateRange(child)}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${STATUS_BADGES[child.status]?.className || 'bg-gray-100 text-gray-500'}`}>
+                          {STATUS_BADGES[child.status]?.text || child.status}
+                        </span>
+                        {child.status === 'closed' && !child.has_results && (
+                          <span className="text-red-500 text-xs">нет сохранённых результатов</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           )}
 
@@ -172,6 +209,9 @@ const AdminAnnualRollup = () => {
                       {children.map((child) => (
                         <th key={child.id} className="px-4 py-4 text-center border-l border-gray-100">
                           <div className="text-xs font-semibold text-gray-600">{child.name}</div>
+                          <div className="text-[10px] text-gray-400 font-normal whitespace-nowrap">
+                            {formatDateRange(child)}
+                          </div>
                           <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${STATUS_BADGES[child.status]?.className || 'bg-gray-100 text-gray-500'}`}>
                             {STATUS_BADGES[child.status]?.text || child.status}
                           </span>
@@ -244,6 +284,8 @@ const AdminAnnualRollup = () => {
                 </table>
               </div>
               <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
+                Годовые значения посчитаны по {coverage.contributing} из {coverage.total} дочерних
+                периодов — только по закрытым, с сохранёнными результатами.
                 «Вне охвата» не участвует в среднем (ноль не подставляется). «Нет данных» — человек
                 был в охвате, но не был оценён; исключён из среднего, но виден. Значения зафиксированы
                 при закрытии периода и не меняются при правках весов и коэффициентов.

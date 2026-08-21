@@ -18,7 +18,7 @@
  */
 
 import React, { useState } from 'react';
-import { Award, Download, RefreshCw } from 'lucide-react';
+import { Award, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 
 // Компоненты
 import { LoadingSpinner } from '../components/common';
@@ -37,6 +37,7 @@ const AdminFinalScores = () => {
     period,
     campaignActive,
     loading,
+    error,
     filters,
     filterOptions,
     filteredEmployees,
@@ -103,6 +104,31 @@ const AdminFinalScores = () => {
   // Состояние загрузки
   if (loading) {
     return <LoadingSpinner text="Загрузка итоговых баллов..." />;
+  }
+
+  // Ошибка загрузки: без весов, коэффициентов или матрицы таблица была бы
+  // правдоподобной, но неверной — показываем ошибку, а не числа (BUG-030).
+  if (error) {
+    return (
+      <div className="p-8 bg-gray-50 min-h-screen">
+        <div className="max-w-2xl mx-auto mt-12 bg-white rounded-xl shadow-sm border border-red-200 p-8 text-center">
+          <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-red-500" />
+          <h2 className="text-xl font-bold text-gray-900">Итоговые баллы не рассчитаны</h2>
+          <p className="text-sm text-red-700 mt-3">{error}</p>
+          <p className="text-sm text-gray-500 mt-2">
+            Числа не показаны намеренно: без коэффициентов таблица выглядела бы
+            правдоподобно, но была бы невзвешенной.
+          </p>
+          <button
+            onClick={fetchData}
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Повторить загрузку
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
