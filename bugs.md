@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 20 |
+| 🔴 Open | 21 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 23 |
 
@@ -298,6 +298,17 @@
 - How to fix: exclude containers and annual periods from the fallback — `AND period_type <> 'annual' AND NOT EXISTS (SELECT 1 FROM evaluation_periods c WHERE c.parent_period_id = evaluation_periods.id)` — so the fallback can only name a leaf. One clause in one CTE.
 - H1 impact: none on any number. Worth fixing before the invitation goes out, because that is exactly the window when people log in and nothing is active yet.
 - Source: the live role×route probe of `docs/LIFECYCLE_COEFF_2026-08-2x.md` (`backups/2026-08-22-lifecycle-coeff/live_role_route_probe.json`). Pre-existing — the CTE's ORDER BY was not changed by that brief.
+
+### BUG-044: HANDOVER §10 report index omits the two newest reports
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low (documentation integrity, not behaviour)
+- Location: `docs/HANDOVER.md` §10 "Where things are", the "Reports, in order:" list (line 339).
+- Description: the a6ef553 build wrote two reports — `docs/LIFECYCLE_COEFF_2026-08-2x.md` and (in the preceding f9758d3) `docs/RECON_RECLASS_COEFF_2026-08-2x.md` — and both files exist on disk. The build updated §10's footer counts (`bugs.md` **20 open / 23 closed**, `migrations/001…014`) and added the two reports' names in §3 and §6.11, but did **not** add either to the canonical §10 report list, which still ends at `DOCS_HYGIENE_2026-08-21.md`.
+- Why it matters: §9 makes the report index load-bearing — a fresh Cursor session is pointed at `AGENTS.md`, HANDOVER and "the one report relevant to its brief". A reader who scans §10 to find the lifecycle-gate or reclassification-recon report will not find it listed, and "the repo is the memory" (§9) depends on that index being complete.
+- How to fix: append `` · `RECON_RECLASS_COEFF_2026-08-2x.md` · `LIFECYCLE_COEFF_2026-08-2x.md` `` to the §10 "Reports, in order" list. One line. Left unfixed here because this verification gate is read-only toward the system and edits nothing but its own report and this file.
+- H1 impact: none — no code, no live behaviour. Fix at the next docs-hygiene pass or the next HANDOVER rewrite.
+- Source: verification gate `docs/GATE_LIFECYCLE_COEFF_2026-08-2x.md` item 7, comparing §10 against the two report files on disk and the git diff of a6ef553.
 
 ### BUG-040: `deploy_epe_frontend.sh` requires `rg` on PATH and fails closed without it
 - Status: 🔴 OPEN
