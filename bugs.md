@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 19 |
+| 🔴 Open | 20 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 21 |
 
@@ -92,6 +92,20 @@
 - Verification (2026-08-21): the entry point was fired **by cron**, not by hand — `/var/log/syslog` `CRON[542920]: (root) CMD (/root/backups/epe/backup-epe-live.sh)` at 11:45:01 UTC — and both restore proofs used the files that run produced. `epe_2026` dump restored into throwaway `epe_bkverify_epe_2026_20260821_114620`: `pg_restore --exit-on-error` exit 0, **17 tables, 0 mismatches** against live (users 89, participants 178, coefficients 80, evaluations/scores/`period_results` 0). n8n dump restored into `epe_bkverify_n8n_app_20260821_114608`: exit 0, **52 tables, 0 mismatches** (`workflow_entity` 58, `webhook_entity` 41, `credentials_entity` 7, `settings` 8). Both throwaways dropped; `pg_database` back to `epe_2026` + `postgres`. Retention proven with two 20-day-old decoy files: the cron run logged `pruned=1 retained=1` per stem and no decoy survived — note the archive job's own prune has never fired (every line reads `pruned=0`; its oldest dump is 9 days old). Failure path proven by running the real script against a nonexistent container: exit 1, `FAIL` line in `backup.log` carrying `pg_dump`'s own stderr, `FAIL` in the status file, partial dump removed. Disk: 34 GB free of 50 GB (33 % used); the new dumps add 387 400 B/day, ≈5.3 MB per 14-day window.
 - Not covered by this fix, deliberately: no off-host copy ([BUG-014], still open — Alexander has not named a target), no alerting push (the status file is a pull check; there is no MTA on the host), no point-in-time recovery (daily logical dumps, worst case ~24 h of campaign writes), and `N8N_ENCRYPTION_KEY` is a Portainer env var in no dump — the 7 credential rows restore but are unreadable under a different key.
 - Report: `docs/BACKUP_FIX_2026-08-2x.md`.
+
+---
+
+### BUG-041: `update-evaluation` deletes score rows even when its own ownership/period re-assertion rejects the write
+
+- Status: 🔴 OPEN
+- Severity: ⚠️ High (silent, permanent, on the money-bearing table — but needs a narrow race window, and no data is at risk today)
+- Location: LIVE `API: Update Evaluation WITH PERIOD` (`LWuZNTehzMDJkE8u`, `updatedAt=2026-08-20T15:47:01.891Z`) → node `Build Update SQL`, the `removed_scores` CTE.
+- Description: the statement re-asserts evaluator ownership and "period is not closed" **inline** in `updated_header`'s `WHERE` — the node's own comment says this exists "to close the validation/mutation race between the prior SELECT check and this DML". `upserted_scores` inherits that gate because it selects `FROM updated_header`. `removed_scores` does not: it is `DELETE FROM performance_db.evaluation_scores WHERE evaluation_id = ${evalId} AND criteria_id NOT IN (SELECT crit_id FROM score_rows)`, referencing neither `updated_header` nor anything else conditional, and the outer `SELECT` never reads it. PostgreSQL executes data-modifying `WITH` clauses "exactly once, and always to completion, independently of whether the primary query reads all (or indeed any) of their output". So when the re-assertion selects zero rows, the header `UPDATE` and the score `INSERT` write nothing, `Format POST Response` correctly returns 403 — **and the DELETE has already run.**
+- Why it matters: the caller is told the write was refused while score rows were permanently removed. The rows are the per-criterion detail behind `calculated_score`, the matrix and the frozen `period_results.bonus_index`; there is no soft-delete, no history table and no audit row, so the loss is silent and unrecoverable short of a database restore. It also defeats precisely the protection the inline re-assertion was added to provide, on the one branch where failure is destructive rather than merely a no-op.
+- Repro (not run — the recon brief that found this is read-only, and running it requires a write): as an evaluator, open an existing evaluation and save a **narrower** set of criteria; have an admin close the period, or change the evaluation's `evaluator_id`, in the window between `Execute Ownership Check` and `Execute Update`. Response is 403 `Изменение недоступно…`; the criteria omitted from the payload are gone from `evaluation_scores`. Not reachable without the race: `Validate Update` → `Execute Ownership Check` returns 404/403 before the SQL is built, so an unauthorized caller never reaches it.
+- How to fix: gate the DELETE on the same CTE the other two branches use — `DELETE … WHERE evaluation_id IN (SELECT id FROM updated_header) AND criteria_id NOT IN (SELECT crit_id FROM score_rows)`. That makes all three branches share one gate, and a failed re-assertion changes zero rows everywhere. Worth deciding at the same time whether a narrower submitted set should delete at all — see the reclassification recon, which found the same DELETE is the only mechanism that can remove criteria after a classification switch, and is destructive by construction.
+- H1 impact: none today — `evaluation_scores` has 0 rows and no period is active (measured 2026-08-22). Fix before H1 is activated; the exposure begins with the first evaluation and peaks during September calibration, when closing a period and editing evaluations happen in the same window.
+- Source: `docs/RECON_RECLASS_COEFF_2026-08-2x.md` §7.2 and §8, from the live workflow definition.
 
 ---
 
