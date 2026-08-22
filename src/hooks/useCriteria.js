@@ -6,6 +6,7 @@
  * 
  * Возвращает:
  * - criteriaList: массив критериев
+ * - evaluationStarted: оценка запущена — сохранение и удаление вернут 409
  * - loading: статус загрузки
  * - fetchCriteria: функция перезагрузки
  * - saveCriterion: функция сохранения критерия
@@ -21,6 +22,8 @@ export const useCriteria = () => {
   const [criteriaList, setCriteriaList] = useState([]);
   const [period, setPeriod] = useState(null);
   const [campaignActive, setCampaignActive] = useState(false);
+  // Каталог замораживается на СТАРТЕ оценки, не на активации (D-0822-1).
+  const [evaluationStarted, setEvaluationStarted] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Загрузка критериев
@@ -40,6 +43,7 @@ export const useCriteria = () => {
       setCriteriaList(list);
       setPeriod(rawData?.period || null);
       setCampaignActive(Boolean(rawData?.campaign_active));
+      setEvaluationStarted(Boolean(rawData?.evaluation_started));
     } catch (error) {
       logger.error("Ошибка загрузки критериев:", error);
     } finally {
@@ -61,7 +65,7 @@ export const useCriteria = () => {
       const status = error.response?.status;
       const serverMessage = error.response?.data?.message;
       if (status === 409) {
-        return { success: false, error: serverMessage || 'Критерии заморожены, пока период активен' };
+        return { success: false, error: serverMessage || 'Критерии заморожены: оценка в текущем периоде уже идёт' };
       }
       return { success: false, error: 'Ошибка сохранения' };
     }
@@ -94,6 +98,7 @@ export const useCriteria = () => {
     criteriaList,
     period,
     campaignActive,
+    evaluationStarted,
     loading,
     fetchCriteria,
     saveCriterion,

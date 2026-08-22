@@ -177,13 +177,50 @@ test("employee-self-review ignores client subject_id and uses the actor", () => 
   assert.ok(!js.includes("query.subject_id"));
 });
 
-test("manage-criteria and update-admin-data are admin-only and freeze on an active period", () => {
+test("manage-criteria and update-admin-data stay admin-only", () => {
   for (const file of ["manage-criteria.json", "update-admin-data.json"]) {
     const js = allJsCode(load(file));
     assert.ok(js.includes('"admin"'), file);
-    assert.ok(js.includes("ACTIVE_PERIOD_EXISTS") || js.includes("is_active = true OR status = 'active'"), file);
-    assert.ok(js.includes("409") || js.includes("http_status: 409"), file);
   }
+});
+
+// D-0822-1: the catalogue freezes when the evaluation STARTS, not when the
+// period is activated. Draft and the preparation window are both editable.
+test("manage-criteria write freezes on evaluation_started_at, not on activation", () => {
+  const js = allJsCode(load("manage-criteria.json"));
+  assert.ok(
+    js.includes("evaluation_started_at IS NOT NULL"),
+    "manage-criteria: write freeze must key on evaluation_started_at"
+  );
+  assert.equal(
+    js.includes("is_active = true OR status = 'active'"),
+    false,
+    "manage-criteria: the activation-wide freeze predicate must be gone"
+  );
+  assert.ok(js.includes("EVALUATION_STARTED"), "manage-criteria: freeze error code");
+  assert.ok(js.includes("409"), "manage-criteria: freeze must be 409");
+});
+
+// D-0822-2: grade coefficients are editable until close. The 409 is gone and
+// the write is validated instead (BUG-029: zero rejected, not defaulted to 1.0).
+test("update-admin-data has no period freeze and validates grade coefficients", () => {
+  const js = allJsCode(load("update-admin-data.json"));
+  assert.equal(js.includes("ACTIVE_PERIOD_EXISTS"), false,
+    "update-admin-data: the ACTIVE_PERIOD_EXISTS 409 must be removed entirely");
+  assert.equal(js.includes("is_active = true OR status = 'active'"), false,
+    "update-admin-data: the freeze SELECT must be gone");
+  assert.ok(js.includes("INVALID_GRADE_COEFFICIENT"), "update-admin-data: coefficient validation");
+  assert.ok(js.includes("coefficient <= 0"), "update-admin-data: zero must be rejected (BUG-029)");
+  assert.ok(js.includes("INVALID_SETTING_KEY"), "update-admin-data: setting_key must be validated");
+  assert.ok(js.includes("INVALID_SETTING_VALUE"), "update-admin-data: setting_value must be numeric");
+});
+
+// The freeze workflow must not carry a dead period SELECT any more.
+test("update-admin-data no longer has a freeze-check node", () => {
+  const wf = load("update-admin-data.json");
+  const names = allNodes(wf).map((n) => n.name);
+  assert.equal(names.includes("Check Freeze"), false);
+  assert.equal(names.includes("Load Active Period"), false);
 });
 
 test("every webhook can reach a respondToWebhook node", () => {
@@ -302,5 +339,25 @@ test("manage-criteria GET names the active period without emptying the catalogue
   const js = allJsCode(load("manage-criteria.json"));
   assert.ok(js.includes("_period"));
   assert.ok(js.includes("FROM performance_db.criteria"));
-  assert.ok(js.includes("ACTIVE_PERIOD_EXISTS"));
+  // The GET branch reports both gates so the admin screen can say which one holds.
+  assert.ok(js.includes("campaign_active"));
+  assert.ok(js.includes("evaluation_started"));
+});
+
+// D-0822-1: corrections are a campaign action — the period must be active AND started.
+test("score-correction binds to a started campaign period", () => {
+  const js = allJsCode(load("score-correction.json"));
+  assert.ok(js.includes("p.evaluation_started_at IS NOT NULL"),
+    "score-correction: period lookup must require evaluation_started_at");
+  assert.ok(js.includes("NO_ACTIVE_PERIOD"));
+});
+
+// Admin/reporting reads stay keyed on active, not on started.
+test("reporting reads stay keyed on the active period only", () => {
+  for (const file of ["evaluations-matrix.json", "all-evaluations.json", "analytics.json",
+                      "evaluation-details-by-user.json", "manager-subordinates-matrix.json"]) {
+    const js = allJsCode(load(file));
+    assert.equal(js.includes("evaluation_started_at"), false,
+      `${file}: reporting must not key on the start gate`);
+  }
 });

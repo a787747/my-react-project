@@ -175,7 +175,12 @@ if (!guard.ok) {
     },
   };
 }
-const canSeeCLevelTexts = ['admin', 'c_level'].includes(String(guard.identity.role || ''));
+const role = String(guard.identity.role || '');
+const canSeeCLevelTexts = ['admin', 'c_level'].includes(role);
+// Criterion weight is a money input: it decides bonus share. Admin only
+// (D-0822-2) — closing GET /api/score-coefficients alone would have left the
+// weights readable here.
+const canSeeWeight = role === 'admin';
 const levelTextFields = Array.from({ length: 10 }, (_, index) => `level_${index + 1}_desc`);
 const criteria = $input.all()
   .map(item => item.json)
@@ -185,6 +190,9 @@ const criteria = $input.all()
     const isCLevelOnly = row.c_level_only === true || row.c_level_only === 't';
     if (isCLevelOnly && !canSeeCLevelTexts) {
       levelTextFields.forEach(field => delete criterion[field]);
+    }
+    if (!canSeeWeight) {
+      delete criterion.weight;
     }
     return criterion;
   });
@@ -269,6 +277,7 @@ return {
              AND e.period_id IN (
                SELECT id FROM performance_db.evaluation_periods
                WHERE is_active = true AND status = 'active'
+                 AND evaluation_started_at IS NOT NULL
              )
            LIMIT 1),
           false
@@ -277,6 +286,7 @@ return {
          FROM performance_db.evaluations e
          JOIN performance_db.evaluation_periods ep
            ON ep.id = e.period_id AND ep.is_active = true AND ep.status = 'active'
+              AND ep.evaluation_started_at IS NOT NULL
          WHERE e.subject_id = m.id AND e.evaluator_id = ${actorId}
          ORDER BY e.updated_at DESC LIMIT 1
         ) AS last_evaluation_score,
@@ -554,6 +564,7 @@ return {
       FROM performance_db.evaluations e
       JOIN performance_db.evaluation_periods ep
         ON ep.id = e.period_id AND ep.is_active = true AND ep.status = 'active'
+           AND ep.evaluation_started_at IS NOT NULL
       WHERE e.evaluator_id = ${actorId}
         AND e.is_self_evaluation = false
       ORDER BY e.updated_at DESC
@@ -679,6 +690,7 @@ return {
       JOIN selected_subject ss ON ss.subject_id = e.subject_id
       JOIN performance_db.evaluation_periods p
         ON p.id = e.period_id AND p.is_active = true AND p.status = 'active'
+           AND p.evaluation_started_at IS NOT NULL
       LEFT JOIN performance_db.evaluation_scores es ON es.evaluation_id = e.id
       WHERE e.is_self_evaluation = true
       GROUP BY e.id, e.calculated_score, e.general_comment, e.updated_at
@@ -849,6 +861,7 @@ return {
     sql: `
       SELECT
         p.id AS period_id,
+        (p.evaluation_started_at IS NOT NULL) AS period_started,
         subj.id AS subject_id,
         subj.role AS subject_role,
         actor.can_evaluate,
@@ -891,6 +904,20 @@ if (!validation.period_id) {
         success: false,
         error: 'SCOPE_MISMATCH',
         message: 'Сотрудник или оценщик вне охвата активного периода либо связь между ними не разрешена',
+      },
+    },
+  };
+}
+// The campaign period is active AND started (D-0822-1). During the preparation
+// window the period exists and scope is real, but nothing may be submitted yet.
+if (!validation.period_started) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'PERIOD_NOT_STARTED',
+        message: 'Оценка ещё не запущена: период в подготовке',
       },
     },
   };
@@ -1093,7 +1120,9 @@ return {
         e.subject_id,
         e.evaluator_id,
         e.period_id,
-        p.status AS period_status
+        p.status AS period_status,
+        p.is_active AS period_is_active,
+        (p.evaluation_started_at IS NOT NULL) AS period_started
       FROM performance_db.evaluations e
       JOIN performance_db.evaluation_periods p ON p.id = e.period_id
       WHERE e.id = ${rawEvalId}
@@ -1125,6 +1154,21 @@ if (check.period_status === 'closed') {
     json: {
       http_status: 403,
       body: { success: false, error: 'PERIOD_CLOSED', message: 'Нельзя изменить оценку: период уже закрыт' },
+    },
+  };
+}
+// The campaign period is active AND started (D-0822-1). Editing is a campaign
+// action: an evaluation may only be changed while its own period is running.
+const periodIsActive = check.period_is_active === true || check.period_is_active === 't';
+if (String(check.period_status) !== 'active' || !periodIsActive || !check.period_started) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'PERIOD_NOT_STARTED',
+        message: 'Оценка ещё не запущена или период больше не активен',
+      },
     },
   };
 }
@@ -1171,8 +1215,12 @@ const scoreRows = gradeEntries.map(([cId, sv], idx) => {
 });
 
 // Atomic: upsert submitted scores, then delete orphan scores not in submitted list.
-// Reassert evaluator ownership and non-closed period inline in the UPDATE WHERE clause
-// to close the validation/mutation race between the prior SELECT check and this DML.
+// Reassert evaluator ownership and the running-campaign period inline in the UPDATE
+// WHERE clause to close the validation/mutation race between the prior SELECT check
+// and this DML.
+// removed_scores is gated on updated_header: a data-modifying WITH clause runs to
+// completion whatever the outer query reads, so an ungated DELETE would still wipe
+// score rows on the very race the reassertion exists to refuse (BUG-041).
 return {
   json: {
     ok: true,
@@ -1187,7 +1235,13 @@ updated_header AS (
       updated_at = now()
   WHERE id = ${evalId}
     AND evaluator_id = ${actorId}
-    AND (SELECT status FROM performance_db.evaluation_periods WHERE id = period_id) != 'closed'
+    AND EXISTS (
+      SELECT 1 FROM performance_db.evaluation_periods p
+      WHERE p.id = period_id
+        AND p.status = 'active'
+        AND p.is_active = true
+        AND p.evaluation_started_at IS NOT NULL
+    )
   RETURNING id, calculated_score
 ),
 upserted_scores AS (
@@ -1204,6 +1258,7 @@ removed_scores AS (
   DELETE FROM performance_db.evaluation_scores
   WHERE evaluation_id = ${evalId}
     AND criteria_id NOT IN (SELECT crit_id FROM score_rows)
+    AND EXISTS (SELECT 1 FROM updated_header)
   RETURNING criteria_id
 )
 SELECT
@@ -1223,11 +1278,12 @@ if (prev.http_status) {
 }
 const rows = $input.all().map(item => item.json).filter(item => item.evaluation_id !== undefined);
 if (!rows.length) {
-  // CTE WHERE reassertion failed: evaluation not owned by actor or period became closed in the race window.
+  // CTE WHERE reassertion failed: the evaluation stopped being owned by the actor,
+  // or its period stopped being a running campaign, inside the race window.
   return {
     json: {
       http_status: 403,
-      body: { status: 'error', message: 'Изменение недоступно: оценка вам не принадлежит или период уже закрыт' },
+      body: { status: 'error', message: 'Изменение недоступно: оценка вам не принадлежит или период больше не идёт' },
     },
   };
 }
@@ -1353,37 +1409,45 @@ if (finalScoreNum < 1 || finalScoreNum > 10) {
     },
   };
 }
-// weighted_score may exceed 10 by design (accumulates grade coefficients), but must be finite and non-negative if supplied.
-let weightedScore = finalScoreNum;
-if (body.weighted_score !== undefined && body.weighted_score !== null && body.weighted_score !== '') {
-  const ws = Number(body.weighted_score);
-  if (!Number.isFinite(ws) || ws < 0) {
-    return {
-      json: {
-        http_status: 422,
-        body: { success: false, error: 'INVALID_WEIGHTED_SCORE', message: 'Взвешенная оценка должна быть конечным неотрицательным числом' },
-      },
-    };
-  }
-  weightedScore = ws;
-}
+// The client-supplied weighted score field is deliberately never read
+// (D-0822-2). The weighted self-review value is computed in
+// Build Self Review Insert, on the server, from the catalogue the client can no
+// longer see. A client that still sends the field is not an error — the value
+// simply has no effect.
 
 return {
   json: {
     ok: true,
     actor_id: actorId,
     final_score: Number(finalScore),
-    weighted_score: weightedScore,
     sql: `
       SELECT
         p.id AS period_id,
+        (p.evaluation_started_at IS NOT NULL) AS period_started,
         EXISTS(
           SELECT 1 FROM performance_db.evaluations dup
           WHERE dup.subject_id = ${actorId}
             AND dup.evaluator_id = ${actorId}
             AND dup.period_id = p.id
             AND dup.is_self_evaluation = true
-        ) AS is_duplicate
+        ) AS is_duplicate,
+        (SELECT g.coefficient
+           FROM performance_db.users u
+           LEFT JOIN performance_db.grades g ON g.id = u.grade_id
+          WHERE u.id = ${actorId}) AS grade_coefficient,
+        COALESCE((
+          SELECT json_agg(json_build_object(
+            'id', c.id,
+            'weight', c.weight,
+            'score_coefficients', COALESCE((
+              SELECT json_object_agg(sc.score_level::text, sc.coefficient)
+              FROM performance_db.score_coefficients sc
+              WHERE sc.criteria_id = c.id
+            ), '{}'::json)
+          ) ORDER BY c.id)
+          FROM performance_db.criteria c
+          WHERE c.is_active = true
+        ), '[]'::json) AS coefficients
       FROM performance_db.evaluation_periods p
       JOIN performance_db.evaluation_period_participants epp
         ON epp.period_id = p.id AND epp.user_id = ${actorId} AND epp.is_in_scope = true
@@ -1409,6 +1473,19 @@ if (!check.period_id) {
     },
   };
 }
+// The campaign period is active AND started (D-0822-1).
+if (!check.period_started) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'PERIOD_NOT_STARTED',
+        message: 'Оценка ещё не запущена: период в подготовке',
+      },
+    },
+  };
+}
 if (check.is_duplicate) {
   return {
     json: {
@@ -1423,7 +1500,6 @@ const body = guard.request.body || guard.request;
 const actorId = Number(prev.actor_id);
 const periodId = Number(check.period_id);
 const finalScore = Number(prev.final_score);
-const weightedScore = Number(prev.weighted_score);
 const grades = body.grades || {};
 const comments = body.comments || {};
 const generalComment = String(body.general_comment || '').replace(/'/g, "''");
@@ -1450,6 +1526,92 @@ for (const [cId, sv] of gradeEntries) {
   }
 }
 
+// ── weighted_score: computed HERE, never taken from the client (D-0822-2) ────
+// Formula #2 of HANDOVER §4, reproduced from the retired client implementation
+// (evaluationUtils.calculateWeightedScore, deleted from src/ in this batch — see
+// git history for the original) so the stored number is identical to what the
+// browser used to compute — including its guards:
+//   weight   := parseFloat(criteria.weight) || 1.0
+//   coef     := score_coefficients[clamp(round(score), 0, 10)] ?? 1.0
+//              (the level map is filled 1..10, so level 0 falls back to 1.0)
+//   unknown criterion id -> weight 1.0, coef 1.0
+//   value    := (Σ score·coef·weight / Σ weight) × grade_coefficient
+// The one guard NOT reproduced is `grade_coefficient || 1.0`: the subject's real
+// coefficient is read from the database, and its absence is an error, not a 1.0.
+let coefficientList = check.coefficients;
+if (typeof coefficientList === 'string') {
+  try { coefficientList = JSON.parse(coefficientList); } catch { coefficientList = []; }
+}
+if (!Array.isArray(coefficientList)) { coefficientList = []; }
+const coefficients = coefficientList.map(row => {
+  let raw = row.score_coefficients;
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { raw = {}; }
+  }
+  const levels = {};
+  for (let level = 1; level <= 10; level += 1) {
+    const value = raw ? raw[String(level)] : undefined;
+    const parsed = value === undefined || value === null ? NaN : parseFloat(value);
+    levels[level] = Number.isFinite(parsed) ? parsed : 1.0;
+  }
+  return { id: Number(row.id), weight: parseFloat(row.weight) || 1.0, levels };
+});
+
+const gradeCoefficientRaw = check.grade_coefficient;
+const gradeCoefficient = gradeCoefficientRaw === null || gradeCoefficientRaw === undefined
+  ? NaN
+  : Number(gradeCoefficientRaw);
+if (!Number.isFinite(gradeCoefficient) || gradeCoefficient <= 0) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'NO_GRADE_COEFFICIENT',
+        message: 'У вашей учётной записи не задан грейд — обратитесь к администратору',
+      },
+    },
+  };
+}
+
+let weightedScore;
+if (!coefficients.length) {
+  // calculateFinalScore fallback: plain average × grade coefficient.
+  const values = gradeEntries.map(([, sv]) => parseInt(sv, 10));
+  const average = values.reduce((sum, v) => sum + v, 0) / values.length;
+  weightedScore = Number((average * gradeCoefficient).toFixed(2));
+} else {
+  let weightedSum = 0;
+  let totalWeight = 0;
+  for (const [cId, sv] of gradeEntries) {
+    const scoreValue = parseInt(sv, 10);
+    const criterion = coefficients.find(c => c.id === parseInt(cId, 10));
+    const weight = criterion ? criterion.weight : 1.0;
+    let scoreCoef = 1.0;
+    if (criterion) {
+      const level = Math.max(0, Math.min(10, Math.round(scoreValue)));
+      scoreCoef = criterion.levels[level] !== undefined ? criterion.levels[level] : 1.0;
+    }
+    weightedSum += scoreValue * scoreCoef * weight;
+    totalWeight += weight;
+  }
+  weightedScore = totalWeight === 0
+    ? 0
+    : Number(((weightedSum / totalWeight) * gradeCoefficient).toFixed(2));
+}
+if (!Number.isFinite(weightedScore) || weightedScore < 0) {
+  return {
+    json: {
+      http_status: 500,
+      body: {
+        success: false,
+        error: 'WEIGHTED_SCORE_FAILED',
+        message: 'Не удалось рассчитать взвешенную самооценку',
+      },
+    },
+  };
+}
+
 const scoreRows = gradeEntries.map(([cId, sv], idx) => {
   const criteriaId = parseInt(cId, 10);
   const scoreValue = parseInt(sv, 10);
@@ -1464,6 +1626,8 @@ const scoreRows = gradeEntries.map(([cId, sv], idx) => {
 return {
   json: {
     ok: true,
+    weighted_score: weightedScore,
+    grade_coefficient: gradeCoefficient,
     sql: `
 WITH new_eval AS (
   INSERT INTO performance_db.evaluations
@@ -1964,6 +2128,9 @@ def build_hr_evaluation_status(credential_id: str, guard_workflow_id: str) -> di
 
 # ── 12. GET api/score-coefficients — API: Get Score Coefficients ──────────────
 # Response: {success: true, data: [{id, title, weight, is_active, score_coefficients: {"1":x,...}}]}
+# ADMIN ONLY (D-0822-2). Until 2026-08-22 this route was authenticated-only and
+# every employee read the whole weight + level-coefficient table while filling in
+# a self-review. The weighted self-review value is now computed on the server.
 
 SCORE_COEFF_BUILD = """
 const guard = $('Run Auth Guard').first().json;
@@ -2038,7 +2205,7 @@ def build_score_coefficients(credential_id: str, guard_workflow_id: str) -> dict
               "responseMode": "responseNode", "options": {}},
              type_version=2.1, webhook_id="epe-score-coefficients-get"),
         node("scorecoeff-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
-             [-480, 0], {"jsCode": guard_input_js([])}),
+             [-480, 0], {"jsCode": guard_input_js(["admin"])}),
         run_guard_node("scorecoeff-run-guard", "Run Auth Guard", [-250, 0], guard_workflow_id),
         node("scorecoeff-build", "Build Coefficients Query", "n8n-nodes-base.code",
              [0, 0], {"jsCode": SCORE_COEFF_BUILD}),
@@ -2067,9 +2234,15 @@ def build_score_coefficients(credential_id: str, guard_workflow_id: str) -> dict
 # ── 13. POST api/score-coefficients — API: Save Score Coefficients ────────────
 # Request: {criteria: [{id, weight, score_coefficients: {"1":x,...,"10":x}}]}
 # Response: {success: true, message: 'Score coefficients saved successfully'}
-# Admin only. Freeze when is_active=true OR status='active'.
+# Admin only. NO period freeze (D-0822-2): weights and level coefficients stay
+# editable until the period is closed. A closed period is immune because its
+# numbers live in period_results and no reporting surface re-joins these tables.
+# Write validation: every weight finite and >= 0.1 (the client input's `min` is a
+# browser hint and is bypassed by a direct request; a zero weight is read back as
+# 1.0 and inflates the bonus index — BUG-029), every coefficient finite and > 0,
+# levels exactly 1..10.
 
-SAVE_COEFF_VALIDATE = """
+SAVE_COEFF_BUILD = """
 const guard = $('Run Auth Guard').first().json;
 if (!guard.ok) {
   return {
@@ -2079,39 +2252,6 @@ if (!guard.ok) {
     },
   };
 }
-// Reject if any active period exists (is_active=true OR status='active')
-return {
-  json: {
-    ok: true,
-    sql: `
-      SELECT id, name, status
-      FROM performance_db.evaluation_periods
-      WHERE is_active = true OR status = 'active'
-      LIMIT 1
-    `,
-  },
-};
-""".strip()
-
-SAVE_COEFF_BUILD = """
-const prev = $('Validate No Active Period').first().json;
-if (prev.http_status) {
-  return { json: prev };
-}
-const activePeriod = $input.all().map(item => item.json).find(item => item.id !== undefined);
-if (activePeriod) {
-  return {
-    json: {
-      http_status: 409,
-      body: {
-        success: false,
-        error: 'ACTIVE_PERIOD_EXISTS',
-        message: `Нельзя менять коэффициенты во время активного периода «${activePeriod.name}»`,
-      },
-    },
-  };
-}
-const guard = $('Run Auth Guard').first().json;
 const body = guard.request.body || guard.request;
 const criteria = body.criteria;
 if (!Array.isArray(criteria) || !criteria.length) {
@@ -2134,27 +2274,63 @@ for (const crit of criteria) {
       },
     };
   }
+  // A zero weight does NOT remove a criterion from the bonus index: every
+  // consumer reads it back through `parseFloat(weight) || 1.0`, so the criterion
+  // silently counts with weight 1.0 — the opposite of what the admin asked for,
+  // in the money number, and frozen into period_results at close (BUG-029).
+  // The rule is "finite and > 0" (D-0822-2), not a floor: any positive weight is
+  // a legitimate business value, and only 0 is the misread one.
   const weight = parseFloat(crit.weight);
-  if (!Number.isFinite(weight) || weight < 0) {
+  if (!Number.isFinite(weight) || weight <= 0) {
     return {
       json: {
         http_status: 422,
-        body: { success: false, error: 'INVALID_WEIGHT', message: `Некорректный вес критерия ${criteriaId}` },
+        body: {
+          success: false,
+          error: 'INVALID_WEIGHT',
+          message: `Вес критерия ${criteriaId} должен быть конечным числом больше нуля. ` +
+            `Чтобы критерий не влиял на бонус, отключите его (is_active), а не обнуляйте вес: ` +
+            `вес 0 читается как 1.0 и критерий всё равно попадёт в расчёт`,
+        },
       },
     };
   }
+  const coeffMap = crit.score_coefficients;
+  if (!coeffMap || typeof coeffMap !== 'object' || Array.isArray(coeffMap)) {
+    return {
+      json: {
+        http_status: 422,
+        body: { success: false, error: 'INVALID_COEFFICIENT_MAP', message: `Не переданы коэффициенты уровней для критерия ${criteriaId}` },
+      },
+    };
+  }
+  for (const key of Object.keys(coeffMap)) {
+    const level = parseInt(key, 10);
+    if (!Number.isFinite(level) || String(level) !== String(key).trim() || level < 1 || level > 10) {
+      return {
+        json: {
+          http_status: 422,
+          body: {
+            success: false,
+            error: 'INVALID_COEFFICIENT_LEVEL',
+            message: `Уровень оценки «${key}» вне диапазона 1..10 (критерий ${criteriaId})`,
+          },
+        },
+      };
+    }
+  }
   sqls.push(`UPDATE performance_db.criteria SET weight = ${weight} WHERE id = ${criteriaId};`);
-  const coeffMap = crit.score_coefficients || {};
   for (let level = 1; level <= 10; level++) {
-    const coef = coeffMap[level] !== undefined ? parseFloat(coeffMap[level]) : 1.0;
-    if (!Number.isFinite(coef) || coef < 0) {
+    const raw = coeffMap[level] !== undefined ? coeffMap[level] : coeffMap[String(level)];
+    const coef = raw === undefined || raw === null || raw === '' ? NaN : parseFloat(raw);
+    if (!Number.isFinite(coef) || coef <= 0) {
       return {
         json: {
           http_status: 422,
           body: {
             success: false,
             error: 'INVALID_COEFFICIENT',
-            message: `Некорректный коэффициент уровня ${level} для критерия ${criteriaId}`,
+            message: `Коэффициент уровня ${level} критерия ${criteriaId} должен быть конечным числом больше нуля`,
           },
         },
       };
@@ -2197,15 +2373,6 @@ def build_save_score_coefficients(credential_id: str, guard_workflow_id: str) ->
         node("savecoeff-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
              [-680, 0], {"jsCode": guard_input_js(["admin"])}),
         run_guard_node("savecoeff-run-guard", "Run Auth Guard", [-450, 0], guard_workflow_id),
-        node("savecoeff-validate", "Validate No Active Period", "n8n-nodes-base.code",
-             [-200, 0], {"jsCode": SAVE_COEFF_VALIDATE}),
-        node("savecoeff-check", "Check Active Period", "n8n-nodes-base.postgres",
-             [60, 0],
-             {"operation": "executeQuery",
-              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
-              "options": {}},
-             type_version=2.6,
-             credentials=postgres_credentials(credential_id), always_output=True),
         node("savecoeff-build", "Build Coefficients Update", "n8n-nodes-base.code",
              [320, 0], {"jsCode": SAVE_COEFF_BUILD}),
         node("savecoeff-execute", "Execute Update", "n8n-nodes-base.postgres",
@@ -2222,9 +2389,7 @@ def build_save_score_coefficients(credential_id: str, guard_workflow_id: str) ->
     connections = {
         "Webhook": connect("Prepare Guard Input"),
         "Prepare Guard Input": connect("Run Auth Guard"),
-        "Run Auth Guard": connect("Validate No Active Period"),
-        "Validate No Active Period": connect("Check Active Period"),
-        "Check Active Period": connect("Build Coefficients Update"),
+        "Run Auth Guard": connect("Build Coefficients Update"),
         "Build Coefficients Update": connect("Execute Update"),
         "Execute Update": connect("Format Response"),
         "Format Response": connect("Respond"),
@@ -2819,12 +2984,18 @@ def build_save_user(credential_id: str, guard_workflow_id: str) -> dict[str, Any
 
 
 # ── 17. Manage Periods — period CRUD, hierarchy, close-time persistence, roll-up
-# GET api/periods: catalogue incl. child_count/has_evaluations/has_results.
+# GET api/periods: catalogue incl. child_count/has_evaluations/has_results and
+#   evaluation_started_at/evaluation_started (the second gate, D-0822-1).
 # POST api/periods/create: atomic CTE period+participants; always draft/inactive;
 #   half_year or annual only; optional parent_period_id (container attach at birth).
 # POST api/periods/activate: refuses containers (422, D-0821-1), annual periods
 #   (422, D-0821-4 — a year is a reporting container whatever its children),
 #   closed targets, and switching away from an active period with evaluations (409).
+#   Activation does NOT start the evaluation — it opens the preparation window.
+# POST api/periods/start-evaluation: the second gate (D-0822-1). Admin only,
+#   leaf only, active only, never annual, never twice (a second call answers 200
+#   already_started and changes nothing). Sets evaluation_started_at once; no
+#   route ever clears it — recovery is SQL on the host, like activation rollback.
 # POST api/periods/rename: any period; unique-name guarded. Nothing keys on name.
 # POST api/periods/reparent: attach/detach a child; containers are reporting
 #   constructs, so reparenting is always safe. A period with evaluations can
@@ -2850,6 +3021,9 @@ return {
     ok: true,
     sql: `
       SELECT id, name, start_date, end_date, is_active, status, period_type, parent_period_id,
+        evaluation_started_at,
+        evaluation_started_by,
+        (evaluation_started_at IS NOT NULL) AS evaluation_started,
         (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp
           WHERE epp.period_id = evaluation_periods.id) AS participant_count,
         (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp
@@ -3292,6 +3466,215 @@ return {
         period_type: row.period_type,
       },
       deactivated_count: row.deactivated_count,
+    },
+  },
+};
+""".strip()
+
+
+# POST api/periods/start-evaluation — the second gate (D-0822-1).
+# Activation opens the preparation window; this opens the campaign itself.
+# Admin only, leaf only, active only, never annual, never twice. Irreversible
+# at product level: no route clears evaluation_started_at (recovery = SQL).
+
+PERIODS_START_VALIDATE = """
+const guard = $('Run Auth Guard START').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const body = guard.request.body || guard.request;
+const periodId = parseInt(body.period_id, 10);
+if (!Number.isFinite(periodId) || periodId < 1) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' },
+    },
+  };
+}
+return {
+  json: {
+    ok: true,
+    target_period_id: periodId,
+    actor_id: Number(guard.identity.id),
+    sql: `
+      SELECT
+        t.id AS target_id,
+        t.name AS target_name,
+        t.status AS target_status,
+        t.is_active AS target_is_active,
+        t.period_type AS target_period_type,
+        t.evaluation_started_at AS target_started_at,
+        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods c
+          WHERE c.parent_period_id = ${periodId}) AS target_child_count
+      FROM (SELECT 1) one
+      LEFT JOIN performance_db.evaluation_periods t ON t.id = ${periodId}
+    `,
+  },
+};
+""".strip()
+
+PERIODS_START_EXECUTE = """
+const prev = $('Validate Period Start').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const check = $input.all().map(item => item.json).find(item => item.target_child_count !== undefined);
+if (!check) {
+  return { json: { http_status: 500, body: { success: false, error: 'CHECK_FAILED', message: 'Не удалось проверить условия старта оценки' } } };
+}
+if (check.target_id === null || check.target_id === undefined) {
+  return {
+    json: {
+      http_status: 404,
+      body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' },
+    },
+  };
+}
+// Containers aggregate children; the campaign runs in the leaf (D-0821-1).
+if (Number(check.target_child_count) > 0) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'CONTAINER_NOT_STARTABLE',
+        message: 'Контейнерный период нельзя запустить: оценка идёт в дочернем периоде',
+      },
+    },
+  };
+}
+// An annual period is a reporting container whatever its children happen to be.
+if (String(check.target_period_type) === 'annual') {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'ANNUAL_PERIOD_NOT_STARTABLE',
+        message: 'Годовой период — контейнер отчётности: запустить оценку можно только в полугодовом периоде',
+      },
+    },
+  };
+}
+if (check.target_status === 'closed') {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'PERIOD_CLOSED', message: 'Закрытый период нельзя запустить' },
+    },
+  };
+}
+const isActive = check.target_is_active === true || check.target_is_active === 't';
+if (String(check.target_status) !== 'active' || !isActive) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'PERIOD_NOT_ACTIVE',
+        message: 'Сначала активируйте период, затем запускайте оценку',
+      },
+    },
+  };
+}
+// Already started: explicit, and zero state change. Mirrors the already-closed
+// answer on close — a second click is not an error, it is a no-op.
+if (check.target_started_at !== null && check.target_started_at !== undefined) {
+  return {
+    json: {
+      http_status: 200,
+      body: {
+        status: 'success',
+        already_started: true,
+        message: 'Оценка в этом периоде уже запущена',
+        data: {
+          id: Number(check.target_id),
+          name: check.target_name,
+          status: check.target_status,
+          is_active: isActive,
+          period_type: check.target_period_type,
+          evaluation_started_at: check.target_started_at,
+        },
+      },
+    },
+  };
+}
+const periodId = Number(prev.target_period_id);
+const actorId = Number(prev.actor_id);
+// Re-assert every precondition inside the UPDATE itself: a lost race changes
+// zero rows and answers 409 rather than starting a period that no longer qualifies.
+return {
+  json: {
+    ok: true,
+    sql: `
+WITH target AS (
+  SELECT id FROM performance_db.evaluation_periods
+  WHERE id = ${periodId}
+    AND status = 'active'
+    AND is_active = true
+    AND period_type != 'annual'
+    AND evaluation_started_at IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM performance_db.evaluation_periods c
+      WHERE c.parent_period_id = ${periodId}
+    )
+  FOR UPDATE
+),
+started AS (
+  UPDATE performance_db.evaluation_periods p
+  SET evaluation_started_at = now(),
+      evaluation_started_by = ${actorId}
+  FROM target t
+  WHERE p.id = t.id
+  RETURNING p.id, p.name, p.status, p.is_active, p.period_type,
+            p.evaluation_started_at, p.evaluation_started_by
+)
+SELECT * FROM started
+    `,
+  },
+};
+""".strip()
+
+PERIODS_START_FORMAT = """
+const prev = $('Build Start SQL').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.id !== undefined);
+if (!row) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'START_CONFLICT',
+        message: 'Условия старта изменились — обновите страницу и повторите',
+      },
+    },
+  };
+}
+return {
+  json: {
+    http_status: 200,
+    body: {
+      status: 'success',
+      already_started: false,
+      message: 'Evaluation started',
+      data: {
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        is_active: row.is_active,
+        period_type: row.period_type,
+        evaluation_started_at: row.evaluation_started_at,
+        evaluation_started_by: row.evaluation_started_by,
+      },
     },
   },
 };
@@ -4107,6 +4490,35 @@ def build_manage_periods(credential_id: str, guard_workflow_id: str) -> dict[str
         node("periods-activate-format", "Format Activate Response", "n8n-nodes-base.code",
              [1000, 200], {"jsCode": PERIODS_ACTIVATE_FORMAT}),
         respond_node("periods-respond-activate", "Respond ACTIVATE", [1240, 200]),
+        # START trigger — the second gate (D-0822-1), admin only
+        node("periods-webhook-start", "Webhook START", "n8n-nodes-base.webhook", [-700, 1200],
+             {"httpMethod": "POST", "path": "api/periods/start-evaluation",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-periods-start-evaluation"),
+        node("periods-guard-input-start", "Prepare Guard Input START", "n8n-nodes-base.code",
+             [-480, 1200], {"jsCode": guard_input_js(["admin"])}),
+        run_guard_node("periods-run-guard-start", "Run Auth Guard START", [-250, 1200], guard_workflow_id),
+        node("periods-start-validate", "Validate Period Start", "n8n-nodes-base.code",
+             [0, 1200], {"jsCode": PERIODS_START_VALIDATE}),
+        node("periods-start-check", "Load Start Target", "n8n-nodes-base.postgres",
+             [250, 1200],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS target_id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-start-build", "Build Start SQL", "n8n-nodes-base.code",
+             [500, 1200], {"jsCode": PERIODS_START_EXECUTE}),
+        node("periods-start-execute", "Execute Start", "n8n-nodes-base.postgres",
+             [750, 1200],
+             {"operation": "executeQuery",
+              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+              "options": {}},
+             type_version=2.6,
+             credentials=postgres_credentials(credential_id), always_output=True),
+        node("periods-start-format", "Format Start Response", "n8n-nodes-base.code",
+             [1000, 1200], {"jsCode": PERIODS_START_FORMAT}),
+        respond_node("periods-respond-start", "Respond START", [1240, 1200]),
         # RENAME trigger
         node("periods-webhook-rename", "Webhook RENAME", "n8n-nodes-base.webhook", [-700, 400],
              {"httpMethod": "POST", "path": "api/periods/rename",
@@ -4250,6 +4662,15 @@ def build_manage_periods(credential_id: str, guard_workflow_id: str) -> dict[str
         "Build Activation SQL": connect("Execute Activation"),
         "Execute Activation": connect("Format Activate Response"),
         "Format Activate Response": connect("Respond ACTIVATE"),
+        # START path
+        "Webhook START": connect("Prepare Guard Input START"),
+        "Prepare Guard Input START": connect("Run Auth Guard START"),
+        "Run Auth Guard START": connect("Validate Period Start"),
+        "Validate Period Start": connect("Load Start Target"),
+        "Load Start Target": connect("Build Start SQL"),
+        "Build Start SQL": connect("Execute Start"),
+        "Execute Start": connect("Format Start Response"),
+        "Format Start Response": connect("Respond START"),
         # RENAME path
         "Webhook RENAME": connect("Prepare Guard Input RENAME"),
         "Prepare Guard Input RENAME": connect("Run Auth Guard RENAME"),

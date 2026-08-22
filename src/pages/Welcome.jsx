@@ -18,7 +18,7 @@ import {
   Info,
   CheckCircle2
 } from 'lucide-react';
-import { LoadingSpinner, OutOfScopeNotice } from '../components/common';
+import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice } from '../components/common';
 import { CriteriaOverview } from '../components/profile';
 import { useProfile } from '../hooks/useProfile';
 import { useUser } from '../context/UserContext';
@@ -29,6 +29,8 @@ const Welcome = () => {
   const { criteria, loading } = useProfile(user?.id);
   
   const { 
+    campaignActive,
+    periodInPreparation,
     hasSelfReview, 
     hasEvaluatedManager, 
     hasEvaluatedAllSubordinates, 
@@ -88,12 +90,21 @@ const Welcome = () => {
           </div>
         </div>
 
-        {/* Блок отслеживания задач */}
+        {/* Блок отслеживания задач.
+            Задачи существуют только когда кампания идёт: период активен И
+            оценка запущена (D-0822-1). В окне подготовки — объяснение, а не
+            мёртвые карточки. */}
         <div className="card p-5">
           <div className="text-center mb-4">
             <h2 className="text-lg font-bold text-slate-900 mb-1">Ваши задачи</h2>
-            <p className="text-sm text-slate-500">Активный период оценки</p>
+            <p className="text-sm text-slate-500">
+              {campaignActive ? 'Активный период оценки' : 'Оценка не идёт'}
+            </p>
           </div>
+
+          {!campaignActive && (
+            <CampaignNotStartedNotice inPreparation={periodInPreparation} embedded />
+          )}
 
           <div className="flex flex-wrap justify-center gap-3">
             {/* Самооценка */}

@@ -89,8 +89,14 @@ ANALYTICS_FORMAT = legacy_node("API_ Analytics Dashboard - Optimized.json", "Bui
 MANAGER_MATRIX_SQL = legacy_query(
     "API_ Manager Subordinates Matrix.json", "Get Subordinates Matrix"
 )
-CRITERIA_PREP_JS = legacy_node("API_ Manage Criteria Admin V7.json", "Prep SQL")["parameters"]["jsCode"]
-UPDATE_ADMIN_BUILD_JS = legacy_node("API_ Update Admin Data.json", "Build SQL")["parameters"]["jsCode"]
+# Inlined verbatim from the pre-guard `API: Manage Criteria Admin V7` node
+# `Prep SQL` (repo commit f9758d3). It used to be read out of the tracked
+# top-level export at generation time, but that export is refreshed FROM LIVE
+# after every deploy — and once live runs the generated graph the `Prep SQL`
+# node no longer exists, so the generator could not run a second time.
+# A generator input must never be a file the deploy rewrites.
+CRITERIA_PREP_JS = 'const action = $(\'Webhook\').item.json.body.action;\nconst item = $(\'Webhook\').item.json.body.criteria || {};\n\n// ЛОГИКА УДАЛЕНИЯ\nif (action === \'delete\') {\n   return { \n    json: { \n      query: `DELETE FROM performance_db.criteria WHERE id = ${item.id} RETURNING id;` \n    } \n  };\n}\n\n// ЛОГИКА СОХРАНЕНИЯ (SAVE)\nconst safe = (str) => str ? str.toString().replace(/\'/g, "\'\'") : "";\nconst title = safe(item.title);\nconst desc = safe(item.description);\nconst aud = safe(item.target_audience);\nconst active = item.is_active ? \'TRUE\' : \'FALSE\';\nconst selfassesment = item.selfassesment !== undefined ? (item.selfassesment ? \'TRUE\' : \'FALSE\') : \'TRUE\';\nconst forManager = item.for_manager !== undefined ? (item.for_manager ? \'TRUE\' : \'FALSE\') : \'TRUE\';\nconst cLevelOnly = item.c_level_only !== undefined ? (item.c_level_only ? \'TRUE\' : \'FALSE\') : \'FALSE\';\n\n// Обработка level_*_desc полей (0-10)\nconst levels = {};\nfor (let i = 0; i <= 10; i++) {\n  const fieldName = `level_${i}_desc`;\n  levels[fieldName] = item[fieldName] ? safe(item[fieldName]) : null;\n}\n\nif (item.id) {\n  // UPDATE существующего критерия\n  const levelUpdates = [];\n  for (let i = 0; i <= 10; i++) {\n    const fieldName = `level_${i}_desc`;\n    const value = levels[fieldName];\n    if (value !== null) {\n      levelUpdates.push(`${fieldName} = \'${value}\'`);\n    } else {\n      levelUpdates.push(`${fieldName} = NULL`);\n    }\n  }\n  \n  const query = `UPDATE performance_db.criteria SET \n    title = \'${title}\', \n    description = \'${desc}\', \n    target_audience = \'${aud}\', \n    is_active = ${active},\n    selfassesment = ${selfassesment},\n    for_manager = ${forManager},\n    c_level_only = ${cLevelOnly},\n    ${levelUpdates.join(\', \')}\n    WHERE id = ${item.id} RETURNING id;`;\n  \n  return { json: { query: query } };\n  \n} else {\n  // INSERT нового критерия\n  const levelFields = [];\n  const levelValues = [];\n  \n  for (let i = 0; i <= 10; i++) {\n    const fieldName = `level_${i}_desc`;\n    levelFields.push(fieldName);\n    const value = levels[fieldName];\n    if (value !== null) {\n      levelValues.push(`\'${value}\'`);\n    } else {\n      levelValues.push(\'NULL\');\n    }\n  }\n  \n  const query = `INSERT INTO performance_db.criteria \n    (title, description, category, target_audience, is_active, selfassesment, for_manager, c_level_only, ${levelFields.join(\', \')}) \n    VALUES \n    (\'${title}\', \'${desc}\', \'dynamic\', \'${aud}\', ${active}, ${selfassesment}, ${forManager}, ${cLevelOnly}, ${levelValues.join(\', \')}) \n    RETURNING id;`;\n  \n  return { json: { query: query } };\n}'
+
 
 
 def js_sql_literal(sql: str) -> str:
@@ -1939,6 +1945,7 @@ return {{
           SELECT p.id
           FROM performance_db.evaluation_periods p
           WHERE p.is_active = true AND p.status = 'active'
+            AND p.evaluation_started_at IS NOT NULL
           LIMIT 1
         ) AS period_id
       FROM performance_db.users s
@@ -1970,7 +1977,7 @@ if (!row.period_id) {
       body: {
         success: false,
         error: 'NO_ACTIVE_PERIOD',
-        message: 'Корректировка доступна только в активном периоде оценки',
+        message: 'Корректировка доступна только в идущем периоде оценки (период активирован и оценка запущена)',
       },
     },
   };
@@ -2125,7 +2132,9 @@ if (action === 'get') {{
               'is_active', p.is_active,
               'period_type', p.period_type,
               'start_date', p.start_date,
-              'end_date', p.end_date
+              'end_date', p.end_date,
+              'evaluation_started_at', p.evaluation_started_at,
+              'evaluation_started', (p.evaluation_started_at IS NOT NULL)
             )
             FROM performance_db.evaluation_periods p
             WHERE p.is_active = true AND p.status = 'active'
@@ -2137,6 +2146,8 @@ if (action === 'get') {{
     }},
   }};
 }}
+// The catalogue freezes when the evaluation STARTS, not when the period is
+// activated (D-0822-1). Draft and the preparation window are both editable.
 return {{
   json: {{
     ok: true,
@@ -2145,7 +2156,9 @@ return {{
     sql: `
       SELECT id, name, status
       FROM performance_db.evaluation_periods
-      WHERE is_active = true OR status = 'active'
+      WHERE is_active = true
+        AND status = 'active'
+        AND evaluation_started_at IS NOT NULL
       LIMIT 1
     `,
   }},
@@ -2169,6 +2182,7 @@ if (prev.mode === 'get') {
     return copy;
   });
   const isActive = periodRaw && (periodRaw.is_active === true || periodRaw.is_active === 'true');
+  const isStarted = Boolean(periodRaw && periodRaw.evaluation_started_at);
   return {
     json: {
       http_status: 200,
@@ -2183,22 +2197,26 @@ if (prev.mode === 'get') {
               period_type: periodRaw.period_type,
               start_date: periodRaw.start_date,
               end_date: periodRaw.end_date,
+              evaluation_started_at: periodRaw.evaluation_started_at || null,
+              evaluation_started: isStarted,
             }
           : null,
         campaign_active: Boolean(isActive && periodRaw && periodRaw.status === 'active'),
+        // Writes freeze on start, not on activation (D-0822-1).
+        evaluation_started: Boolean(isActive && periodRaw && periodRaw.status === 'active' && isStarted),
       },
     },
   };
 }
-const activePeriod = $input.all().map(item => item.json).find(item => item.id !== undefined);
-if (activePeriod) {
+const startedPeriod = $input.all().map(item => item.json).find(item => item.id !== undefined);
+if (startedPeriod) {
   return {
     json: {
       http_status: 409,
       body: {
         success: false,
-        error: 'ACTIVE_PERIOD_EXISTS',
-        message: `Нельзя менять критерии во время активного периода «${activePeriod.name}»`,
+        error: 'EVALUATION_STARTED',
+        message: `Нельзя менять критерии: оценка в периоде «${startedPeriod.name}» уже идёт`,
       },
     },
   };
@@ -2271,45 +2289,85 @@ def build_manage_criteria(credential_id: str, guard_workflow_id: str) -> dict[st
 
 
 # ── 10. POST update-admin-data ───────────────────────────────────────────────
+# Admin only. NO period freeze (D-0822-2): grade coefficients stay editable
+# until the period is closed; closed periods are immune because their numbers
+# live in period_results. The legacy Build SQL node interpolated
+# grades[].coefficient and settings[].setting_value straight into SQL with no
+# validation at all — that is both the BUG-029 zero-coefficient trap and an
+# injection surface. Both are validated here before any SQL is built.
 
-UPDATE_ADMIN_FREEZE = f"""
+UPDATE_ADMIN_BUILD = f"""
 {guard_reject_js()}
+const body = (guard.request.body || guard.request) || {{}};
+const grades = Array.isArray(body.grades) ? body.grades : [];
+const settings = Array.isArray(body.settings) ? body.settings : [];
+if (!grades.length && !settings.length) {{
+  return {{
+    json: {{
+      http_status: 422,
+      body: {{ success: false, error: 'INVALID_BODY', message: 'Нечего обновлять: передайте grades или settings' }},
+    }},
+  }};
+}}
+
+const sqlQueries = [];
+
+for (const g of grades) {{
+  const gradeId = parseInt(g && g.id, 10);
+  if (!Number.isFinite(gradeId) || gradeId < 1) {{
+    return {{
+      json: {{
+        http_status: 422,
+        body: {{ success: false, error: 'INVALID_GRADE_ID', message: `Некорректный идентификатор грейда: ${{g && g.id}}` }},
+      }},
+    }};
+  }}
+  const raw = g.coefficient;
+  const coefficient = raw === undefined || raw === null || raw === '' ? NaN : parseFloat(raw);
+  // Zero is rejected: a zero grade coefficient silently zeroes a person's whole
+  // bonus index, and every default-guarded consumer reads it back as 1.0 (BUG-029).
+  if (!Number.isFinite(coefficient) || coefficient <= 0) {{
+    return {{
+      json: {{
+        http_status: 422,
+        body: {{ success: false, error: 'INVALID_GRADE_COEFFICIENT', message: `Коэффициент грейда ${{gradeId}} должен быть конечным числом больше нуля` }},
+      }},
+    }};
+  }}
+  sqlQueries.push(`UPDATE performance_db.grades SET coefficient = ${{coefficient}} WHERE id = ${{gradeId}};`);
+}}
+
+for (const s of settings) {{
+  const key = String((s && s.setting_key) || '');
+  if (!/^[A-Za-z0-9_]{{1,64}}$/.test(key)) {{
+    return {{
+      json: {{
+        http_status: 422,
+        body: {{ success: false, error: 'INVALID_SETTING_KEY', message: `Некорректный ключ настройки: ${{key}}` }},
+      }},
+    }};
+  }}
+  const rawValue = s.setting_value;
+  const value = rawValue === undefined || rawValue === null || rawValue === '' ? NaN : parseFloat(rawValue);
+  if (!Number.isFinite(value)) {{
+    return {{
+      json: {{
+        http_status: 422,
+        body: {{ success: false, error: 'INVALID_SETTING_VALUE', message: `Значение настройки «${{key}}» должно быть конечным числом` }},
+      }},
+    }};
+  }}
+  sqlQueries.push(`UPDATE performance_db.global_settings SET setting_value = ${{value}} WHERE setting_key = '${{key}}';`);
+}}
+
 return {{
   json: {{
     ok: true,
-    sql: `
-      SELECT id, name, status
-      FROM performance_db.evaluation_periods
-      WHERE is_active = true OR status = 'active'
-      LIMIT 1
-    `,
+    query: sqlQueries.join('\\n'),
+    count: sqlQueries.length,
   }},
 }};
 """.strip()
-
-UPDATE_ADMIN_BUILD = """
-const prev = $('Check Freeze').first().json;
-if (prev.http_status) {
-  return { json: prev };
-}
-const activePeriod = $input.all().map(item => item.json).find(item => item.id !== undefined);
-if (activePeriod) {
-  return {
-    json: {
-      http_status: 409,
-      body: {
-        success: false,
-        error: 'ACTIVE_PERIOD_EXISTS',
-        message: `Нельзя менять коэффициенты грейдов во время активного периода «${activePeriod.name}»`,
-      },
-    },
-  };
-}
-const guard = $('Run Auth Guard').first().json;
-""" + UPDATE_ADMIN_BUILD_JS.replace(
-    "const body = $input.item.json.body;",
-    "const body = (guard.request.body || guard.request);",
-)
 
 UPDATE_ADMIN_FORMAT = """
 const prev = $('Build SQL').first().json;
@@ -2338,17 +2396,8 @@ def build_update_admin_data(credential_id: str, guard_workflow_id: str) -> dict[
         node("ua-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
              [-480, 0], {"jsCode": guard_input_js(["admin"])}),
         run_guard_node("ua-run-guard", "Run Auth Guard", [-250, 0], guard_workflow_id),
-        node("ua-freeze", "Check Freeze", "n8n-nodes-base.code",
-             [0, 0], {"jsCode": UPDATE_ADMIN_FREEZE}),
-        node("ua-period", "Load Active Period", "n8n-nodes-base.postgres",
-             [250, 0],
-             {"operation": "executeQuery",
-              "query": dummy_if("$json.ok"),
-              "options": {}},
-             type_version=2.6,
-             credentials=postgres_credentials(credential_id), always_output=True),
         node("ua-build", "Build SQL", "n8n-nodes-base.code",
-             [500, 0], {"jsCode": UPDATE_ADMIN_BUILD}),
+             [0, 0], {"jsCode": UPDATE_ADMIN_BUILD}),
         node("ua-exec", "Execute Update", "n8n-nodes-base.postgres",
              [740, 0],
              {"operation": "executeQuery",
@@ -2363,9 +2412,7 @@ def build_update_admin_data(credential_id: str, guard_workflow_id: str) -> dict[
     connections = {
         "Webhook": connect("Prepare Guard Input"),
         "Prepare Guard Input": connect("Run Auth Guard"),
-        "Run Auth Guard": connect("Check Freeze"),
-        "Check Freeze": connect("Load Active Period"),
-        "Load Active Period": connect("Build SQL"),
+        "Run Auth Guard": connect("Build SQL"),
         "Build SQL": connect("Execute Update"),
         "Execute Update": connect("Format Response"),
         "Format Response": connect("Respond"),

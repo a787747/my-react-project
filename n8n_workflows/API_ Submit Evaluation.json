@@ -1,1 +1,319 @@
-{"updatedAt":"2026-08-19T19:43:38.525Z","createdAt":"2025-12-06T13:18:05.267Z","id":"tUxHoRn38rJVDxWv","name":"API: Submit Evaluation","description":null,"active":true,"isArchived":false,"nodes":[{"parameters":{"httpMethod":"POST","path":"api/submit-evaluation","responseMode":"responseNode","options":{}},"id":"subeval-webhook","name":"Webhook","type":"n8n-nodes-base.webhook","typeVersion":2.1,"position":[-900,0],"webhookId":"epe-submit-evaluation"},{"parameters":{"jsCode":"const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [],\n    required_capability: \"can_evaluate\",\n    request,\n  },\n};"},"id":"subeval-guard-input","name":"Prepare Guard Input","type":"n8n-nodes-base.code","typeVersion":2,"position":[-680,0]},{"parameters":{"workflowId":"L0Zr7nVa8O5YWXd3","options":{}},"id":"subeval-run-guard","name":"Run Auth Guard","type":"n8n-nodes-base.executeWorkflow","typeVersion":1,"position":[-450,0]},{"parameters":{"jsCode":"const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nconst actorRole = String(guard.identity.role || '');\nconst body = guard.request.body || guard.request;\n// Ignore body.evaluator_id — evaluator is always the token actor.\n\nconst source = String(body.evaluation_source || 'manager').trim();\nif (source !== 'manager' && source !== 'subordinate' && source !== 'c_level_direct') {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_SOURCE', message: 'evaluation_source must be manager, subordinate, or c_level_direct' },\n    },\n  };\n}\nif (source === 'c_level_direct' && actorRole !== 'c_level' && actorRole !== 'admin') {\n  return {\n    json: {\n      http_status: 403,\n      body: { success: false, error: 'ROLE_FORBIDDEN', message: 'c_level_direct requires c_level or admin role' },\n    },\n  };\n}\n\nconst rawSubjectId = parseInt(body.subject_id, 10);\nif (!Number.isFinite(rawSubjectId) || rawSubjectId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_SUBJECT', message: 'subject_id must be a positive integer' },\n    },\n  };\n}\nif (rawSubjectId === actorId) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'SELF_EVALUATION_FORBIDDEN', message: 'Use /api/self-review-submit for self-evaluations' },\n    },\n  };\n}\n\nconst safeSource = source.replace(/'/g, \"''\");\nlet relationFilter;\nif (source === 'manager') {\n  relationFilter = `AND subj.manager_id = ${actorId} AND subj.can_be_evaluated = true`;\n} else if (source === 'subordinate') {\n  relationFilter = `AND actor.manager_id = ${rawSubjectId} AND subj.can_be_evaluated = true AND subj.role NOT IN ('c_level', 'admin')`;\n} else {\n  relationFilter = `AND actor.role IN ('c_level', 'admin') AND subj.can_be_evaluated = true AND lower(subj.email) NOT IN ('cem@sedamedical.com', 'hemra@sedamedical.com', 'mekan@sedamedical.com')`;\n}\n\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    subject_id: rawSubjectId,\n    source: safeSource,\n    sql: `\n      SELECT\n        p.id AS period_id,\n        subj.id AS subject_id,\n        subj.role AS subject_role,\n        actor.can_evaluate,\n        EXISTS(\n          SELECT 1 FROM performance_db.evaluations dup\n          WHERE dup.subject_id = ${rawSubjectId}\n            AND dup.evaluator_id = ${actorId}\n            AND dup.evaluation_source = '${safeSource}'\n            AND dup.period_id = p.id\n            AND dup.is_self_evaluation = false\n        ) AS is_duplicate\n      FROM performance_db.evaluation_periods p\n      JOIN performance_db.evaluation_period_participants ep_actor\n        ON ep_actor.period_id = p.id AND ep_actor.user_id = ${actorId} AND ep_actor.is_in_scope = true\n      JOIN performance_db.evaluation_period_participants ep_subj\n        ON ep_subj.period_id = p.id AND ep_subj.user_id = ${rawSubjectId} AND ep_subj.is_in_scope = true\n      JOIN performance_db.users subj ON subj.id = ${rawSubjectId}\n      JOIN performance_db.users actor ON actor.id = ${actorId}\n      WHERE p.is_active = true AND p.status = 'active'\n        AND ${rawSubjectId} != ${actorId}\n        ${relationFilter}\n    `,\n  },\n};"},"id":"subeval-validate","name":"Validate Evaluation","type":"n8n-nodes-base.code","typeVersion":2,"position":[-200,0]},{"parameters":{"operation":"executeQuery","query":"={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS period_id WHERE false' }}","options":{}},"id":"subeval-check","name":"Execute Scope Check","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[60,0],"credentials":{"postgres":{"id":"VNbfkY8IKbEzn88B","name":"EPE 2026 Postgres"}},"alwaysOutputData":true},{"parameters":{"jsCode":"const prev = $('Validate Evaluation').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\n\nconst validation = $input.first().json;\n\nif (!validation.period_id) {\n  return {\n    json: {\n      http_status: 403,\n      body: {\n        success: false,\n        error: 'SCOPE_MISMATCH',\n        message: 'Subject or actor is not in scope in an active period, or relationship constraint is not satisfied',\n      },\n    },\n  };\n}\nif (!validation.can_evaluate) {\n  return {\n    json: {\n      http_status: 403,\n      body: { success: false, error: 'CANNOT_EVALUATE', message: 'Actor does not have the can_evaluate capability' },\n    },\n  };\n}\nif (validation.is_duplicate) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'DUPLICATE_EVALUATION',\n        message: 'Evaluation already exists for this evaluator/subject/source/period tuple. Use /api/update-evaluation.',\n      },\n    },\n  };\n}\n\nconst guard = $('Run Auth Guard').first().json;\nconst body = guard.request.body || guard.request;\nconst actorId = Number(prev.actor_id);\nconst subjectId = Number(prev.subject_id);\nconst periodId = Number(validation.period_id);\nconst source = String(prev.source);\nconst grades = body.grades || {};\nconst comments = body.comments || {};\nconst generalComment = String(body.general_comment || '').replace(/'/g, \"''\");\nconst generalCommentSql = generalComment ? `'${generalComment}'` : 'NULL';\n\n// Validate grades before building SQL — return 422, never throw.\nconst gradeEntries = Object.entries(grades);\nif (!gradeEntries.length) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'NO_GRADES', message: 'grades must contain at least one entry' },\n    },\n  };\n}\nfor (const [cId, sv] of gradeEntries) {\n  const criteriaId = parseInt(cId, 10);\n  const scoreValue = parseInt(sv, 10);\n  if (!Number.isFinite(criteriaId) || criteriaId < 1) {\n    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Invalid criteria_id: ${cId}` } } };\n  }\n  if (!Number.isFinite(scoreValue) || scoreValue < 1 || scoreValue > 10) {\n    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Score for criteria ${cId} must be an integer between 1 and 10` } } };\n  }\n}\n\nconst scoreRows = gradeEntries.map(([cId, sv], idx) => {\n  const criteriaId = parseInt(cId, 10);\n  const scoreValue = parseInt(sv, 10);\n  const rawComment = String(comments[cId] || '').replace(/'/g, \"''\");\n  const commentLit = rawComment ? `'${rawComment}'` : 'NULL';\n  if (idx === 0) {\n    return `(${criteriaId}::integer, ${scoreValue}::integer, ${commentLit}::text)`;\n  }\n  return `(${criteriaId}, ${scoreValue}, ${commentLit})`;\n});\n\nreturn {\n  json: {\n    ok: true,\n    sql: `\nWITH score_rows(crit_id, score_val, cmt) AS (\n  VALUES ${scoreRows.join(', ')}\n),\nnew_eval AS (\n  INSERT INTO performance_db.evaluations\n    (subject_id, evaluator_id, period_id, calculated_score, evaluation_source,\n     is_self_evaluation, status, general_comment, updated_at)\n  SELECT ${subjectId}, ${actorId}, ${periodId},\n         (SELECT AVG(score_val::numeric) FROM score_rows),\n         '${source}', false, 'completed', ${generalCommentSql}, now()\n  WHERE EXISTS (SELECT 1 FROM score_rows)\n  ON CONFLICT (subject_id, evaluator_id, evaluation_source, period_id)\n  WHERE is_self_evaluation = false\n  DO NOTHING\n  RETURNING id\n)\nINSERT INTO performance_db.evaluation_scores (evaluation_id, criteria_id, score_value, comment)\nSELECT ne.id, sr.crit_id, sr.score_val, sr.cmt\nFROM new_eval ne\nCROSS JOIN score_rows sr\nRETURNING evaluation_id\n    `,\n  },\n};"},"id":"subeval-build","name":"Build Insert SQL","type":"n8n-nodes-base.code","typeVersion":2,"position":[320,0]},{"parameters":{"operation":"executeQuery","query":"={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS evaluation_id WHERE false' }}","options":{}},"id":"subeval-insert","name":"Execute Insert","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[580,0],"credentials":{"postgres":{"id":"VNbfkY8IKbEzn88B","name":"EPE 2026 Postgres"}},"alwaysOutputData":true},{"parameters":{"jsCode":"const prev = $('Build Insert SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst rows = $input.all().map(item => item.json).filter(item => item.evaluation_id !== undefined);\nif (!rows.length) {\n  // ON CONFLICT DO NOTHING returned 0 rows — race-condition duplicate\n  return {\n    json: {\n      http_status: 409,\n      body: { success: false, error: 'DUPLICATE_EVALUATION', message: 'Evaluation already exists (concurrent submission).' },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, message: 'Evaluation saved successfully' },\n  },\n};"},"id":"subeval-format","name":"Format Response","type":"n8n-nodes-base.code","typeVersion":2,"position":[840,0]},{"parameters":{"respondWith":"json","responseBody":"={{ $json.body }}","options":{"responseCode":"={{ $json.http_status }}"}},"id":"subeval-respond","name":"Respond","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.4,"position":[1080,0]}],"connections":{"Webhook":{"main":[[{"node":"Prepare Guard Input","type":"main","index":0}]]},"Prepare Guard Input":{"main":[[{"node":"Run Auth Guard","type":"main","index":0}]]},"Run Auth Guard":{"main":[[{"node":"Validate Evaluation","type":"main","index":0}]]},"Validate Evaluation":{"main":[[{"node":"Execute Scope Check","type":"main","index":0}]]},"Execute Scope Check":{"main":[[{"node":"Build Insert SQL","type":"main","index":0}]]},"Build Insert SQL":{"main":[[{"node":"Execute Insert","type":"main","index":0}]]},"Execute Insert":{"main":[[{"node":"Format Response","type":"main","index":0}]]},"Format Response":{"main":[[{"node":"Respond","type":"main","index":0}]]}},"settings":{"executionOrder":"v1","callerPolicy":"workflowsFromSameOwner","availableInMCP":false,"saveDataErrorExecution":"none","saveDataSuccessExecution":"none","saveManualExecutions":false},"staticData":null,"meta":{"templateCredsSetupCompleted":true},"pinData":{},"versionId":"d87eadfa-168d-4ea3-bd51-60a29c6ad3da","versionCounter":91,"triggerCount":1,"shared":[{"updatedAt":"2025-12-06T13:18:05.267Z","createdAt":"2025-12-06T13:18:05.267Z","role":"workflow:owner","workflowId":"tUxHoRn38rJVDxWv","projectId":"etgqxHLuSapoTyiP","project":{"updatedAt":"2025-06-21T12:16:10.334Z","createdAt":"2025-06-21T12:14:12.509Z","id":"etgqxHLuSapoTyiP","name":"Aleksandr admin\\ <admin@admin.ru>","type":"personal","icon":null,"description":null,"projectRelations":[{"updatedAt":"2025-06-21T12:14:12.509Z","createdAt":"2025-06-21T12:14:12.509Z","userId":"30fb4110-3e17-486d-8374-e261d4b5bb3a","projectId":"etgqxHLuSapoTyiP","user":{"updatedAt":"2026-08-19T05:33:45.123Z","createdAt":"2025-06-21T12:14:11.974Z","id":"30fb4110-3e17-486d-8374-e261d4b5bb3a","email":"admin@admin.ru","firstName":"Aleksandr","lastName":"admin\\","personalizationAnswers":{"version":"v4","personalization_survey_submitted_at":"2025-06-21T12:16:14.744Z","personalization_survey_n8n_version":"1.98.2"},"settings":{"userActivated":true,"easyAIWorkflowOnboarded":true,"firstSuccessfulWorkflowId":"VZkADNbuEeJgTBQk","userActivatedAt":1754208251036,"dismissedCallouts":{"aiAgentStarterCallout":true},"npsSurvey":{"waitingForResponse":true,"ignoredCount":1,"lastShownAt":1786569530276}},"disabled":false,"mfaEnabled":false,"lastActiveAt":"2026-08-19","isPending":false}}]}}],"tags":[]}
+{
+  "updatedAt": "2026-08-22T06:38:00.564Z",
+  "createdAt": "2025-12-06T13:18:05.267Z",
+  "id": "tUxHoRn38rJVDxWv",
+  "name": "API: Submit Evaluation",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/submit-evaluation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "subeval-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -900,
+        0
+      ],
+      "webhookId": "epe-submit-evaluation"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [],\n    required_capability: \"can_evaluate\",\n    request,\n  },\n};"
+      },
+      "id": "subeval-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "subeval-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -450,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nconst actorRole = String(guard.identity.role || '');\nconst body = guard.request.body || guard.request;\n// Ignore body.evaluator_id — evaluator is always the token actor.\n\nconst source = String(body.evaluation_source || 'manager').trim();\nif (source !== 'manager' && source !== 'subordinate' && source !== 'c_level_direct') {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_SOURCE', message: 'Источник оценки должен быть manager, subordinate или c_level_direct' },\n    },\n  };\n}\nif (source === 'c_level_direct' && actorRole !== 'c_level' && actorRole !== 'admin') {\n  return {\n    json: {\n      http_status: 403,\n      body: { success: false, error: 'ROLE_FORBIDDEN', message: 'Оценка c_level_direct доступна только администратору или C-level' },\n    },\n  };\n}\n\nconst rawSubjectId = parseInt(body.subject_id, 10);\nif (!Number.isFinite(rawSubjectId) || rawSubjectId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_SUBJECT', message: 'Идентификатор сотрудника должен быть положительным целым числом' },\n    },\n  };\n}\nif (rawSubjectId === actorId) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'SELF_EVALUATION_FORBIDDEN', message: 'Для самооценки используйте форму самооценки' },\n    },\n  };\n}\n\nconst safeSource = source.replace(/'/g, \"''\");\nlet relationFilter;\nif (source === 'manager') {\n  relationFilter = `AND subj.manager_id = ${actorId} AND subj.can_be_evaluated = true`;\n} else if (source === 'subordinate') {\n  relationFilter = `AND actor.manager_id = ${rawSubjectId} AND subj.can_be_evaluated = true AND subj.role NOT IN ('c_level', 'admin')`;\n} else {\n  relationFilter = `AND actor.role IN ('c_level', 'admin') AND subj.can_be_evaluated = true AND lower(subj.email) NOT IN ('cem@sedamedical.com', 'hemra@sedamedical.com', 'mekan@sedamedical.com')`;\n}\n\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    subject_id: rawSubjectId,\n    source: safeSource,\n    sql: `\n      SELECT\n        p.id AS period_id,\n        (p.evaluation_started_at IS NOT NULL) AS period_started,\n        subj.id AS subject_id,\n        subj.role AS subject_role,\n        actor.can_evaluate,\n        EXISTS(\n          SELECT 1 FROM performance_db.evaluations dup\n          WHERE dup.subject_id = ${rawSubjectId}\n            AND dup.evaluator_id = ${actorId}\n            AND dup.evaluation_source = '${safeSource}'\n            AND dup.period_id = p.id\n            AND dup.is_self_evaluation = false\n        ) AS is_duplicate\n      FROM performance_db.evaluation_periods p\n      JOIN performance_db.evaluation_period_participants ep_actor\n        ON ep_actor.period_id = p.id AND ep_actor.user_id = ${actorId} AND ep_actor.is_in_scope = true\n      JOIN performance_db.evaluation_period_participants ep_subj\n        ON ep_subj.period_id = p.id AND ep_subj.user_id = ${rawSubjectId} AND ep_subj.is_in_scope = true\n      JOIN performance_db.users subj ON subj.id = ${rawSubjectId}\n      JOIN performance_db.users actor ON actor.id = ${actorId}\n      WHERE p.is_active = true AND p.status = 'active'\n        AND ${rawSubjectId} != ${actorId}\n        ${relationFilter}\n    `,\n  },\n};"
+      },
+      "id": "subeval-validate",
+      "name": "Validate Evaluation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS period_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "subeval-check",
+      "name": "Execute Scope Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        60,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Evaluation').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\n\nconst validation = $input.first().json;\n\nif (!validation.period_id) {\n  return {\n    json: {\n      http_status: 403,\n      body: {\n        success: false,\n        error: 'SCOPE_MISMATCH',\n        message: 'Сотрудник или оценщик вне охвата активного периода либо связь между ними не разрешена',\n      },\n    },\n  };\n}\n// The campaign period is active AND started (D-0822-1). During the preparation\n// window the period exists and scope is real, but nothing may be submitted yet.\nif (!validation.period_started) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'PERIOD_NOT_STARTED',\n        message: 'Оценка ещё не запущена: период в подготовке',\n      },\n    },\n  };\n}\nif (!validation.can_evaluate) {\n  return {\n    json: {\n      http_status: 403,\n      body: { success: false, error: 'CANNOT_EVALUATE', message: 'У вас нет права проводить оценку' },\n    },\n  };\n}\nif (validation.is_duplicate) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'DUPLICATE_EVALUATION',\n        message: 'Такая оценка уже отправлена в текущем периоде',\n      },\n    },\n  };\n}\n\nconst guard = $('Run Auth Guard').first().json;\nconst body = guard.request.body || guard.request;\nconst actorId = Number(prev.actor_id);\nconst subjectId = Number(prev.subject_id);\nconst periodId = Number(validation.period_id);\nconst source = String(prev.source);\nconst grades = body.grades || {};\nconst comments = body.comments || {};\nconst generalComment = String(body.general_comment || '').replace(/'/g, \"''\");\nconst generalCommentSql = generalComment ? `'${generalComment}'` : 'NULL';\n\n// Validate grades before building SQL — return 422, never throw.\nconst gradeEntries = Object.entries(grades);\nif (!gradeEntries.length) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'NO_GRADES', message: 'Необходимо указать хотя бы одну оценку' },\n    },\n  };\n}\nfor (const [cId, sv] of gradeEntries) {\n  const criteriaId = parseInt(cId, 10);\n  const scoreValue = parseInt(sv, 10);\n  if (!Number.isFinite(criteriaId) || criteriaId < 1) {\n    return { json: { http_status: 422, body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Некорректный идентификатор критерия: ${cId}` } } };\n  }\n  if (!Number.isFinite(scoreValue) || scoreValue < 1 || scoreValue > 10) {\n    return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Оценка по критерию ${cId} должна быть целым числом от 1 до 10` } } };\n  }\n}\n\nconst scoreRows = gradeEntries.map(([cId, sv], idx) => {\n  const criteriaId = parseInt(cId, 10);\n  const scoreValue = parseInt(sv, 10);\n  const rawComment = String(comments[cId] || '').replace(/'/g, \"''\");\n  const commentLit = rawComment ? `'${rawComment}'` : 'NULL';\n  if (idx === 0) {\n    return `(${criteriaId}::integer, ${scoreValue}::integer, ${commentLit}::text)`;\n  }\n  return `(${criteriaId}, ${scoreValue}, ${commentLit})`;\n});\n\nreturn {\n  json: {\n    ok: true,\n    sql: `\nWITH score_rows(crit_id, score_val, cmt) AS (\n  VALUES ${scoreRows.join(', ')}\n),\nnew_eval AS (\n  INSERT INTO performance_db.evaluations\n    (subject_id, evaluator_id, period_id, calculated_score, evaluation_source,\n     is_self_evaluation, status, general_comment, updated_at)\n  SELECT ${subjectId}, ${actorId}, ${periodId},\n         (SELECT AVG(score_val::numeric) FROM score_rows),\n         '${source}', false, 'completed', ${generalCommentSql}, now()\n  WHERE EXISTS (SELECT 1 FROM score_rows)\n  ON CONFLICT (subject_id, evaluator_id, evaluation_source, period_id)\n  WHERE is_self_evaluation = false\n  DO NOTHING\n  RETURNING id\n)\nINSERT INTO performance_db.evaluation_scores (evaluation_id, criteria_id, score_value, comment)\nSELECT ne.id, sr.crit_id, sr.score_val, sr.cmt\nFROM new_eval ne\nCROSS JOIN score_rows sr\nRETURNING evaluation_id\n    `,\n  },\n};"
+      },
+      "id": "subeval-build",
+      "name": "Build Insert SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS evaluation_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "subeval-insert",
+      "name": "Execute Insert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        580,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Insert SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst rows = $input.all().map(item => item.json).filter(item => item.evaluation_id !== undefined);\nif (!rows.length) {\n  // ON CONFLICT DO NOTHING returned 0 rows — race-condition duplicate\n  return {\n    json: {\n      http_status: 409,\n      body: { success: false, error: 'DUPLICATE_EVALUATION', message: 'Такая оценка уже была отправлена' },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, message: 'Evaluation saved successfully' },\n  },\n};"
+      },
+      "id": "subeval-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "subeval-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1080,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Validate Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Execute Scope Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Scope Check": {
+      "main": [
+        [
+          {
+            "node": "Build Insert SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Insert SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Insert": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "72e37c97-016a-4708-885f-86d9fe5553f3",
+  "versionCounter": 95,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-12-06T13:18:05.267Z",
+      "createdAt": "2025-12-06T13:18:05.267Z",
+      "role": "workflow:owner",
+      "workflowId": "tUxHoRn38rJVDxWv",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-22T06:37:17.199Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-22",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

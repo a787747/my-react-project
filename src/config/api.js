@@ -58,6 +58,9 @@ export const API_ENDPOINTS = {
   PERIODS: `${API_BASE_URL}/api/periods`,
   PERIODS_CREATE: `${API_BASE_URL}/api/periods/create`,
   PERIODS_ACTIVATE: `${API_BASE_URL}/api/periods/activate`,
+  // Второй шлюз (D-0822-1): активация открывает окно подготовки,
+  // старт открывает саму оценку. Необратим.
+  PERIODS_START_EVALUATION: `${API_BASE_URL}/api/periods/start-evaluation`,
   PERIODS_RENAME: `${API_BASE_URL}/api/periods/rename`,
   PERIODS_REPARENT: `${API_BASE_URL}/api/periods/reparent`,
   PERIODS_CLOSE: `${API_BASE_URL}/api/periods/close`,

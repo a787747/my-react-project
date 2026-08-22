@@ -47,49 +47,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT id, name, status\n      FROM performance_db.evaluation_periods\n      WHERE is_active = true OR status = 'active'\n      LIMIT 1\n    `,\n  },\n};"
-      },
-      "id": "ua-freeze",
-      "name": "Check Freeze",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        0,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
-        "options": {}
-      },
-      "id": "ua-period",
-      "name": "Load Active Period",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        250,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "VNbfkY8IKbEzn88B",
-          "name": "EPE 2026 Postgres"
-        }
-      },
-      "alwaysOutputData": true
-    },
-    {
-      "parameters": {
-        "jsCode": "\nconst prev = $('Check Freeze').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst activePeriod = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (activePeriod) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'ACTIVE_PERIOD_EXISTS',\n        message: `Нельзя менять коэффициенты грейдов во время активного периода «${activePeriod.name}»`,\n      },\n    },\n  };\n}\nconst guard = $('Run Auth Guard').first().json;\n// Генерируем SQL запросы для обновления\nconst body = (guard.request.body || guard.request);\nconst grades = body.grades || [];\nconst settings = body.settings || [];\n\nlet sqlQueries = [];\n\n// 1. Обновляем Грейды\nfor (const g of grades) {\n  if (g.id && g.coefficient !== undefined) {\n     sqlQueries.push(`UPDATE performance_db.grades SET coefficient = ${g.coefficient} WHERE id = ${g.id};`);\n  }\n}\n\n// 2. Обновляем Настройки\nfor (const s of settings) {\n  if (s.setting_key && s.setting_value !== undefined) {\n    sqlQueries.push(`UPDATE performance_db.global_settings SET setting_value = ${s.setting_value} WHERE setting_key = '${s.setting_key}';`);\n  }\n}\n\nconst finalQuery = sqlQueries.join('\\n');\n\nreturn {\n  json: {\n    query: finalQuery,\n    count: sqlQueries.length\n  }\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = (guard.request.body || guard.request) || {};\nconst grades = Array.isArray(body.grades) ? body.grades : [];\nconst settings = Array.isArray(body.settings) ? body.settings : [];\nif (!grades.length && !settings.length) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_BODY', message: 'Нечего обновлять: передайте grades или settings' },\n    },\n  };\n}\n\nconst sqlQueries = [];\n\nfor (const g of grades) {\n  const gradeId = parseInt(g && g.id, 10);\n  if (!Number.isFinite(gradeId) || gradeId < 1) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_GRADE_ID', message: `Некорректный идентификатор грейда: ${g && g.id}` },\n      },\n    };\n  }\n  const raw = g.coefficient;\n  const coefficient = raw === undefined || raw === null || raw === '' ? NaN : parseFloat(raw);\n  // Zero is rejected: a zero grade coefficient silently zeroes a person's whole\n  // bonus index, and every default-guarded consumer reads it back as 1.0 (BUG-029).\n  if (!Number.isFinite(coefficient) || coefficient <= 0) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_GRADE_COEFFICIENT', message: `Коэффициент грейда ${gradeId} должен быть конечным числом больше нуля` },\n      },\n    };\n  }\n  sqlQueries.push(`UPDATE performance_db.grades SET coefficient = ${coefficient} WHERE id = ${gradeId};`);\n}\n\nfor (const s of settings) {\n  const key = String((s && s.setting_key) || '');\n  if (!/^[A-Za-z0-9_]{1,64}$/.test(key)) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_SETTING_KEY', message: `Некорректный ключ настройки: ${key}` },\n      },\n    };\n  }\n  const rawValue = s.setting_value;\n  const value = rawValue === undefined || rawValue === null || rawValue === '' ? NaN : parseFloat(rawValue);\n  if (!Number.isFinite(value)) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_SETTING_VALUE', message: `Значение настройки «${key}» должно быть конечным числом` },\n      },\n    };\n  }\n  sqlQueries.push(`UPDATE performance_db.global_settings SET setting_value = ${value} WHERE setting_key = '${key}';`);\n}\n\nreturn {\n  json: {\n    ok: true,\n    query: sqlQueries.join('\\n'),\n    count: sqlQueries.length,\n  },\n};"
       },
       "id": "ua-build",
       "name": "Build SQL",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        500,
+        0,
         0
       ]
     },
@@ -170,28 +135,6 @@
       ]
     },
     "Run Auth Guard": {
-      "main": [
-        [
-          {
-            "node": "Check Freeze",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Freeze": {
-      "main": [
-        [
-          {
-            "node": "Load Active Period",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Load Active Period": {
       "main": [
         [
           {

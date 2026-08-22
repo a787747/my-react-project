@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useManagerEvaluation } from '../hooks/useManagerEvaluation';
 import { useTaskStatus } from '../context/TaskStatusContext';
-import { OutOfScopeNotice } from '../components/common';
+import { OutOfScopeNotice, CampaignNotStartedNotice } from '../components/common';
 import CriterionSlider from '../components/CriterionSlider';
 import { getScoreZone } from '../utils/evaluationUtils';
 import { ADMIN_ROLES } from '../config/constants';
@@ -41,6 +41,8 @@ const ManagerEvaluation = ({ user }) => {
   const {
     refreshTaskStatus,
     isOutOfScope,
+    campaignActive,
+    periodInPreparation,
     loading: loadingTaskStatus
   } = useTaskStatus();
   const {
@@ -141,6 +143,12 @@ const ManagerEvaluation = ({ user }) => {
 
   if (isOutOfScope) {
     return <OutOfScopeNotice />;
+  }
+
+  // Кампания не идёт: период не активен, либо активен, но оценка не запущена
+  // (D-0822-1). Сервер в этом окне отвечает 409 PERIOD_NOT_STARTED.
+  if (!campaignActive) {
+    return <CampaignNotStartedNotice inPreparation={periodInPreparation} />;
   }
 
   // Если у пользователя нет менеджера

@@ -20,7 +20,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import apiClient from '../api/client';
 import { API_ENDPOINTS } from '../config/api';
-import { calculateWeightedScore } from '../utils/evaluationUtils';
 import { useUser } from '../context/UserContext';
 import logger from '../utils/logger';
 import {
@@ -43,7 +42,6 @@ export const useSelfReview = () => {
   const [grades, setGrades] = useState({});
   const [comments, setComments] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [criteriaWithCoefficients, setCriteriaWithCoefficients] = useState([]);
   const [draftRestored, setDraftRestored] = useState(false);
 
   const draftStorageKey = useMemo(
@@ -89,17 +87,9 @@ export const useSelfReview = () => {
       const responseData = Array.isArray(criteriaRes.data) ? criteriaRes.data[0] : criteriaRes.data;
       const allCriteria = responseData?.data || [];
 
-      // 2.5. Загружаем коэффициенты для расчета (асинхронно)
-      if (API_ENDPOINTS.SCORE_COEFFICIENTS) {
-        apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS)
-          .then(response => {
-            const data = response.data?.data || response.data || [];
-            setCriteriaWithCoefficients(data);
-          })
-          .catch(error => {
-            logger.warn('Не удалось загрузить коэффициенты:', error);
-          });
-      }
+      // Коэффициенты здесь больше НЕ загружаются (D-0822-2): веса критериев и
+      // коэффициенты уровней — денежные входы, доступные только администратору.
+      // Взвешенную самооценку считает сервер при отправке.
 
       // 3. Фильтруем критерии (активные + самооценка + аудитория)
       const filtered = allCriteria.filter(c => {
@@ -170,14 +160,12 @@ export const useSelfReview = () => {
       // Простое среднее (для отображения сотрудникам, 1-10)
       const simpleAverage = (scores.reduce((sum, s) => sum + s, 0) / scores.length).toFixed(2);
 
-      // Взвешенный балл с коэффициентами (для Admin/C-level)
-      const gradeCoef = user?.grade_coefficient || 1.0;
-      const weightedScore = calculateWeightedScore(grades, criteriaWithCoefficients, gradeCoef);
-
+      // weighted_score НЕ отправляется: сервер считает его сам по реальному
+      // коэффициенту грейда сотрудника (D-0822-2). Клиент больше не видит
+      // ни весов, ни коэффициентов уровней, ни коэффициента грейда.
       const payload = {
         user_id: user.id,
         final_score: parseFloat(simpleAverage),      // Простое среднее для сотрудников
-        weighted_score: parseFloat(weightedScore),   // Взвешенный балл для Admin/C-level
         grades: grades,
         comments: comments,                          // Комментарии к каждому критерию
         is_update: hasReview
@@ -200,7 +188,7 @@ export const useSelfReview = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [grades, comments, hasReview, user, loadData, criteriaWithCoefficients, draftStorageKey]);
+  }, [grades, comments, hasReview, user, loadData, draftStorageKey]);
 
   // Изменение оценки
   const handleGradeChange = useCallback((criteriaId, value) => {

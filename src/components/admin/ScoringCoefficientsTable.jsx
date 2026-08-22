@@ -62,7 +62,7 @@ const ScoringCoefficientsTable = ({
           <div className="mt-4 pt-4 border-t border-blue-200">
             <div className="bg-white p-4 rounded-lg border border-blue-100 font-mono text-sm">
               <p className="text-slate-700 mb-2">
-                <strong>Итоговый балл</strong> = (Σ(оценка × коэффициент_оценки × вес_критерия) / Σ(весов)) × коэффициент_грейда
+                <strong>Итоговый балл</strong> = Σ(оценка × коэффициент_оценки × вес_критерия) × коэффициент_грейда
               </p>
             </div>
             <div className="mt-3 text-sm text-blue-800">
@@ -78,9 +78,18 @@ const ScoringCoefficientsTable = ({
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span><strong>Вес критерия</strong> — важность критерия относительно других</span>
               </p>
-              <p className="flex items-start gap-2">
+              <p className="flex items-start gap-2 mb-1">
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span><strong>Коэффициент грейда</strong> — множитель, зависящий от грейда сотрудника</span>
+              </p>
+              <p className="flex items-start gap-2">
+                <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>
+                  <strong>Сумма не делится на сумму весов.</strong> Это индекс распределения
+                  бонусного фонда, а не рейтинг: чем больше критериев у сотрудника
+                  (проектные — сверх общих), тем больше его доля. Рейтинг 1–10, который
+                  видит сотрудник, считается отдельно — простым средним.
+                </span>
               </p>
             </div>
           </div>

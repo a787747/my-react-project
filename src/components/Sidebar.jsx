@@ -131,6 +131,7 @@ const Sidebar = ({ user }) => {
   
   // Используем контекст статусов задач
   const { 
+    campaignActive,
     hasSelfReview, 
     hasEvaluatedManager, 
     hasEvaluatedAllSubordinates, 
@@ -231,8 +232,13 @@ const Sidebar = ({ user }) => {
             <NavItem to="/analytics" icon={BarChart3} label="Дашборд" onClick={closeMobileMenu} />
             <NavItem to="/admin/all-evaluations" icon={TrendingUp} label="Все оценки" onClick={closeMobileMenu} />
             <NavItem to="/admin/evaluations-matrix" icon={Grid3x3} label="Матрица оценок" onClick={closeMobileMenu} />
-            <NavItem to="/admin/final-scores" icon={Award} label="Итоговые баллы" onClick={closeMobileMenu} />
-            <NavItem to="/admin/bonus-calculation" icon={Coins} label="Калькуляция бонусов" onClick={closeMobileMenu} />
+            {/* Money screens read weights, level and grade coefficients: admin only (D-0822-2) */}
+            {safeUser.role === 'admin' && (
+              <>
+                <NavItem to="/admin/final-scores" icon={Award} label="Итоговые баллы" onClick={closeMobileMenu} />
+                <NavItem to="/admin/bonus-calculation" icon={Coins} label="Калькуляция бонусов" onClick={closeMobileMenu} />
+              </>
+            )}
             <NavItem to="/admin/annual-rollup" icon={CalendarRange} label="Годовые итоги" onClick={closeMobileMenu} />
             {safeUser.role === 'admin' && (
               <NavItem to="/admin/score-calculator" icon={Calculator} label="Калькуляция баллов" onClick={closeMobileMenu} />
@@ -256,7 +262,8 @@ const Sidebar = ({ user }) => {
       </nav>
 
       {/* Панель задач */}
-      {showTaskPanel && !isOutOfScope && (
+      {/* Панель задач только когда кампания идёт (D-0822-1) */}
+      {showTaskPanel && !isOutOfScope && campaignActive && (
         <div className="px-4 pb-3">
           <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
             <p className="text-[10px] text-slate-500 mb-2 text-center font-semibold uppercase tracking-wider">

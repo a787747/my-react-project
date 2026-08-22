@@ -25,7 +25,7 @@ import { ToastProvider } from './context/ToastContext';
 import Sidebar from './components/Sidebar';
 import SessionExpiryWarning from './components/SessionExpiryWarning';
 import { LoadingSpinner } from './components/common';
-import { canAccessAdminPanel, canViewAnalytics, isManagerOrAbove, isHR } from './utils/permissions';
+import { canAccessAdminPanel, canViewAnalytics, isManagerOrAbove, isHR, isAdmin } from './utils/permissions';
 
 // Eager loading - страницы нужны сразу
 import Login from './pages/Login';
@@ -95,6 +95,23 @@ const HRRoute = ({ children, user }) => {
   }
   if (!isHR(user.role)) {
     return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
+/**
+ * CoefficientRoute — admin only (D-0822-2).
+ * Weights, level coefficients and grade coefficients are the money inputs of the
+ * bonus index. Every screen that reads or edits them is admin-only at the route
+ * level, not merely 403 at the API: c_level and HR used to reach these pages and
+ * see a half-rendered table or an error card.
+ */
+const CoefficientRoute = ({ children, user }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!isAdmin(user.role)) {
+    return <Navigate to={isHR(user.role) ? '/hr/dashboard' : '/welcome'} replace />;
   }
   return children;
 };
@@ -270,25 +287,25 @@ function AppContent() {
           <Route
             path="/admin/scoring"
             element={
-              <AdminRoute user={user}>
+              <CoefficientRoute user={user}>
                 <AdminScoring />
-              </AdminRoute>
+              </CoefficientRoute>
             }
           />
           <Route
             path="/admin/final-scores"
             element={
-              <AdminRoute user={user}>
+              <CoefficientRoute user={user}>
                 <AdminFinalScores user={user} />
-              </AdminRoute>
+              </CoefficientRoute>
             }
           />
           <Route
             path="/admin/bonus-calculation"
             element={
-              <AdminRoute user={user}>
+              <CoefficientRoute user={user}>
                 <BonusCalculation user={user} />
-              </AdminRoute>
+              </CoefficientRoute>
             }
           />
           <Route
@@ -310,9 +327,9 @@ function AppContent() {
           <Route
             path="/admin/score-calculator"
             element={
-              <AdminRoute user={user}>
+              <CoefficientRoute user={user}>
                 <AdminScoreCalculator />
-              </AdminRoute>
+              </CoefficientRoute>
             }
           />
         </Routes>

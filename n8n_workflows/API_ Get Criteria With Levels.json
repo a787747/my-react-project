@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-19T08:40:18.614Z",
+  "updatedAt": "2026-08-22T06:37:56.521Z",
   "createdAt": "2025-12-06T13:12:48.966Z",
   "id": "KKlGLEYMlXlbYUjb",
   "name": "API: Get Criteria With Levels",
@@ -88,7 +88,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst criteria = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, data: criteria },\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst role = String(guard.identity.role || '');\nconst canSeeCLevelTexts = ['admin', 'c_level'].includes(role);\n// Criterion weight is a money input: it decides bonus share. Admin only\n// (D-0822-2) — closing GET /api/score-coefficients alone would have left the\n// weights readable here.\nconst canSeeWeight = role === 'admin';\nconst levelTextFields = Array.from({ length: 10 }, (_, index) => `level_${index + 1}_desc`);\nconst criteria = $input.all()\n  .map(item => item.json)\n  .filter(item => item.id !== undefined)\n  .map(row => {\n    const criterion = { ...row };\n    const isCLevelOnly = row.c_level_only === true || row.c_level_only === 't';\n    if (isCLevelOnly && !canSeeCLevelTexts) {\n      levelTextFields.forEach(field => delete criterion[field]);\n    }\n    if (!canSeeWeight) {\n      delete criterion.weight;\n    }\n    return criterion;\n  });\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, data: criteria },\n  },\n};"
       },
       "id": "criteria-format",
       "name": "Format Response",
@@ -198,8 +198,8 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "42736ef3-3bd0-4473-a0e7-62261484ae94",
-  "versionCounter": 41,
+  "versionId": "044641a0-ca69-4875-a1e0-e23e889d9330",
+  "versionCounter": 45,
   "triggerCount": 1,
   "shared": [
     {
@@ -223,7 +223,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "updatedAt": "2026-08-22T06:37:17.199Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -250,7 +250,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-19",
+              "lastActiveAt": "2026-08-22",
               "isPending": false
             }
           }

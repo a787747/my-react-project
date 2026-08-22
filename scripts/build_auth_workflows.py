@@ -1368,7 +1368,7 @@ return {
     ...guard,
     sql: `
       WITH current_period AS (
-        SELECT id, status, is_active
+        SELECT id, status, is_active, evaluation_started_at
         FROM performance_db.evaluation_periods
         WHERE (is_active = true AND status = 'active')
            OR status = 'draft'
@@ -1378,10 +1378,14 @@ return {
           id DESC
         LIMIT 1
       ),
+      -- The campaign period is active AND started (D-0822-1). During the
+      -- preparation window current_period is still H1, so actor_is_in_scope
+      -- stays truthful, but active_period is empty: no tasks, no flags.
       active_period AS (
         SELECT id
         FROM current_period
         WHERE is_active = true AND status = 'active'
+          AND evaluation_started_at IS NOT NULL
       ),
       actor_scope AS (
         SELECT epp.is_in_scope
@@ -1444,6 +1448,11 @@ return {
         EXISTS(SELECT 1 FROM active_period) AS campaign_active,
         (SELECT id FROM current_period) AS current_period_id,
         (SELECT status FROM current_period) AS current_period_status,
+        EXISTS(
+          SELECT 1 FROM current_period
+          WHERE is_active = true AND status = 'active'
+            AND evaluation_started_at IS NULL
+        ) AS period_in_preparation,
         CASE
           WHEN EXISTS(SELECT 1 FROM current_period)
           THEN COALESCE((SELECT is_in_scope FROM actor_scope), false)
@@ -1485,7 +1494,11 @@ employees = employees.map(employee => {
   if (!canSeeGradeCoefficient) delete safeEmployee.grade_coefficient;
   return safeEmployee;
 });
+// campaign_active now means "active AND started" (D-0822-1). An active period
+// that has not been started reports campaign_active=false with
+// period_in_preparation=true, so the client can say why there are no tasks.
 const campaignActive = row.campaign_active === true || row.campaign_active === 't';
+const periodInPreparation = row.period_in_preparation === true || row.period_in_preparation === 't';
 const actorIsInScope = row.actor_is_in_scope === null || row.actor_is_in_scope === undefined
   ? null
   : row.actor_is_in_scope === true || row.actor_is_in_scope === 't';
@@ -1497,6 +1510,7 @@ return {
       success: true,
       actor_user_id: guard.identity.id,
       campaign_active: campaignActive,
+      period_in_preparation: periodInPreparation,
       current_period_id: row.current_period_id || null,
       current_period_status: row.current_period_status || null,
       actor_is_in_scope: actorIsInScope,

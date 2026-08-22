@@ -5,7 +5,7 @@
 |--------|-------|
 | 🔴 Open | 20 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 21 |
+| 🟢 Closed | 23 |
 
 ---
 
@@ -97,15 +97,18 @@
 
 ### BUG-041: `update-evaluation` deletes score rows even when its own ownership/period re-assertion rejects the write
 
-- Status: 🔴 OPEN
-- Severity: ⚠️ High (silent, permanent, on the money-bearing table — but needs a narrow race window, and no data is at risk today)
-- Location: LIVE `API: Update Evaluation WITH PERIOD` (`LWuZNTehzMDJkE8u`, `updatedAt=2026-08-20T15:47:01.891Z`) → node `Build Update SQL`, the `removed_scores` CTE.
+- Status: 🟢 CLOSED
+- Severity: ⚠️ High (silent, permanent, on the money-bearing table — but needs a narrow race window, and no data was ever at risk)
+- Location: LIVE `API: Update Evaluation WITH PERIOD` (`LWuZNTehzMDJkE8u`, `updatedAt=2026-08-22T06:38:03.201Z`) → node `Build Update SQL`, the `removed_scores` CTE.
 - Description: the statement re-asserts evaluator ownership and "period is not closed" **inline** in `updated_header`'s `WHERE` — the node's own comment says this exists "to close the validation/mutation race between the prior SELECT check and this DML". `upserted_scores` inherits that gate because it selects `FROM updated_header`. `removed_scores` does not: it is `DELETE FROM performance_db.evaluation_scores WHERE evaluation_id = ${evalId} AND criteria_id NOT IN (SELECT crit_id FROM score_rows)`, referencing neither `updated_header` nor anything else conditional, and the outer `SELECT` never reads it. PostgreSQL executes data-modifying `WITH` clauses "exactly once, and always to completion, independently of whether the primary query reads all (or indeed any) of their output". So when the re-assertion selects zero rows, the header `UPDATE` and the score `INSERT` write nothing, `Format POST Response` correctly returns 403 — **and the DELETE has already run.**
 - Why it matters: the caller is told the write was refused while score rows were permanently removed. The rows are the per-criterion detail behind `calculated_score`, the matrix and the frozen `period_results.bonus_index`; there is no soft-delete, no history table and no audit row, so the loss is silent and unrecoverable short of a database restore. It also defeats precisely the protection the inline re-assertion was added to provide, on the one branch where failure is destructive rather than merely a no-op.
 - Repro (not run — the recon brief that found this is read-only, and running it requires a write): as an evaluator, open an existing evaluation and save a **narrower** set of criteria; have an admin close the period, or change the evaluation's `evaluator_id`, in the window between `Execute Ownership Check` and `Execute Update`. Response is 403 `Изменение недоступно…`; the criteria omitted from the payload are gone from `evaluation_scores`. Not reachable without the race: `Validate Update` → `Execute Ownership Check` returns 404/403 before the SQL is built, so an unauthorized caller never reaches it.
 - How to fix: gate the DELETE on the same CTE the other two branches use — `DELETE … WHERE evaluation_id IN (SELECT id FROM updated_header) AND criteria_id NOT IN (SELECT crit_id FROM score_rows)`. That makes all three branches share one gate, and a failed re-assertion changes zero rows everywhere. Worth deciding at the same time whether a narrower submitted set should delete at all — see the reclassification recon, which found the same DELETE is the only mechanism that can remove criteria after a classification switch, and is destructive by construction.
 - H1 impact: none today — `evaluation_scores` has 0 rows and no period is active (measured 2026-08-22). Fix before H1 is activated; the exposure begins with the first evaluation and peaks during September calibration, when closing a period and editing evaluations happen in the same window.
-- Source: `docs/RECON_RECLASS_COEFF_2026-08-2x.md` §7.2 and §8, from the live workflow definition.
+- Fix (2026-08-22): `removed_scores` now carries `AND EXISTS (SELECT 1 FROM updated_header)`, so all three CTE branches share one gate and a failed re-assertion changes zero rows everywhere. Closed inside the lifecycle brief rather than filed for later because that brief rewrites the same `WHERE` clause: the inline re-assertion became "period is active AND started" instead of "period is not closed", which would otherwise have **widened** the destructive race by one more trigger. Fixing it was the alternative to knowingly making it worse (D-0820-21 — defects found on the way are fixed immediately).
+- Verification: `tests/routeGuardWorkflows.test.js` asserts both the widened inline re-assertion (`p.status = 'active'`, `p.is_active = true`, `p.evaluation_started_at IS NOT NULL`) and the `AND EXISTS (SELECT 1 FROM updated_header)` gate. The race itself was **not** reproduced — triggering it needs a concurrent write inside a sub-second window, and the fix is a static property of the SQL rather than a timing behaviour; this is a code-level close, not a runtime one. What was exercised end-to-end on the 2026-08-22 stand is the ordinary path: `POST api/update-evaluation` returned 200 while the period was active and started (`lifecycle_proof.json` → `started.update_evaluation_status`).
+- Residual: whether a narrower submitted set should delete score rows **at all** is untouched and still open — see [BUG-036] row 7 and `docs/RECON_RECLASS_COEFF_2026-08-2x.md` §7.2. This fix makes the DELETE consistent with the other two branches; it does not make it non-destructive.
+- Source: `docs/RECON_RECLASS_COEFF_2026-08-2x.md` §7.2 and §8, from the live workflow definition. Closed in `docs/LIFECYCLE_COEFF_2026-08-2x.md`.
 
 ---
 
@@ -169,14 +172,27 @@
 ---
 
 ### BUG-029: Criterion weight of 0 silently behaves as 1.0 in the bonus index
-- Status: 🔴 OPEN
-- Severity: 🟢 Low–Medium (latent hardening gap — no currently-wrong number; no zero weight or zero grade coefficient exists on live today)
+- Status: 🟢 CLOSED
+- Severity: 🟢 Low–Medium (latent hardening gap — no wrong number ever reached live; no zero weight or zero grade coefficient has ever existed on live)
 - Location: LIVE `API: Manage Periods` → `Compute Close Results` (`const weight = Number(crit.weight) || 1.0;`); LIVE `API: Get Score Coefficients` → `Format Response` (`weight: parseFloat(row.weight) || 1.0`); `src/hooks/useFinalScoresMatrix.js:84`.
 - Description: `|| 1.0` treats 0 as absent. Setting a criterion's weight to 0 — the natural way an admin would express "this criterion should not count toward the bonus" — makes it count with weight 1.0 instead. The same applies to a grade coefficient of 0. A score *coefficient* of 0 is handled correctly (it zeroes the term); only weight and grade coefficient are trapped.
 - Why it matters: the bonus index is the money-allocation number. An admin who zeroes a weight to remove a criterion from the pool gets the opposite of what they asked for, silently, with no validation error. Because the index has no denominator (HANDOVER §4), the mistake inflates that person's share of the pool rather than merely mis-scaling it. Since 2026-08-21 the wrong number is also *frozen* into `period_results` at close and cannot be recomputed.
 - Repro: set `criteria.weight = 0` for any active criterion, open Итоговые баллы / Калькуляция бонусов — the criterion contributes `score × coefficient × 1.0`. Close the period — the same value is persisted.
 - How to fix: use `Number.isFinite(w) && w >= 0 ? w : 1.0` on both sides (the close compute node and the coefficients API), so an explicit 0 means 0 and only NULL/garbage defaults to 1.0. Add a `CHECK (weight > 0)` or an explicit UI affordance for "exclude this criterion" if 0 must stay illegal. The two sides must change together or the server/client parity breaks.
 - H1 impact: none today (no zero weights on live; re-measured 2026-08-21: zero criteria with `weight IS NULL OR weight <= 0`, zero `score_coefficients` rows with `coefficient IS NULL OR coefficient <= 0`). Fix before anyone edits the criteria catalogue.
+- Fix (2026-08-22, D-0822-2): **the illegal value can no longer be written.** Both write paths validate before building any SQL and answer 422 with a named error. `POST /api/score-coefficients` → `INVALID_WEIGHT` for a weight that is not finite and `> 0`, `INVALID_COEFFICIENT` for a level coefficient on the same rule, `INVALID_COEFFICIENT_LEVEL` for a level outside 1..10, `INVALID_COEFFICIENT_MAP` for a missing map. `POST /update-admin-data` → `INVALID_GRADE_COEFFICIENT` on the same rule, plus `INVALID_SETTING_KEY` / `INVALID_SETTING_VALUE` on the settings branch, which until now interpolated `setting_value` straight into SQL with no validation at all. The rule is **> 0**, not a numeric floor: any positive weight is a legitimate business value and only 0 is the misread one. The `INVALID_WEIGHT` message names the right remedy — disable the criterion (`is_active`), do not zero its weight.
+- Verification (2026-08-22, throwaway stand `epe_lifecycle_20260822_0632`; compared values in `backups/2026-08-22-lifecycle-coeff/lifecycle_proof.json` → `bug_029`):
+
+  | write | request | response | stored before | stored after |
+  |---|---|---|---|---|
+  | `POST /api/score-coefficients` | criterion 12, `weight: 0` | 422 `INVALID_WEIGHT` | `weight = 1.00` | `weight = 1.00` |
+  | `POST /api/score-coefficients` | criterion 12, all ten level coefficients `0` | 422 `INVALID_COEFFICIENT` | level 5 `= 1.00` | level 5 `= 1.00` |
+  | `POST /update-admin-data` | grade `S1`, `coefficient: 0` | 422 `INVALID_GRADE_COEFFICIENT` | `0.60` | `0.60` |
+  | `POST /api/score-coefficients` | criterion 12, `weight: -1` | 422 `INVALID_WEIGHT` | — | — |
+  | `POST /api/score-coefficients` | criterion 12, level `11` supplied | 422 `INVALID_COEFFICIENT_LEVEL` | — | — |
+
+  Static assertions: `tests/routeGuardWorkflows.test.js` (`weight <= 0`, `coef <= 0`, `Number.isFinite`, `INVALID_COEFFICIENT_LEVEL`, and that no undecided numeric floor is present) and `tests/routeGuardDeferred.test.js` (`INVALID_GRADE_COEFFICIENT`, `coefficient <= 0`, both settings errors). Live: `API: Save Score Coefficients` `updatedAt=2026-08-22T06:49:44.483Z`, `API: Update Admin Data` `updatedAt=2026-08-22T06:38:09.942Z`.
+- Residual: the **read-side** `|| 1.0` defaults named in the Location line still exist — `Compute Close Results`, `API: Get Score Coefficients` → `Format Response`, `useFinalScoresMatrix.js`. They are now unreachable through the API, because the only value they mis-read (an explicit 0) can no longer be stored. Direct SQL on the host still can. A `CHECK (weight > 0)` / `CHECK (coefficient > 0)` would close that last door and was deliberately not added here: it is a schema change beyond the brief, and its stakes dropped once closed periods stopped re-joining these tables (`period_results`).
 
 ## 📝 Low
 
@@ -259,6 +275,29 @@
 - Why it matters: the first guard is the only thing standing between a data gap and a coefficient-1.00 bonus row for three people. The second pair decides the money for criterion 1, the heaviest in the catalogue (weight 5.00).
 - Fix: one assertion in `tests/routeGuardWorkflows.test.js`; seed the next proof stand with a c_level score, at least one correction, and a grade coefficient other than 1.00.
 - Source: `docs/POSTVERIFY_BATCH_2026-08-2x.md` ("this guard has no static test") and the observations of `docs/PERIODS_VERIFY_2026-08-2x.md`.
+
+### BUG-042: `useScoreCalculation` still substitutes an empty coefficient set on failure
+
+- Status: 🔴 OPEN
+- Severity: 📌 Medium (admin-only screen since 2026-08-22, and the number is a what-if rather than a payout — but it is the same silent-degradation shape as [BUG-030])
+- Location: `src/hooks/useScoreCalculation.js:79-80` — `apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS).catch(() => ({ data: { data: [] } }))` and `apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA).catch(() => ({ data: { options: { grades: [] } } }))`, consumed by `src/pages/AdminScoreCalculator.jsx` (`/admin/score-calculator`).
+- Description: the money screens were fixed on 2026-08-21 ([BUG-030]) by moving `useFinalScoresMatrix` to `Promise.allSettled` with an explicit error card, and `useScoreCoefficients` got the same treatment on 2026-08-22. The score calculator was in neither pass: a 401, a 500 or a network blip on either call still resolves to an empty array, `weight` falls back to `1.0` per criterion and every grade coefficient to `1.0`, and the calculator renders a full, plausible, **unweighted** breakdown with no error — including the per-criterion `оценка×коэффициент×вес` strings, which will read `×1.0×1.0`.
+- Why it matters: it is a calibration tool. A C-level or admin comparing "what if this person scored 8 instead of 6" gets an answer computed without the weights that decide the actual bonus share, and nothing on screen says so.
+- Repro: open `/admin/score-calculator` with `GET /api/score-coefficients` failing (revoke the session between the matrix call and the coefficients call, or block the route). The table renders; every weight shows 1.0.
+- How to fix: the [BUG-030] pattern — `Promise.allSettled`, classify each rejection, clear `employees`/`matrixData`/`criteriaWithCoefficients`, and return an error card with retry before any table renders. `src/hooks/useScoreCoefficients.js` (2026-08-22) is the smaller worked example.
+- H1 impact: none while nobody uses the calculator; it reads the active period, and there is none today.
+- Source: found while making the coefficient screens admin-only in `docs/LIFECYCLE_COEFF_2026-08-2x.md`; the same `.catch`-to-empty family the brief was asked to close in `useScoreCoefficients` only.
+
+### BUG-043: with no active period, `/api/employees` reports the annual container as the current period
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low (no wrong number; a scope flag computed against the wrong period's participant list while nothing is running)
+- Location: LIVE `API: Get Employees (Smart Role Based)` (`bKB4Sb46yWoq1tSV`) → `Build Identity-Bound Query`, the `current_period` CTE: `WHERE (is_active = true AND status = 'active') OR status = 'draft' ORDER BY CASE WHEN … THEN 0 ELSE 1 END, start_date DESC NULLS LAST, id DESC LIMIT 1`.
+- Description: when nothing is active the CTE falls back to the newest **draft** period by `start_date DESC, id DESC`. H1-2026 and Annual 2026 both start `2026-01-01`, so `id DESC` decides and the **container** (id 5) wins. Measured live on 2026-08-22 after the lifecycle deploy: every role's `GET /api/employees` returned `current_period_id = 5`, not 2. `actor_is_in_scope` is therefore computed against Annual 2026's 89 inert participant rows instead of H1's 87.
+- Why it matters: today it makes the out-of-scope notice too generous — Esenova and Balova are out of scope for H1 but in scope for the container, so before activation they are not shown the notice. It is presentation only while no period is active, and it disappears the moment H1 is activated (an active period sorts first). It also means "the current period" on that route can name a period that can never run a campaign.
+- How to fix: exclude containers and annual periods from the fallback — `AND period_type <> 'annual' AND NOT EXISTS (SELECT 1 FROM evaluation_periods c WHERE c.parent_period_id = evaluation_periods.id)` — so the fallback can only name a leaf. One clause in one CTE.
+- H1 impact: none on any number. Worth fixing before the invitation goes out, because that is exactly the window when people log in and nothing is active yet.
+- Source: the live role×route probe of `docs/LIFECYCLE_COEFF_2026-08-2x.md` (`backups/2026-08-22-lifecycle-coeff/live_role_route_probe.json`). Pre-existing — the CTE's ORDER BY was not changed by that brief.
 
 ### BUG-040: `deploy_epe_frontend.sh` requires `rg` on PATH and fails closed without it
 - Status: 🔴 OPEN

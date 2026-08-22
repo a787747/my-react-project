@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-21T07:28:10.039Z",
+  "updatedAt": "2026-08-22T06:37:54.387Z",
   "createdAt": "2025-12-07T10:29:57.245Z",
   "id": "M9ljMDdO1mIl8m1h",
   "name": "API: Manage Periods",
@@ -53,7 +53,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard GET').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT id, name, start_date, end_date, is_active, status, period_type, parent_period_id,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = evaluation_periods.id) AS participant_count,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = evaluation_periods.id AND epp.is_in_scope = true) AS in_scope_count,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods child\n          WHERE child.parent_period_id = evaluation_periods.id) AS child_count,\n        EXISTS(SELECT 1 FROM performance_db.evaluations e\n          WHERE e.period_id = evaluation_periods.id) AS has_evaluations,\n        EXISTS(SELECT 1 FROM performance_db.period_results pr\n          WHERE pr.period_id = evaluation_periods.id) AS has_results\n      FROM performance_db.evaluation_periods\n      ORDER BY start_date DESC\n    `,\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard GET').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT id, name, start_date, end_date, is_active, status, period_type, parent_period_id,\n        evaluation_started_at,\n        evaluation_started_by,\n        (evaluation_started_at IS NOT NULL) AS evaluation_started,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = evaluation_periods.id) AS participant_count,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = evaluation_periods.id AND epp.is_in_scope = true) AS in_scope_count,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods child\n          WHERE child.parent_period_id = evaluation_periods.id) AS child_count,\n        EXISTS(SELECT 1 FROM performance_db.evaluations e\n          WHERE e.period_id = evaluation_periods.id) AS has_evaluations,\n        EXISTS(SELECT 1 FROM performance_db.period_results pr\n          WHERE pr.period_id = evaluation_periods.id) AS has_results\n      FROM performance_db.evaluation_periods\n      ORDER BY start_date DESC\n    `,\n  },\n};"
       },
       "id": "periods-get-build",
       "name": "Build Periods Query",
@@ -402,6 +402,150 @@
       "position": [
         1240,
         200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/periods/start-evaluation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "periods-webhook-start",
+      "name": "Webhook START",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        1200
+      ],
+      "webhookId": "epe-periods-start-evaluation"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "periods-guard-input-start",
+      "name": "Prepare Guard Input START",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "periods-run-guard-start",
+      "name": "Run Auth Guard START",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard START').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst periodId = parseInt(body.period_id, 10);\nif (!Number.isFinite(periodId) || periodId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    target_period_id: periodId,\n    actor_id: Number(guard.identity.id),\n    sql: `\n      SELECT\n        t.id AS target_id,\n        t.name AS target_name,\n        t.status AS target_status,\n        t.is_active AS target_is_active,\n        t.period_type AS target_period_type,\n        t.evaluation_started_at AS target_started_at,\n        (SELECT COUNT(*)::integer FROM performance_db.evaluation_periods c\n          WHERE c.parent_period_id = ${periodId}) AS target_child_count\n      FROM (SELECT 1) one\n      LEFT JOIN performance_db.evaluation_periods t ON t.id = ${periodId}\n    `,\n  },\n};"
+      },
+      "id": "periods-start-validate",
+      "name": "Validate Period Start",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS target_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "periods-start-check",
+      "name": "Load Start Target",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Period Start').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.all().map(item => item.json).find(item => item.target_child_count !== undefined);\nif (!check) {\n  return { json: { http_status: 500, body: { success: false, error: 'CHECK_FAILED', message: 'Не удалось проверить условия старта оценки' } } };\n}\nif (check.target_id === null || check.target_id === undefined) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' },\n    },\n  };\n}\n// Containers aggregate children; the campaign runs in the leaf (D-0821-1).\nif (Number(check.target_child_count) > 0) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'CONTAINER_NOT_STARTABLE',\n        message: 'Контейнерный период нельзя запустить: оценка идёт в дочернем периоде',\n      },\n    },\n  };\n}\n// An annual period is a reporting container whatever its children happen to be.\nif (String(check.target_period_type) === 'annual') {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'ANNUAL_PERIOD_NOT_STARTABLE',\n        message: 'Годовой период — контейнер отчётности: запустить оценку можно только в полугодовом периоде',\n      },\n    },\n  };\n}\nif (check.target_status === 'closed') {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'PERIOD_CLOSED', message: 'Закрытый период нельзя запустить' },\n    },\n  };\n}\nconst isActive = check.target_is_active === true || check.target_is_active === 't';\nif (String(check.target_status) !== 'active' || !isActive) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'PERIOD_NOT_ACTIVE',\n        message: 'Сначала активируйте период, затем запускайте оценку',\n      },\n    },\n  };\n}\n// Already started: explicit, and zero state change. Mirrors the already-closed\n// answer on close — a second click is not an error, it is a no-op.\nif (check.target_started_at !== null && check.target_started_at !== undefined) {\n  return {\n    json: {\n      http_status: 200,\n      body: {\n        status: 'success',\n        already_started: true,\n        message: 'Оценка в этом периоде уже запущена',\n        data: {\n          id: Number(check.target_id),\n          name: check.target_name,\n          status: check.target_status,\n          is_active: isActive,\n          period_type: check.target_period_type,\n          evaluation_started_at: check.target_started_at,\n        },\n      },\n    },\n  };\n}\nconst periodId = Number(prev.target_period_id);\nconst actorId = Number(prev.actor_id);\n// Re-assert every precondition inside the UPDATE itself: a lost race changes\n// zero rows and answers 409 rather than starting a period that no longer qualifies.\nreturn {\n  json: {\n    ok: true,\n    sql: `\nWITH target AS (\n  SELECT id FROM performance_db.evaluation_periods\n  WHERE id = ${periodId}\n    AND status = 'active'\n    AND is_active = true\n    AND period_type != 'annual'\n    AND evaluation_started_at IS NULL\n    AND NOT EXISTS (\n      SELECT 1 FROM performance_db.evaluation_periods c\n      WHERE c.parent_period_id = ${periodId}\n    )\n  FOR UPDATE\n),\nstarted AS (\n  UPDATE performance_db.evaluation_periods p\n  SET evaluation_started_at = now(),\n      evaluation_started_by = ${actorId}\n  FROM target t\n  WHERE p.id = t.id\n  RETURNING p.id, p.name, p.status, p.is_active, p.period_type,\n            p.evaluation_started_at, p.evaluation_started_by\n)\nSELECT * FROM started\n    `,\n  },\n};"
+      },
+      "id": "periods-start-build",
+      "name": "Build Start SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "periods-start-execute",
+      "name": "Execute Start",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        750,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Start SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!row) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'START_CONFLICT',\n        message: 'Условия старта изменились — обновите страницу и повторите',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      status: 'success',\n      already_started: false,\n      message: 'Evaluation started',\n      data: {\n        id: row.id,\n        name: row.name,\n        status: row.status,\n        is_active: row.is_active,\n        period_type: row.period_type,\n        evaluation_started_at: row.evaluation_started_at,\n        evaluation_started_by: row.evaluation_started_by,\n      },\n    },\n  },\n};"
+      },
+      "id": "periods-start-format",
+      "name": "Format Start Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "periods-respond-start",
+      "name": "Respond START",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        1200
       ]
     },
     {
@@ -1224,6 +1368,94 @@
         ]
       ]
     },
+    "Webhook START": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input START",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input START": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard START",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard START": {
+      "main": [
+        [
+          {
+            "node": "Validate Period Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Period Start": {
+      "main": [
+        [
+          {
+            "node": "Load Start Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Start Target": {
+      "main": [
+        [
+          {
+            "node": "Build Start SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Start SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Start": {
+      "main": [
+        [
+          {
+            "node": "Format Start Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Start Response": {
+      "main": [
+        [
+          {
+            "node": "Respond START",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Webhook RENAME": {
       "main": [
         [
@@ -1590,9 +1822,9 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "d58bb92f-ddb8-4ee7-a5c0-3d6da750b0f5",
-  "versionCounter": 25,
-  "triggerCount": 7,
+  "versionId": "d815fa69-8eb4-4bc4-a174-572be22929fa",
+  "versionCounter": 27,
+  "triggerCount": 8,
   "shared": [
     {
       "updatedAt": "2025-12-07T10:29:57.245Z",
@@ -1615,7 +1847,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-21T05:59:00.159Z",
+              "updatedAt": "2026-08-22T06:37:17.199Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -1642,7 +1874,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-21",
+              "lastActiveAt": "2026-08-22",
               "isPending": false
             }
           }

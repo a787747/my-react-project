@@ -437,7 +437,6 @@ const BOTH_FLAGS_FILES = [
   "submit-evaluation.json",
   "self-review-submit.json",
   "hr-evaluation-status.json",
-  "save-score-coefficients.json",
 ];
 
 test("write paths use BOTH is_active=true AND status=active for period check", () => {
@@ -833,18 +832,40 @@ test("save-score-coefficients accepts {criteria:[{id,weight,score_coefficients}]
   );
 });
 
-test("save-score-coefficients freezes when is_active=true OR status='active'", () => {
+// D-0822-2: weights and level coefficients stay editable until the period is
+// closed. The activation freeze is removed entirely and replaced by validation.
+test("save-score-coefficients has no period freeze at all", () => {
   const wf = load("save-score-coefficients.json");
   const js = allJsCode(wf);
-  // The check SQL uses OR
-  assert.ok(
-    js.includes("is_active = true") && js.includes("status = 'active'"),
-    "save-score-coefficients: must freeze when is_active=true OR status=active"
+  assert.equal(
+    js.includes("ACTIVE_PERIOD_EXISTS"), false,
+    "save-score-coefficients: the ACTIVE_PERIOD_EXISTS 409 must be removed entirely"
   );
-  assert.ok(
-    js.includes("ACTIVE_PERIOD_EXISTS") || js.includes("409"),
-    "save-score-coefficients: must return 409 when period exists"
+  assert.equal(
+    js.includes("is_active = true OR status = 'active'"), false,
+    "save-score-coefficients: the freeze SELECT must be gone"
   );
+  const names = allNodes(wf).map((n) => n.name);
+  assert.equal(names.includes("Validate No Active Period"), false);
+  assert.equal(names.includes("Check Active Period"), false);
+});
+
+// BUG-029: a zero weight or a zero coefficient is read back as 1.0 by every
+// default-guarded consumer. The write path rejects them instead. The rule is
+// "finite and > 0" (D-0822-2) — a floor above zero would forbid legitimate
+// small weights, which is a business constraint nobody has decided.
+test("save-score-coefficients rejects zero and non-finite weights and coefficients", () => {
+  const js = allJsCode(load("save-score-coefficients.json"));
+  assert.ok(js.includes("weight <= 0"),
+    "save-score-coefficients: zero and negative weights must be rejected");
+  assert.equal(js.includes("MIN_WEIGHT"), false,
+    "save-score-coefficients: the rule is > 0, not an undecided numeric floor");
+  assert.ok(js.includes("coef <= 0"), "save-score-coefficients: zero coefficient must be rejected");
+  assert.ok(js.includes("Number.isFinite(weight)"));
+  assert.ok(js.includes("Number.isFinite(coef)"));
+  assert.ok(js.includes("INVALID_COEFFICIENT_LEVEL"),
+    "save-score-coefficients: levels outside 1..10 must be rejected");
+  assert.ok(js.includes("INVALID_WEIGHT") && js.includes("INVALID_COEFFICIENT"));
 });
 
 test("save-score-coefficients returns structured 422 errors for invalid rows", () => {
@@ -1241,17 +1262,28 @@ test("self-review enforces final_score 1-10 inclusive", () => {
   );
 });
 
-test("self-review validates weighted_score as finite non-negative if supplied", () => {
+// D-0822-2: weighted_score is computed on the server from the subject's real
+// grade coefficient. The client no longer sends it and no longer can — the
+// coefficient catalogue is admin-only.
+test("self-review computes weighted_score on the server, ignoring the client value", () => {
   const wf = load("self-review-submit.json");
   const js = allJsCode(wf);
-  assert.ok(
-    js.includes("INVALID_WEIGHTED_SCORE") || js.includes("weighted_score"),
-    "self-review: must validate weighted_score"
+  assert.equal(
+    js.includes("body.weighted_score"), false,
+    "self-review: the client-supplied weighted_score must not be read"
   );
-  assert.ok(
-    js.includes("ws < 0") || js.includes("non-negative"),
-    "self-review: must reject negative weighted_score"
+  assert.equal(
+    js.includes("INVALID_WEIGHTED_SCORE"), false,
+    "self-review: the client weighted_score validation branch must be gone"
   );
+  assert.ok(js.includes("grade_coefficient"), "self-review: must read the real grade coefficient");
+  assert.ok(js.includes("NO_GRADE_COEFFICIENT"),
+    "self-review: a subject without a grade coefficient must be refused, not defaulted to 1.0");
+  assert.ok(js.includes("score_coefficients"), "self-review: must read the level coefficients");
+  assert.ok(js.includes("weightedSum") && js.includes("totalWeight"),
+    "self-review: must apply formula #2 (weighted sum / sum of weights)");
+  assert.ok(js.includes("weighted_score: weightedScore"),
+    "self-review: the computed value must be the one stored");
 });
 
 test("grade scores are validated 1-10 with 422 return (not throw) in submit-evaluation", () => {
@@ -1391,10 +1423,17 @@ test("update-evaluation CTE reasserts evaluator_id=actor and period not closed i
     js.includes("evaluator_id = ${actorId}"),
     "update-evaluation: CTE UPDATE must reassert evaluator_id = actorId in WHERE clause"
   );
-  // Must include period != closed inline in the CTE
+  // The inline reassertion now demands a running campaign, not merely "not closed"
   assert.ok(
-    js.includes("!= 'closed'") || js.includes("<> 'closed'"),
-    "update-evaluation: CTE UPDATE must assert period status != closed inline"
+    js.includes("p.status = 'active'")
+      && js.includes("p.is_active = true")
+      && js.includes("p.evaluation_started_at IS NOT NULL"),
+    "update-evaluation: CTE UPDATE must reassert active AND started inline"
+  );
+  // BUG-041: the DELETE branch must not run when the reassertion selected no rows
+  assert.ok(
+    js.includes("AND EXISTS (SELECT 1 FROM updated_header)"),
+    "update-evaluation: removed_scores must be gated on updated_header"
   );
   // 403 when reassertion fails (no rows)
   assert.ok(

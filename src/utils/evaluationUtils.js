@@ -6,77 +6,24 @@
  */
 
 /**
- * Рассчитывает итоговый балл с учетом коэффициента грейда (простая версия)
+ * Рассчитывает рейтинг — простое среднее оценок (формула #1, HANDOVER §4).
+ *
+ * Это обратная связь сотруднику по шкале 1–10, а НЕ денежное число. Бонусный
+ * индекс (формула #3 — Σ(оценка × коэф_уровня × вес) × коэф_грейда, без деления
+ * на сумму весов) считается только на серверных и админских экранах:
+ * useFinalScoresMatrix, useScoreCalculation и заморозка периода в
+ * `API: Manage Periods`. Взвешенную самооценку (формула #2, с делением)
+ * считает сервер при отправке — на клиенте её больше нет (D-0822-2).
+ *
  * @param {Object} grades - объект с оценками {criteriaTitle: score}
  * @param {number} coefficient - коэффициент грейда
  * @returns {string} итоговый балл с 2 знаками после запятой
- * @deprecated Используйте calculateWeightedScore для более точного расчета
  */
 export const calculateFinalScore = (grades, coefficient = 1.0) => {
   const scores = Object.values(grades);
   if (scores.length === 0) return 0;
   const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
   return (average * coefficient).toFixed(2);
-};
-
-/**
- * Рассчитывает итоговый балл с учетом весов критериев и коэффициентов оценок
- * 
- * Формула: (Σ(оценка × коэффициент_оценки × вес_критерия) / Σ(весов)) × коэффициент_грейда
- * 
- * @param {Object} evaluationScores - объект с оценками {criteriaId: scoreValue} или {criteriaTitle: scoreValue}
- * @param {Array} criteriaWithCoefficients - массив критериев с весами и коэффициентами
- *   [{id, title, weight, score_coefficients: {0: coef, 1: coef, ...10: coef}}, ...]
- * @param {number} gradeCoefficient - коэффициент грейда сотрудника
- * @returns {string} итоговый балл с 2 знаками после запятой
- */
-export const calculateWeightedScore = (evaluationScores, criteriaWithCoefficients = [], gradeCoefficient = 1.0) => {
-  // Если нет критериев с коэффициентами, используем простой расчет
-  if (!criteriaWithCoefficients || criteriaWithCoefficients.length === 0) {
-    return calculateFinalScore(evaluationScores, gradeCoefficient);
-  }
-
-  let weightedSum = 0;
-  let totalWeight = 0;
-
-  // Преобразуем оценки в массив для обработки
-  const scoresEntries = Object.entries(evaluationScores);
-  
-  for (const [key, scoreValue] of scoresEntries) {
-    // Находим критерий по id или title
-    const criterion = criteriaWithCoefficients.find(c => 
-      c.id === parseInt(key) || c.id === key || c.title === key
-    );
-    
-    if (!criterion) {
-      // Если критерий не найден, используем дефолтные значения
-      const weight = 1.0;
-      const scoreCoef = 1.0;
-      weightedSum += scoreValue * scoreCoef * weight;
-      totalWeight += weight;
-      continue;
-    }
-
-    // Получаем вес критерия
-    const weight = parseFloat(criterion.weight) || 1.0;
-    
-    // Получаем коэффициент для данного уровня оценки
-    const scoreLevel = Math.round(parseFloat(scoreValue) || 0);
-    const clampedLevel = Math.max(0, Math.min(10, scoreLevel)); // Ограничиваем 0-10
-    const scoreCoef = criterion.score_coefficients?.[clampedLevel] ?? 1.0;
-    
-    // Добавляем взвешенное значение
-    weightedSum += scoreValue * scoreCoef * weight;
-    totalWeight += weight;
-  }
-
-  if (totalWeight === 0) return '0.00';
-
-  // Рассчитываем итоговый балл
-  const weightedAverage = weightedSum / totalWeight;
-  const finalScore = weightedAverage * gradeCoefficient;
-
-  return finalScore.toFixed(2);
 };
 
 /**

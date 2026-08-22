@@ -1,122 +1,181 @@
 {
-  "updatedAt": "2026-08-18T16:56:17.938Z",
+  "updatedAt": "2026-08-22T06:38:11.238Z",
   "createdAt": "2025-12-15T07:16:48.020Z",
   "id": "rSZcm0HDMUHLYk8W",
   "name": "API: Score Correction",
   "description": null,
-  "active": false,
+  "active": true,
   "isArchived": false,
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "api/admin/score-correction",
-        "responseMode": "lastNode",
-        "options": {
-          "responseHeaders": {
-            "entries": [
-              {
-                "name": "Access-Control-Allow-Origin",
-                "value": "*"
-              }
-            ]
-          }
-        }
+        "responseMode": "responseNode",
+        "options": {}
       },
-      "id": "80310635-b42a-4d1c-8a5e-22e65c9b6bb9",
+      "id": "sc-webhook",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
+      "typeVersion": 2.1,
       "position": [
-        -480,
-        -128
+        -700,
+        0
       ],
       "webhookId": "score-correction-webhook"
     },
     {
       "parameters": {
-        "jsCode": "const body = $('Webhook').first().json.body;\n\n// Валидация входных данных\nconst evaluatorId = parseInt(body.evaluator_id);\nconst subjectId = parseInt(body.subject_id);\nconst criteriaId = parseInt(body.criteria_id);\nconst correctionScore = parseInt(body.correction_score);\n// Опционально: явно указать уровень корректировки\nconst explicitLevel = body.correction_level || null;\n\nif (!evaluatorId || !subjectId || !criteriaId || isNaN(correctionScore)) {\n  throw new Error('Missing required fields: evaluator_id, subject_id, criteria_id, correction_score');\n}\n\nif (correctionScore < 1 || correctionScore > 10) {\n  throw new Error('correction_score must be between 1 and 10');\n}\n\nreturn {\n  json: {\n    evaluator_id: evaluatorId,\n    subject_id: subjectId,\n    criteria_id: criteriaId,\n    correction_score: correctionScore,\n    explicit_level: explicitLevel\n  }\n};"
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"c_level\", \"manager\"],\n    required_capability: \"can_evaluate\",\n    request,\n  },\n};"
       },
-      "id": "fe674fd6-e70a-4ff7-aabe-db5fe5918628",
+      "id": "sc-guard-input",
+      "name": "Prepare Guard Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "sc-run-guard",
+      "name": "Run Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst actorId = Number(guard.identity.id);\nconst role = String(guard.identity.role || '');\nconst subjectId = parseInt(body.subject_id, 10);\nconst criteriaId = parseInt(body.criteria_id, 10);\nconst correctionScore = parseInt(body.correction_score, 10);\nif (!Number.isFinite(subjectId) || !Number.isFinite(criteriaId) || !Number.isFinite(correctionScore)) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'INVALID_BODY',\n        message: 'Укажите сотрудника, критерий и корректирующую оценку',\n      },\n    },\n  };\n}\nif (correctionScore < 1 || correctionScore > 10) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'GRADE_OUT_OF_RANGE',\n        message: 'Корректирующая оценка должна быть от 1 до 10',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    role,\n    subject_id: subjectId,\n    criteria_id: criteriaId,\n    correction_score: correctionScore,\n    sql: `\n      SELECT\n        s.id AS subject_id,\n        s.manager_id AS subject_manager_id,\n        sm.manager_id AS skip_level_id,\n        (\n          SELECT p.id\n          FROM performance_db.evaluation_periods p\n          WHERE p.is_active = true AND p.status = 'active'\n            AND p.evaluation_started_at IS NOT NULL\n          LIMIT 1\n        ) AS period_id\n      FROM performance_db.users s\n      LEFT JOIN performance_db.users sm ON sm.id = s.manager_id\n      WHERE s.id = ${subjectId}\n    `,\n  },\n};"
+      },
+      "id": "sc-validate",
       "name": "Validate Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -256,
-        -128
+        0,
+        0
       ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Получаем информацию об оценивающем и оцениваемом для определения уровня доступа\nWITH evaluator_info AS (\n  SELECT \n    id,\n    role,\n    manager_id,\n    has_subordinates\n  FROM performance_db.users \n  WHERE id = {{ $json.evaluator_id }}\n),\nsubject_info AS (\n  SELECT \n    id,\n    manager_id\n  FROM performance_db.users \n  WHERE id = {{ $json.subject_id }}\n),\n-- Проверяем, является ли оценивающий менеджером менеджера оцениваемого\nsubject_manager AS (\n  SELECT \n    id,\n    manager_id\n  FROM performance_db.users \n  WHERE id = (SELECT manager_id FROM subject_info)\n)\nSELECT \n  e.role as evaluator_role,\n  e.has_subordinates,\n  s.manager_id as subject_manager_id,\n  sm.manager_id as subject_manager_manager_id,\n  CASE \n    WHEN e.role IN ('admin', 'c_level') THEN 'c_level'\n    WHEN e.id = sm.manager_id THEN 'mid_level'\n    ELSE 'none'\n  END as correction_level\nFROM evaluator_info e\nCROSS JOIN subject_info s\nLEFT JOIN subject_manager sm ON true",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
         "options": {}
       },
-      "id": "1d5358a9-73bc-4dc0-b28b-093816f69711",
-      "name": "Check Permissions",
+      "id": "sc-lookup",
+      "name": "Load Subject And Period",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2,
+      "typeVersion": 2.6,
       "position": [
-        -48,
-        -128
+        250,
+        0
       ],
       "credentials": {
         "postgres": {
           "id": "VNbfkY8IKbEzn88B",
           "name": "EPE 2026 Postgres"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
-        "jsCode": "const permissionData = $input.first().json;\nconst inputData = $('Validate Input').first().json;\n\nconst correctionLevel = inputData.explicit_level || permissionData.correction_level;\n\n// Проверяем права доступа\nif (correctionLevel === 'none') {\n  throw new Error('Access denied: You can only correct scores if you are the manager\\'s manager (mid_level) or C-level/admin');\n}\n\n// C-level и admin всегда могут ставить c_level корректировку\n// Менеджеры менеджеров могут ставить mid_level корректировку\nconst allowedLevels = ['mid_level', 'c_level'];\nif (!allowedLevels.includes(correctionLevel)) {\n  throw new Error('Invalid correction level: ' + correctionLevel);\n}\n\nreturn { \n  json: {\n    ...inputData,\n    correction_level: correctionLevel\n  }\n};"
+        "jsCode": "const prev = $('Validate Input').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.subject_id !== undefined);\nif (!row) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'NOT_FOUND', message: 'Сотрудник не найден' },\n    },\n  };\n}\nif (!row.period_id) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'NO_ACTIVE_PERIOD',\n        message: 'Корректировка доступна только в идущем периоде оценки (период активирован и оценка запущена)',\n      },\n    },\n  };\n}\nlet correctionLevel = 'none';\nif (prev.role === 'admin' || prev.role === 'c_level') {\n  correctionLevel = 'c_level';\n} else if (Number(row.skip_level_id) === Number(prev.actor_id)) {\n  correctionLevel = 'mid_level';\n}\nif (correctionLevel === 'none') {\n  return {\n    json: {\n      http_status: 403,\n      body: {\n        success: false,\n        error: 'OWNERSHIP_FORBIDDEN',\n        message: 'Корректировка доступна руководителю руководителя, администратору или C-level',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    actor_id: prev.actor_id,\n    subject_id: prev.subject_id,\n    criteria_id: prev.criteria_id,\n    correction_score: prev.correction_score,\n    correction_level: correctionLevel,\n    period_id: Number(row.period_id),\n    sql: `\n      INSERT INTO performance_db.score_corrections\n        (subject_id, evaluator_id, criteria_id, correction_score, correction_level, period_id, updated_at)\n      VALUES\n        (${prev.subject_id}, ${prev.actor_id}, ${prev.criteria_id}, ${prev.correction_score}, '${correctionLevel}', ${Number(row.period_id)}, NOW())\n      ON CONFLICT (subject_id, criteria_id, correction_level, period_id)\n      DO UPDATE SET\n        correction_score = EXCLUDED.correction_score,\n        evaluator_id = EXCLUDED.evaluator_id,\n        updated_at = NOW()\n      RETURNING id, subject_id, criteria_id, correction_score, correction_level, period_id\n    `,\n  },\n};"
       },
-      "id": "a86589d8-fd4e-413a-98a7-24111f3b57db",
-      "name": "Verify Permissions",
+      "id": "sc-decide",
+      "name": "Decide Level",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        192,
-        -128
+        500,
+        0
       ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO performance_db.score_corrections \n  (subject_id, evaluator_id, criteria_id, correction_score, correction_level, updated_at)\nVALUES \n  ({{ $json.subject_id }}, {{ $json.evaluator_id }}, {{ $json.criteria_id }}, {{ $json.correction_score }}, '{{ $json.correction_level }}', NOW())\nON CONFLICT (subject_id, criteria_id, correction_level) \nDO UPDATE SET \n  correction_score = EXCLUDED.correction_score,\n  evaluator_id = EXCLUDED.evaluator_id,\n  updated_at = NOW()\nRETURNING id, correction_score, correction_level",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
         "options": {}
       },
-      "id": "e6d11cf3-17a4-4c51-8ebc-dbd0b22f2b2e",
+      "id": "sc-upsert",
       "name": "Upsert Correction",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2,
+      "typeVersion": 2.6,
       "position": [
-        400,
-        -128
+        740,
+        0
       ],
       "credentials": {
         "postgres": {
           "id": "VNbfkY8IKbEzn88B",
           "name": "EPE 2026 Postgres"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
-        "jsCode": "const result = $input.first().json;\nconst inputData = $('Validate Input').first().json;\n\nreturn {\n  json: {\n    success: true,\n    message: 'Score correction saved successfully',\n    data: {\n      id: result.id,\n      subject_id: inputData.subject_id,\n      criteria_id: inputData.criteria_id,\n      correction_score: result.correction_score,\n      correction_level: result.correction_level\n    }\n  }\n};"
+        "jsCode": "const prev = $('Decide Level').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (!row) {\n  return {\n    json: {\n      http_status: 500,\n      body: { success: false, error: 'WRITE_FAILED', message: 'Score correction was not stored' },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      message: 'Score correction saved successfully',\n      data: {\n        id: row.id,\n        subject_id: row.subject_id,\n        criteria_id: row.criteria_id,\n        correction_score: row.correction_score,\n        correction_level: row.correction_level,\n      },\n    },\n  },\n};"
       },
-      "id": "4fe9b255-fdf0-414c-9790-66a9265dbe92",
-      "name": "Success Response",
+      "id": "sc-format",
+      "name": "Format Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        624,
-        -128
+        980,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "sc-respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1220,
+        0
       ]
     }
   ],
   "connections": {
     "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard": {
       "main": [
         [
           {
@@ -131,25 +190,25 @@
       "main": [
         [
           {
-            "node": "Check Permissions",
+            "node": "Load Subject And Period",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Check Permissions": {
+    "Load Subject And Period": {
       "main": [
         [
           {
-            "node": "Verify Permissions",
+            "node": "Decide Level",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Verify Permissions": {
+    "Decide Level": {
       "main": [
         [
           {
@@ -164,7 +223,18 @@
       "main": [
         [
           {
-            "node": "Success Response",
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
             "type": "main",
             "index": 0
           }
@@ -175,13 +245,16 @@
   "settings": {
     "executionOrder": "v1",
     "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
   },
   "staticData": null,
   "meta": null,
   "pinData": {},
-  "versionId": "e02ce17b-00ba-4542-9dba-ee010c7e1e73",
-  "versionCounter": 18,
+  "versionId": "b5166170-61e5-4321-91be-bea802b3f281",
+  "versionCounter": 40,
   "triggerCount": 1,
   "shared": [
     {
@@ -205,7 +278,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "updatedAt": "2026-08-22T06:37:17.199Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -232,7 +305,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-19",
+              "lastActiveAt": "2026-08-22",
               "isPending": false
             }
           }

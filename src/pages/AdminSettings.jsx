@@ -75,7 +75,7 @@ const getInitialFormState = (criterion = null) => {
 
 const AdminSettings = () => {
   // Хук для работы с критериями
-  const { criteriaList, period, campaignActive, loading, saveCriterion, deleteCriterion } = useCriteria();
+  const { criteriaList, period, campaignActive, evaluationStarted, loading, saveCriterion, deleteCriterion } = useCriteria();
   
   // Состояние редактирования
   const [editingId, setEditingId] = useState(null);
@@ -181,9 +181,15 @@ const AdminSettings = () => {
         emptyCopy="Нет активного периода — каталог можно менять."
         draftName={null}
       />
-      {campaignActive && (
+      {/* Каталог замораживается на СТАРТЕ оценки, не на активации (D-0822-1):
+          в окне подготовки критерии ещё можно править. */}
+      {evaluationStarted ? (
         <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm">
-          Сохранение и удаление критериев заморожены, пока период активен (409).
+          Сохранение и удаление критериев заморожены: оценка в текущем периоде уже идёт (409).
+        </div>
+      ) : campaignActive && (
+        <div className="mb-4 p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-900 text-sm">
+          Период активен, но оценка ещё не запущена — каталог можно менять. После запуска оценки правки будут заблокированы.
         </div>
       )}
 

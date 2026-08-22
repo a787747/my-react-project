@@ -2,7 +2,7 @@
  * AdminScoring - Страница управления коэффициентами и весами оценок
  * 
  * Назначение: Настройка весов критериев, коэффициентов оценок и коэффициентов грейдов
- * Доступ: admin, c_level
+ * Доступ: только admin (D-0822-2 — веса и коэффициенты — денежные входы)
  * 
  * Использует компоненты:
  * - ScoringCoefficientsTable - таблица с коэффициентами критериев
@@ -35,7 +35,8 @@ const AdminScoring = () => {
     updateWeight,
     updateCoefficient,
     updateGradeCoefficient,
-    resetChanges
+    resetChanges,
+    fetchCoefficients
   } = useScoreCoefficients();
 
   // Состояние секций
@@ -72,6 +73,31 @@ const AdminScoring = () => {
   // Состояние загрузки
   if (loading) {
     return <LoadingSpinner text="Загрузка коэффициентов..." />;
+  }
+
+  // Загрузка не удалась — таблица не рисуется вовсе. Пустая таблица грейдов
+  // неотличима от «все коэффициенты 1.0», а сохранение из неё переписало бы
+  // живые значения (шаблон BUG-030).
+  if (error && criteriaWithCoefficients.length === 0 && grades.length === 0) {
+    return (
+      <div className="max-w-3xl mx-auto p-8">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h2 className="text-lg font-bold text-red-900 mb-1">Коэффициенты не загружены</h2>
+              <p className="text-sm text-red-800 mb-4">{error}</p>
+              <button
+                onClick={fetchCoefficients}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
+              >
+                Повторить
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

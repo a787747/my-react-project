@@ -5,6 +5,8 @@
  * Используется в: Sidebar, Welcome, SelfReview, ManagerEvaluation, Dashboard
  * 
  * Предоставляет:
+ * - campaignActive: boolean - период активен И оценка запущена (D-0822-1)
+ * - periodInPreparation: boolean - период активен, но оценка ещё не запущена
  * - hasSelfReview: boolean - выполнена ли самооценка
  * - hasEvaluatedManager: boolean - оценён ли руководитель
  * - hasEvaluatedAllSubordinates: boolean - оценены ли все подчинённые
@@ -34,11 +36,15 @@ export const TaskStatusProvider = ({ children }) => {
   const [hasManager, setHasManager] = useState(false);
   const [isManagerCLevel, setIsManagerCLevel] = useState(false);
   const [isOutOfScope, setIsOutOfScope] = useState(false);
+  const [campaignActive, setCampaignActive] = useState(false);
+  const [periodInPreparation, setPeriodInPreparation] = useState(false);
   const [loading, setLoading] = useState(true);
   
-  // C-level не нужна самооценка
+  // C-level не нужна самооценка.
+  // Задачи существуют только когда кампания идёт: период активен И оценка
+  // запущена (D-0822-1). В окне подготовки сервер не отдаёт ни одного флага.
   const isCLevel = user?.role === 'c_level';
-  const needsSelfReview = !isCLevel && !isOutOfScope;
+  const needsSelfReview = campaignActive && !isCLevel && !isOutOfScope;
 
   // Загрузка всех статусов
   const refreshTaskStatus = useCallback(async () => {
@@ -61,9 +67,16 @@ export const TaskStatusProvider = ({ children }) => {
       ]);
 
       const employeesPayload = employeesRes.data || {};
+      const campaignRunning = employeesPayload.campaign_active === true
+        || employeesPayload[0]?.campaign_active === true;
+      setCampaignActive(campaignRunning);
+      setPeriodInPreparation(
+        employeesPayload.period_in_preparation === true
+        || employeesPayload[0]?.period_in_preparation === true
+      );
       const actorOutOfScope = employeesPayload.actor_is_in_scope === false;
       setIsOutOfScope(actorOutOfScope);
-      if (actorOutOfScope) {
+      if (actorOutOfScope || !campaignRunning) {
         setHasSelfReview(false);
         setHasEvaluatedManager(false);
         setHasEvaluatedAllSubordinates(true);
@@ -93,15 +106,13 @@ export const TaskStatusProvider = ({ children }) => {
       const employeesData = Array.isArray(employeesPayload)
         ? employeesPayload[0]?.data || []
         : employeesPayload.data || [];
-      const campaignActive = employeesPayload.campaign_active === true
-        || employeesPayload[0]?.campaign_active === true;
 
       const subordinates = employeesData.filter(emp => emp.id !== user.id);
-      const hasCampaignSubs = campaignActive && subordinates.length > 0;
+      const hasCampaignSubs = campaignRunning && subordinates.length > 0;
       setHasSubordinates(hasCampaignSubs);
 
       // Campaign task status uses in-scope subordinates only, not the org-tree flag.
-      if (!campaignActive || subordinates.length === 0) {
+      if (!campaignRunning || subordinates.length === 0) {
         setHasEvaluatedAllSubordinates(true);
       } else {
         try {
@@ -138,6 +149,8 @@ export const TaskStatusProvider = ({ children }) => {
   }, [refreshTaskStatus]);
 
   const value = {
+    campaignActive,
+    periodInPreparation,
     hasSelfReview,
     hasEvaluatedManager,
     hasEvaluatedAllSubordinates,
@@ -163,6 +176,8 @@ export const useTaskStatus = () => {
   if (!context) {
     // Возвращаем дефолтные значения если контекст не найден
     return {
+      campaignActive: false,
+      periodInPreparation: false,
       hasSelfReview: false,
       hasEvaluatedManager: false,
       hasEvaluatedAllSubordinates: false,
@@ -171,7 +186,7 @@ export const useTaskStatus = () => {
       isManagerCLevel: false,
       isOutOfScope: false,
       isCLevel: false,
-      needsSelfReview: true,
+      needsSelfReview: false,
       loading: true,
       refreshTaskStatus: () => {}
     };

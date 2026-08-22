@@ -12,13 +12,19 @@
  * Контейнер = период с дочерними периодами. Контейнеры не активируются
  * (кнопки нет; API отвечает 422) и не закрываются — закрываются их дочерние
  * периоды. Закрытие периода фиксирует результаты (period_results) навсегда.
+ *
+ * Три состояния листового периода (D-0822-1):
+ *   Неактивен (draft) → Активен, подготовка (оценка не запущена)
+ *   → Идёт оценка (запущена) → Закрыт.
+ * «Запустить оценку» необратима так же, как активация и закрытие: маршрута,
+ * который снимает отметку, нет — откат только SQL на хосте.
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import apiClient from '../api/client';
 import {
   Calendar, Plus, CheckCircle, Circle, Loader2, Save, X, Link2, Copy, Check,
-  UserPlus, Pencil, FolderTree, Lock, CornerDownRight, Layers
+  UserPlus, Pencil, FolderTree, Lock, CornerDownRight, Layers, Hourglass, PlayCircle
 } from 'lucide-react';
 import { API_ENDPOINTS } from '../config/api';
 import handleApiError from '../utils/errorHandler';
@@ -26,6 +32,9 @@ import logger from '../utils/logger';
 import { isAdmin } from '../utils/permissions';
 
 const isContainer = (period) => Number(period?.child_count) > 0;
+
+/** Оценка запущена — второй шлюз (D-0822-1). */
+const isStarted = (period) => Boolean(period?.evaluation_started_at);
 
 /** Родителем может стать период верхнего уровня без оценок и не активный. */
 const canBeParent = (period, childId = null) =>
@@ -73,6 +82,7 @@ const AdminPeriods = ({ user }) => {
   const [periods, setPeriods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(null);
+  const [starting, setStarting] = useState(null);
   const [closing, setClosing] = useState(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -147,6 +157,43 @@ const AdminPeriods = ({ user }) => {
       alert(handleApiError(error));
     } finally {
       setActivating(null);
+    }
+  };
+
+  /**
+   * Запуск оценки — необратим. Отдельное подтверждение, потому что именно
+   * этот шаг открывает задачи сотрудникам и замораживает каталог критериев.
+   */
+  const handleStartEvaluation = async (periodId) => {
+    const period = periods.find((item) => item.id === periodId);
+    if (!period || !period.is_active || period.status !== 'active'
+        || isContainer(period) || isStarted(period)) {
+      return;
+    }
+
+    if (!window.confirm(
+      'Запустить оценку в этом периоде?\n\n'
+      + 'Сотрудники сразу увидят задачи и смогут отправлять оценки. '
+      + 'Каталог критериев будет заморожен. Отменить запуск нельзя.'
+    )) {
+      return;
+    }
+
+    try {
+      setStarting(periodId);
+      const response = await apiClient.post(API_ENDPOINTS.PERIODS_START_EVALUATION, {
+        period_id: periodId
+      });
+      const body = response.data || {};
+      if (body.already_started) {
+        alert(body.message || 'Оценка в этом периоде уже запущена.');
+      }
+      await fetchPeriods();
+    } catch (error) {
+      logger.error('Ошибка запуска оценки:', error);
+      alert(handleApiError(error));
+    } finally {
+      setStarting(null);
     }
   };
 
@@ -344,10 +391,25 @@ const AdminPeriods = ({ user }) => {
       );
     }
     if (period.is_active) {
+      // Активен, но оценка не запущена — окно подготовки (D-0822-1).
+      if (!isStarted(period)) {
+        return (
+          <div className="flex items-center gap-2">
+            <Hourglass className="w-5 h-5 text-amber-500" />
+            <div>
+              <span className="text-sm font-medium text-amber-700">Активен · подготовка</span>
+              <p className="text-xs text-amber-600">Оценка не запущена — сотрудники не видят задач</p>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="flex items-center gap-2">
           <CheckCircle className="w-5 h-5 text-green-600" />
-          <span className="text-sm font-medium text-green-700">Активен</span>
+          <div>
+            <span className="text-sm font-medium text-green-700">Идёт оценка</span>
+            <p className="text-xs text-green-600">Запущена {formatDate(period.evaluation_started_at)}</p>
+          </div>
         </div>
       );
     }
@@ -596,10 +658,38 @@ const AdminPeriods = ({ user }) => {
                           </button>
                         )}
 
+                        {/* Второй шлюз: показывается только админу и только
+                            активному незапущенному листовому периоду (D-0822-1) */}
+                        {canManage && period.is_active && period.status === 'active'
+                          && !isContainer(period) && !isStarted(period) && (
+                          <button
+                            onClick={() => handleStartEvaluation(period.id)}
+                            disabled={starting === period.id}
+                            className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                            title="Открыть оценку сотрудникам. Необратимо."
+                          >
+                            {starting === period.id ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Запуск...
+                              </>
+                            ) : (
+                              <>
+                                <PlayCircle className="w-4 h-4" />
+                                Запустить оценку
+                              </>
+                            )}
+                          </button>
+                        )}
+
                         {period.is_active && !isContainer(period) && (
                           <>
-                            <span className="px-4 py-2 bg-green-100 text-green-700 text-sm font-medium rounded-lg">
-                              Текущий период
+                            <span className={`px-4 py-2 text-sm font-medium rounded-lg ${
+                              isStarted(period)
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {isStarted(period) ? 'Текущий период' : 'Подготовка'}
                             </span>
                             {canManage && (
                             <button

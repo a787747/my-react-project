@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-19T10:16:14.986Z",
+  "updatedAt": "2026-08-22T06:49:44.483Z",
   "createdAt": "2025-12-15T18:33:35.648Z",
   "id": "jAqkljoRb24jrcZx",
   "name": "API: Save Score Coefficients",
@@ -53,42 +53,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Reject if any active period exists (is_active=true OR status='active')\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT id, name, status\n      FROM performance_db.evaluation_periods\n      WHERE is_active = true OR status = 'active'\n      LIMIT 1\n    `,\n  },\n};"
-      },
-      "id": "savecoeff-validate",
-      "name": "Validate No Active Period",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -200,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
-        "options": {}
-      },
-      "id": "savecoeff-check",
-      "name": "Check Active Period",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        60,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "VNbfkY8IKbEzn88B",
-          "name": "EPE 2026 Postgres"
-        }
-      },
-      "alwaysOutputData": true
-    },
-    {
-      "parameters": {
-        "jsCode": "const prev = $('Validate No Active Period').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst activePeriod = $input.all().map(item => item.json).find(item => item.id !== undefined);\nif (activePeriod) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'ACTIVE_PERIOD_EXISTS',\n        message: `Cannot modify score coefficients while period \"${activePeriod.name}\" is active`,\n      },\n    },\n  };\n}\nconst guard = $('Run Auth Guard').first().json;\nconst body = guard.request.body || guard.request;\nconst criteria = body.criteria;\nif (!Array.isArray(criteria) || !criteria.length) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_BODY', message: 'criteria must be a non-empty array' },\n    },\n  };\n}\n// Build batched SQL: update weights and upsert coefficients for each criterion\nconst sqls = [];\nfor (const crit of criteria) {\n  const criteriaId = parseInt(crit.id, 10);\n  if (!Number.isFinite(criteriaId) || criteriaId < 1) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Invalid criteria id: ${crit.id}` },\n      },\n    };\n  }\n  const weight = parseFloat(crit.weight);\n  if (!Number.isFinite(weight) || weight < 0) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_WEIGHT', message: `Invalid weight for criteria ${criteriaId}` },\n      },\n    };\n  }\n  sqls.push(`UPDATE performance_db.criteria SET weight = ${weight} WHERE id = ${criteriaId};`);\n  const coeffMap = crit.score_coefficients || {};\n  for (let level = 1; level <= 10; level++) {\n    const coef = coeffMap[level] !== undefined ? parseFloat(coeffMap[level]) : 1.0;\n    if (!Number.isFinite(coef) || coef < 0) {\n      return {\n        json: {\n          http_status: 422,\n          body: {\n            success: false,\n            error: 'INVALID_COEFFICIENT',\n            message: `Invalid coefficient at level ${level} for criteria ${criteriaId}`,\n          },\n        },\n      };\n    }\n    sqls.push(\n      `INSERT INTO performance_db.score_coefficients (criteria_id, score_level, coefficient) ` +\n      `VALUES (${criteriaId}, ${level}, ${coef}) ` +\n      `ON CONFLICT (criteria_id, score_level) DO UPDATE SET coefficient = EXCLUDED.coefficient;`\n    );\n  }\n}\nreturn {\n  json: {\n    ok: true,\n    query: sqls.join('\\n'),\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst criteria = body.criteria;\nif (!Array.isArray(criteria) || !criteria.length) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_BODY', message: 'Список критериев не должен быть пустым' },\n    },\n  };\n}\n// Build batched SQL: update weights and upsert coefficients for each criterion\nconst sqls = [];\nfor (const crit of criteria) {\n  const criteriaId = parseInt(crit.id, 10);\n  if (!Number.isFinite(criteriaId) || criteriaId < 1) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_CRITERIA_ID', message: `Некорректный идентификатор критерия: ${crit.id}` },\n      },\n    };\n  }\n  // A zero weight does NOT remove a criterion from the bonus index: every\n  // consumer reads it back through `parseFloat(weight) || 1.0`, so the criterion\n  // silently counts with weight 1.0 — the opposite of what the admin asked for,\n  // in the money number, and frozen into period_results at close (BUG-029).\n  // The rule is \"finite and > 0\" (D-0822-2), not a floor: any positive weight is\n  // a legitimate business value, and only 0 is the misread one.\n  const weight = parseFloat(crit.weight);\n  if (!Number.isFinite(weight) || weight <= 0) {\n    return {\n      json: {\n        http_status: 422,\n        body: {\n          success: false,\n          error: 'INVALID_WEIGHT',\n          message: `Вес критерия ${criteriaId} должен быть конечным числом больше нуля. ` +\n            `Чтобы критерий не влиял на бонус, отключите его (is_active), а не обнуляйте вес: ` +\n            `вес 0 читается как 1.0 и критерий всё равно попадёт в расчёт`,\n        },\n      },\n    };\n  }\n  const coeffMap = crit.score_coefficients;\n  if (!coeffMap || typeof coeffMap !== 'object' || Array.isArray(coeffMap)) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_COEFFICIENT_MAP', message: `Не переданы коэффициенты уровней для критерия ${criteriaId}` },\n      },\n    };\n  }\n  for (const key of Object.keys(coeffMap)) {\n    const level = parseInt(key, 10);\n    if (!Number.isFinite(level) || String(level) !== String(key).trim() || level < 1 || level > 10) {\n      return {\n        json: {\n          http_status: 422,\n          body: {\n            success: false,\n            error: 'INVALID_COEFFICIENT_LEVEL',\n            message: `Уровень оценки «${key}» вне диапазона 1..10 (критерий ${criteriaId})`,\n          },\n        },\n      };\n    }\n  }\n  sqls.push(`UPDATE performance_db.criteria SET weight = ${weight} WHERE id = ${criteriaId};`);\n  for (let level = 1; level <= 10; level++) {\n    const raw = coeffMap[level] !== undefined ? coeffMap[level] : coeffMap[String(level)];\n    const coef = raw === undefined || raw === null || raw === '' ? NaN : parseFloat(raw);\n    if (!Number.isFinite(coef) || coef <= 0) {\n      return {\n        json: {\n          http_status: 422,\n          body: {\n            success: false,\n            error: 'INVALID_COEFFICIENT',\n            message: `Коэффициент уровня ${level} критерия ${criteriaId} должен быть конечным числом больше нуля`,\n          },\n        },\n      };\n    }\n    sqls.push(\n      `INSERT INTO performance_db.score_coefficients (criteria_id, score_level, coefficient) ` +\n      `VALUES (${criteriaId}, ${level}, ${coef}) ` +\n      `ON CONFLICT (criteria_id, score_level) DO UPDATE SET coefficient = EXCLUDED.coefficient;`\n    );\n  }\n}\nreturn {\n  json: {\n    ok: true,\n    query: sqls.join('\\n'),\n  },\n};"
       },
       "id": "savecoeff-build",
       "name": "Build Coefficients Update",
@@ -179,28 +144,6 @@
       "main": [
         [
           {
-            "node": "Validate No Active Period",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Validate No Active Period": {
-      "main": [
-        [
-          {
-            "node": "Check Active Period",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Active Period": {
-      "main": [
-        [
-          {
             "node": "Build Coefficients Update",
             "type": "main",
             "index": 0
@@ -253,8 +196,8 @@
   "staticData": null,
   "meta": null,
   "pinData": {},
-  "versionId": "8bb9acb6-976d-4059-856c-b45d640e5671",
-  "versionCounter": 23,
+  "versionId": "0cd9625c-09c6-488a-9799-dff32d0a5860",
+  "versionCounter": 29,
   "triggerCount": 1,
   "shared": [
     {
@@ -278,7 +221,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "updatedAt": "2026-08-22T06:37:17.199Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -305,7 +248,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-19",
+              "lastActiveAt": "2026-08-22",
               "isPending": false
             }
           }

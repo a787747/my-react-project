@@ -37,16 +37,35 @@ export const useScoreCoefficients = () => {
       setLoading(true);
       setError(null);
       
-      // Загружаем коэффициенты критериев и грейды параллельно
-      // Грейды берём из ADMIN_USERS_DATA (там они в options.grades)
-      const [coefficientsRes, usersDataRes] = await Promise.all([
+      // Загружаем коэффициенты критериев и грейды параллельно.
+      // Грейды берём из ADMIN_USERS_DATA (там они в options.grades).
+      // Ни один из двух запросов не подменяется пустым ответом: пустая таблица
+      // грейдов неотличима от «все коэффициенты 1.0» — это шаблон BUG-030.
+      const [coefficientsSettled, usersDataSettled] = await Promise.allSettled([
         apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS),
-        apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA).catch((err) => {
-          logger.error("Ошибка загрузки грейдов:", err);
-          return { data: { options: { grades: [] } } };
-        })
+        apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA)
       ]);
-      
+
+      if (coefficientsSettled.status === 'rejected' || usersDataSettled.status === 'rejected') {
+        const failures = [];
+        if (coefficientsSettled.status === 'rejected') {
+          logger.error('Ошибка загрузки коэффициентов критериев:', coefficientsSettled.reason);
+          failures.push('Коэффициенты критериев не загружены');
+        }
+        if (usersDataSettled.status === 'rejected') {
+          logger.error('Ошибка загрузки грейдов:', usersDataSettled.reason);
+          failures.push('Коэффициенты грейдов не загружены');
+        }
+        setCriteriaWithCoefficients([]);
+        setGrades([]);
+        setHasChanges(false);
+        setError(`${failures.join('. ')} — редактирование невозможно.`);
+        return;
+      }
+
+      const coefficientsRes = coefficientsSettled.value;
+      const usersDataRes = usersDataSettled.value;
+
       // Обработка коэффициентов критериев
       const rawData = coefficientsRes.data;
       let list = [];

@@ -17,7 +17,7 @@ import React, { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 
 // Компоненты
-import { LoadingSpinner, OutOfScopeNotice } from '../components/common';
+import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice } from '../components/common';
 import { SelfReviewStatusCard, SelfReviewModal } from '../components/self-review';
 
 // Хуки
@@ -29,6 +29,8 @@ const SelfReview = () => {
   const {
     refreshTaskStatus,
     isOutOfScope,
+    campaignActive,
+    periodInPreparation,
     loading: loadingTaskStatus
   } = useTaskStatus();
   
@@ -90,6 +92,12 @@ const SelfReview = () => {
 
   if (isOutOfScope) {
     return <OutOfScopeNotice />;
+  }
+
+  // Кампания не идёт: период не активен, либо активен, но оценка не запущена
+  // (D-0822-1). Сервер в этом окне отвечает 409 PERIOD_NOT_STARTED.
+  if (!campaignActive) {
+    return <CampaignNotStartedNotice inPreparation={periodInPreparation} />;
   }
 
   // Для Admin и C-level показываем сообщение, что самооценка не требуется
