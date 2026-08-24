@@ -99,10 +99,21 @@ def main() -> None:
         "expected_changed": sorted(expected_changed),
     }, indent=2, ensure_ascii=False))
 
+    # A generator output with no live counterpart is not drift (nothing to
+    # diff) but it is not silently OK either: either the workflow should be
+    # imported, or the builder should stop producing it. Warn by name so the
+    # gap is visible in every deploy log; whether the two long-standing absentees
+    # should exist on live is an open decision (BROWSER_WALKTHROUGH §9.4).
+    for name in absent:
+        print(f"WARNING: generator output absent from live: {name}", file=sys.stderr)
+
     if set(changed) != expected_changed:
         print("DRIFT MISMATCH", file=sys.stderr)
         raise SystemExit(1)
-    print("drift check OK")
+    if absent:
+        print(f"drift check OK ({len(absent)} generator output(s) absent from live — see warnings)")
+    else:
+        print("drift check OK")
 
 
 if __name__ == "__main__":

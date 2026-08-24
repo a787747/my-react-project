@@ -26,6 +26,27 @@ export const groupCriteria = (criteria = []) => {
 };
 
 /**
+ * Общий список колонок матрицы: объединение критериев ВСЕХ сотрудников в
+ * порядке первого появления, сгруппированное как groupCriteria. Сервер отдаёт
+ * каждой строке только применимые ей критерии (D-0822-3), поэтому ни одна
+ * отдельная строка — включая employees[0] — не полна как источник заголовка:
+ * у general-строки нет проектных критериев (BUG-051).
+ * @param {Array} employees - массив сотрудников с criteria
+ * @returns {Object} группы критериев: self, general, project, management, c_level
+ */
+export const buildSharedCriteriaGroups = (employees = []) => {
+  const seen = new Map();
+  employees.forEach(emp => {
+    (emp.criteria || []).forEach(c => {
+      if (c && c.criteria_id != null && !seen.has(c.criteria_id)) {
+        seen.set(c.criteria_id, c);
+      }
+    });
+  });
+  return groupCriteria([...seen.values()]);
+};
+
+/**
  * Извлекает уникальные опции для фильтров из списка сотрудников
  * @param {Array} employees - массив сотрудников
  * @returns {Object} объект с уникальными значениями для фильтров

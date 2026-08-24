@@ -946,3 +946,16 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 **Results:**
 - Report: `docs/BROWSER_WALKTHROUGH_2026-08-2x.md` (checklist + verbatim evidence + Surfaced-for-decision).
 - `npm test` **277/277**.
+
+## 2026-08-24 — Prelaunch fix batch: BUG-051 matrix alignment fixed+deployed, BUG-053 /tmp dumps cleaned, refresh check answered
+
+**What was done:**
+- **BUG-051 CLOSED.** The admin evaluations matrix now renders one shared column list for header AND every row: `buildSharedCriteriaGroups` (union of all rows' criteria, first-seen order) + per-row lookup by `criteria_id` with placeholders (N/A in project/management columns, «—» elsewhere) for non-applicable criteria. Proven in a real Chromium on a walkthrough-pattern stand (`epe_walk_20260824_1432`): all 97 rows emit exactly 10 td under the 10-th header (was 8 for general rows); G shows N/A in the project columns while P shows 8/7 there; a c_level correction renders 8.5 amber at its own column index 5. Deployed to live release `20260824T145133Z`, chunks md5-identical to the local build.
+- **Money unchanged, to the digit.** With criterion-14 weight at the walkthrough's 1.50 (stand-only round-trip) the fixed build reproduces the recorded §3.6 figures exactly: G Σ70.20→42.12, P Σ121.30→266.86. Under live's current coefficients the screen matches independent arithmetic (46.32 / 276.76). **Found on the way: criterion 14's weight moved 1.5→2.0 on live today (12:36Z–14:32Z), via the admin-only coefficients channel — surfaced for Alexander's confirmation (report §5.1).**
+- **BUG-053 CLOSED (approved).** Ten dumps found in VPS /tmp (the filed seven + epe_2026_after + two n8n-schema dumps); every one md5-verified against a dated local copy in backups/; the approved seven deleted, the other three moved to /root/backups/epe/tmp_rescue_20260824 (0600). /tmp now holds zero dumps. PROJECT_RULES.md: new rule — stand/rollback artifacts never in /tmp, root-only /root/epe_stand_tmp instead, teardown removes it; setup_walkthrough_throwaway.sh made compliant and used that way this session.
+- **Refresh check (by hand): the dashboard card updates without reload.** Submit → success panel (card still stale by design, 0 refetches) → «Закрыть» → /api/employees refetch in the XHR log → card flips to «Оценен вами · Балл: 7.0»/«Редактировать». The walkthrough §9.3 staleness was an automation artifact (programmatic click through the modal overlay skips handleFinalClose). No bug filed.
+- Riders: check_live_drift.py now WARNs by name on generator outputs absent from live (both deploy-gate runs show it); HANDOVER §10 counters 21/32 + §3 weight annotation; bugs.md statistics 21/32; EVALUATION_METHODOLOGY.md not attached → skipped.
+
+**Results:**
+- Report: `docs/PRELAUNCH_FIX_BATCH_2026-08-2x.md` (named to avoid overwriting the accepted 20 Aug PRELAUNCH_FIXES report the brief's literal filename pointed at).
+- `npm test` **284/284** (+7: 3 buildSharedCriteriaGroups, 4 alignment source pins). Drift 30/0 before and after deploy. Live verified campaign-inert after everything (H1 draft, all data tables 0, 89 users). Stand torn down; epe_2026 the only epe DB left.

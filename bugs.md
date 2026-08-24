@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 23 |
+| 🔴 Open | 21 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 30 |
+| 🟢 Closed | 32 |
 
 ---
 
@@ -122,13 +122,14 @@
 
 ### BUG-051: Admin evaluations-matrix rows skip non-applicable project cells, misaligning every later column against the header
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: ⚠️ High
 - Location: `src/components/admin/EvaluationsMatrixTable.jsx` — header derives its criterion columns from `employees[0].criteria`, each body row maps its OWN `groupCriteria(emp.criteria)`.
 - Description: the header renders all catalogue criteria as columns (walkthrough stand: name + 9 criterion columns, order 3,4,12,14,8,13,2,1,10, no colspans). A body row for a subject without project criteria emits `<td>`s only for its own criteria — 8 cells instead of 10 — so every cell after the general group shifts two columns left: the «Как руководитель» N/A renders under the «Взаимодействие и надежность в проекте» header, and any C-level scores land under «Объем проектной работы…» / «Качество управления…». Rows for project subjects (10 cells) align; general rows do not. DOM evidence in `docs/BROWSER_WALKTHROUGH_2026-08-2x.md` §I (browser walkthrough, 2026-08-24): header row 2 = 10 `th`; WT Employee G row = 8 `td`, WT Employee N/P rows = 10 `td`.
 - Why it matters: most of the company is non-project, so most rows of the admin matrix are misaligned. A C-level score for a general employee displays in a project column; an admin reading the matrix (or comparing against the final-scores screen, which uses a shared column list and is NOT affected) attributes numbers to the wrong criteria. This is the screen calibration decisions are read from.
-- How to fix: render each row against the header's criterion list, emitting a placeholder cell («—») when the criterion is not applicable to that subject — the same shared-`criteriaList` approach `useFinalScoresMatrix.js` already uses. Behavioral change to a reporting surface → its own brief, not the walkthrough's latitude.
-- Source: browser walkthrough 2026-08-24 (`docs/BROWSER_WALKTHROUGH_2026-08-2x.md`).
+- Fix (2026-08-24, prelaunch fix batch): one shared column list for header AND rows. `buildSharedCriteriaGroups(employees)` (new, `src/utils/matrixUtils.js`) unions every row's criteria in first-seen order — employees[0] alone was also a broken header source (a general first row would have dropped the project columns entirely). Every body row maps the HEADER's group lists, looks its own cell up by `criteria_id`, and renders a placeholder in its own column when the criterion is absent: N/A in project/management columns, «—» elsewhere. Header criterion objects (another row's data) never render as data cells. Presentation only — no formula, weight or payload touched.
+- Verification (2026-08-24, throwaway stand `epe_walk_20260824_1432`, real Chromium, walkthrough-shaped data): all **97 rows emit exactly 10 `td`** under the 10-`th` header (histogram `{10: 97}`; the walkthrough recorded 8 for the general row). Per-column DOM map: general subject G shows `N/A` under both «Проектные» headers, `N/A` under «Как руководитель», C-level cells under C-level; project subject P shows 8 and 7 under their own project headers; a c_level correction on P×crit8 renders **8.5 amber at column index 5** («Взаимодействие и надежность в проекте») while G's same column shows N/A. Money unchanged: with the walkthrough's coefficient set the fixed build reproduces the recorded figures **to the digit** (G Σ 70.20 × 0.60 = 42.12; P Σ 121.30 × 2.20 = 266.86 — final-scores screen, same per-criterion contributions), and under live's current coefficients the screen matches independent arithmetic exactly (см. report §2 — criterion-14 weight moved 1.5→2.0 on live between the walkthrough and this batch, admin-side edit, fully accounted). Tests: `tests/matrixUtils.test.js` (+3), `tests/evaluationsMatrixAlignment.test.js` (new, 4 source pins); suite 284/284. Deployed to live release `20260824T145133Z`; live chunks byte-identical (md5) to the fixed build; drift 30/0 before and after.
+- Source: browser walkthrough 2026-08-24 (`docs/BROWSER_WALKTHROUGH_2026-08-2x.md`); closed by `docs/PRELAUNCH_FIX_BATCH_2026-08-2x.md`.
 
 ## 📌 Medium
 
@@ -237,13 +238,15 @@
 
 ### BUG-053: World-readable dumps of live `epe_2026` accumulate in VPS `/tmp` outside the backup regime
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📌 Medium
 - Location: `root@92.51.45.147:/tmp` — `epe_2026_before.dump` (0644, 19 Aug), `epe_2026_pre013_20260821_0549.dump` (0644), four `epe_2026_pre014_20260822_*.dump` (0644), `epe_2026_pre_mig014_20260822T063731Z.dump` (0644); only `epe_2026_after.dump` is 0600.
 - Description: pre-migration safety dumps from the 19–22 Aug briefs were left in `/tmp` with default 0644 permissions. The backup regime (`/root/backups/epe`, chmod 600, 14-day pruning) does not cover them; they are full copies of production personal data readable by any local account and never pruned. The walkthrough stand's own dump was removed at teardown (this brief), but these predate it and were not this session's to delete.
 - Why it matters: PROJECT_RULES calls a stray live copy «a second copy of production personal data outside the backup regime». `/tmp` is the most exposed directory on the host and survives until reboot cleanup, which this VPS may never perform.
-- How to fix: decide: delete them (migrations 013/014 are long verified, and dated dumps of the same days exist under `backups/` locally), or move under `/root/backups/epe` with 0600. One command either way; needs Alexander's or the next executor's confirmation because they are other sessions' rollback artifacts.
-- Source: browser-walkthrough teardown sweep 2026-08-24.
+- Fix (2026-08-24, Alexander approved the deletion in the prelaunch-fix-batch brief): the cleanup sweep found **ten** dumps in `/tmp`, not eight — the filed seven plus `epe_2026_after.dump` (0600) and two n8n application-schema dumps (`n8n_public_before.dump` 0644, `n8n_public_after.dump` 0600, both 19 Aug — the matrix-calibration brief's artifacts). Every one of the ten was first verified byte-identical (md5) to a dated local copy under the repo's gitignored `backups/` (`2026-08-20-matrix-calibration/`, `2026-08-21-periods-hierarchy/`, `2026-08-22-lifecycle-coeff/`). The approved seven were deleted; the three outside the approved list were **moved** to `/root/backups/epe/tmp_rescue_20260824/` (dir 0700, files 0600) rather than deleted. `/tmp` now contains zero dump files. Full before/after listing with sizes, dates and md5 pairs: `docs/PRELAUNCH_FIX_BATCH_2026-08-2x.md` §3.
+- Prevention: PROJECT_RULES.md now carries the rule (2026-08-24): stand and rollback artifacts never live in `/tmp` — transient VPS-side artifacts go under root-only `/root/epe_stand_tmp` (0700), teardown includes their removal; `scripts/setup_walkthrough_throwaway.sh` was moved off host `/tmp` accordingly (dump + credential/workflow staging).
+- Residual: `/tmp` still holds a few small non-data scraps from earlier briefs (schema `probe*.sql` queries, row-count listings `_live.txt`/`_restored.txt`, `epe-docs-hygiene/guard_nodes.json`, a docker-inspect JSON, an empty `wf_export/`) — no personal data, listed in the report; sweep them opportunistically on the next VPS-touching brief.
+- Source: browser-walkthrough teardown sweep 2026-08-24; closed by the prelaunch fix batch the same day.
 
 ## 📝 Low
 

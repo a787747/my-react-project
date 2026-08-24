@@ -62,6 +62,19 @@ Stand traps that already cost time, all of them silent:
 - A proof artifact must record the compared values, not a summary string. A run that compared nothing
   writes the same slogan as a run that compared everything.
 
+**Stand and rollback artifacts never live in `/tmp`** (rule added 2026-08-24, BUG-053). Seven
+world-readable dumps of live `epe_2026` — pre-migration safety copies from the 19–22 Aug briefs —
+accumulated in VPS `/tmp` with default 0644 permissions: full production personal data readable by any
+local account, outside the backup regime, never pruned. Therefore:
+
+- Any transient VPS-side artifact of a brief — dated dumps, rollback copies, workflow/credential staging
+  files — goes under the **root-only** directory `/root/epe_stand_tmp` (`chmod 700`, files 600), never
+  `/tmp`. `/root/backups/epe` stays reserved for the cron jobs and deliberate keep-forever copies.
+- **Teardown includes their removal.** A brief's teardown checklist is: stand container removed, stand
+  DBs dropped, `/root/epe_stand_tmp` emptied, tunnel killed. A dump worth keeping is kept as the *local*
+  dated copy under the repo's gitignored `backups/<date>-<brief>/` — the VPS copy is deleted.
+- `/tmp` *inside* a stand container is fine — it dies with the container. The rule is about the host.
+
 ## Backups
 
 Two cron jobs on `92.51.45.147`, both writing gzipped `pg_dump -Fc` files into `/root/backups/epe/daily`

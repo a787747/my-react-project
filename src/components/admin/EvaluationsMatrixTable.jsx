@@ -15,7 +15,7 @@
 
 import React from 'react';
 import { Star, Eye, Edit2, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
-import { groupCriteria, getCriterionFinalScore, getCriterionCorrections, canReceiveCLevel, formatCorrectionTooltip } from '../../utils/matrixUtils';
+import { buildSharedCriteriaGroups, getCriterionFinalScore, getCriterionCorrections, canReceiveCLevel, formatCorrectionTooltip } from '../../utils/matrixUtils';
 
 const EvaluationsMatrixTable = ({ 
   employees, 
@@ -27,15 +27,9 @@ const EvaluationsMatrixTable = ({
   onScoreClick 
 }) => {
   
-  // Получаем группы критериев из первого сотрудника (для заголовков)
-  const getHeaderGroups = () => {
-    if (!employees.length || !employees[0].criteria) {
-      return { self: [], general: [], project: [], management: [], c_level: [] };
-    }
-    return groupCriteria(employees[0].criteria);
-  };
-
-  const headerGroups = getHeaderGroups();
+  // Заголовок — объединение критериев всех строк: сервер отдаёт каждой строке
+  // только применимые ей критерии, одна строка заголовок не определяет (BUG-051)
+  const headerGroups = buildSharedCriteriaGroups(employees);
 
   const getFinalScore = (criterion) => {
     const raw = getCriterionFinalScore(criterion);
@@ -79,6 +73,18 @@ const EvaluationsMatrixTable = ({
       onEmployeeNameClick(employee);
     }
   };
+
+  // BUG-051: строка выравнивается по колонкам заголовка. Критерий, которого у
+  // сотрудника нет (сервер его не отдал — неприменим), занимает свою колонку
+  // заглушкой; пропуск <td> сдвигал все последующие ячейки под чужие заголовки.
+  const renderMissingCell = (group, employee, criterion, borderClass, label = '—') => (
+    <td
+      key={`${group}-${employee.id}-${criterion.criteria_id}`}
+      className={`px-2 py-3 text-center border-l ${borderClass}`}
+    >
+      <span className="text-gray-200 text-xs">{label}</span>
+    </td>
+  );
 
   // Рендер ячейки с оценкой (с учётом корректировки)
   const renderScoreCell = (employee, criterion, group, borderClass) => {
@@ -363,8 +369,12 @@ const EvaluationsMatrixTable = ({
               </tr>
             ) : (
               employees.map((emp) => {
-                const groups = groupCriteria(emp.criteria);
-                
+                // Ячейки строки ищутся по criteria_id заголовка; объекты
+                // заголовка несут данные ЧУЖОЙ строки и в ячейки не попадают.
+                const rowCriteria = new Map(
+                  (emp.criteria || []).map(c => [c.criteria_id, c])
+                );
+
                 return (
                   <tr 
                     key={emp.id}
@@ -395,19 +405,43 @@ const EvaluationsMatrixTable = ({
                     </td>
                     
                     {/* Самооценка + Оценка менеджера */}
-                    {groups.self.map(c => renderSelfCell(emp, c))}
-                    
+                    {headerGroups.self.map(hc => {
+                      const c = rowCriteria.get(hc.criteria_id);
+                      return c
+                        ? renderSelfCell(emp, c)
+                        : renderMissingCell('self', emp, hc, 'border-blue-50');
+                    })}
+
                     {/* Общие */}
-                    {groups.general.map(c => renderScoreCell(emp, c, 'general', 'border-green-50'))}
-                    
-                    {/* Проектные */}
-                    {groups.project.map(c => renderProjectCell(emp, c))}
-                    
+                    {headerGroups.general.map(hc => {
+                      const c = rowCriteria.get(hc.criteria_id);
+                      return c
+                        ? renderScoreCell(emp, c, 'general', 'border-green-50')
+                        : renderMissingCell('general', emp, hc, 'border-green-50');
+                    })}
+
+                    {/* Проектные: неприменимый критерий = N/A в СВОЕЙ колонке */}
+                    {headerGroups.project.map(hc => {
+                      const c = rowCriteria.get(hc.criteria_id);
+                      return c
+                        ? renderProjectCell(emp, c)
+                        : renderMissingCell('proj', emp, hc, 'border-purple-50', 'N/A');
+                    })}
+
                     {/* Оценка руководителя */}
-                    {groups.management.map(c => renderManagementCell(emp, c))}
-                    
+                    {headerGroups.management.map(hc => {
+                      const c = rowCriteria.get(hc.criteria_id);
+                      return c
+                        ? renderManagementCell(emp, c)
+                        : renderMissingCell('mgmt', emp, hc, 'border-teal-50', 'N/A');
+                    })}
+
                     {/* C-level */}
-                    {groups.c_level.map((c, idx) => {
+                    {headerGroups.c_level.map((hc, idx) => {
+                      const c = rowCriteria.get(hc.criteria_id);
+                      if (!c) {
+                        return renderMissingCell('clvl', emp, hc, 'border-orange-50');
+                      }
                       const writable = canReceiveCLevel(emp, period);
                       const actorScore = c.actor_c_level_score ?? null;
                       const displayed = actorScore ?? c.c_level_score;

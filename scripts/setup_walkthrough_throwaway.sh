@@ -15,6 +15,7 @@ HOST="root@92.51.45.147"
 SSH=(ssh -o BatchMode=yes "$HOST")
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 STAMP="$(date -u +%Y%m%d_%H%M)"
+STAND_TMP="/root/epe_stand_tmp"  # never /tmp: PROJECT_RULES 2026-08-24 (BUG-053)
 DB="epe_walk_${STAMP}"
 BACKUP_DIR="$REPO/backups/2026-08-24-walkthrough"
 IMAGE="n8nio/n8n@sha256:0a65e6e5995c19e0cf7e83d6b08ffa6c1898e8a53ff1658e6e7b22e68576c673"
@@ -25,13 +26,13 @@ GUARD_ID="L0Zr7nVa8O5YWXd3"
 mkdir -p "$BACKUP_DIR"
 
 echo "== 1. Dated dump of live epe_2026 =="
-"${SSH[@]}" "docker exec postgres_n8n pg_dump -U admin -Fc epe_2026 > /tmp/epe_2026_walk_${STAMP}.dump && ls -la /tmp/epe_2026_walk_${STAMP}.dump"
-"${SSH[@]}" "cat /tmp/epe_2026_walk_${STAMP}.dump" > "$BACKUP_DIR/epe_2026_walk_${STAMP}.dump"
+"${SSH[@]}" "mkdir -p $STAND_TMP && chmod 700 $STAND_TMP && docker exec postgres_n8n pg_dump -U admin -Fc epe_2026 > $STAND_TMP/epe_2026_walk_${STAMP}.dump && chmod 600 $STAND_TMP/epe_2026_walk_${STAMP}.dump && ls -la $STAND_TMP/epe_2026_walk_${STAMP}.dump"
+"${SSH[@]}" "cat $STAND_TMP/epe_2026_walk_${STAMP}.dump" > "$BACKUP_DIR/epe_2026_walk_${STAMP}.dump"
 echo "local copy: $BACKUP_DIR/epe_2026_walk_${STAMP}.dump ($(wc -c < "$BACKUP_DIR/epe_2026_walk_${STAMP}.dump") bytes)"
 
 echo "== 2. Throwaway DB $DB restored from the dump =="
 "${SSH[@]}" "docker exec postgres_n8n createdb -U admin $DB"
-"${SSH[@]}" "docker exec -i postgres_n8n pg_restore -U admin -d $DB --no-owner < /tmp/epe_2026_walk_${STAMP}.dump" || true
+"${SSH[@]}" "docker exec -i postgres_n8n pg_restore -U admin -d $DB --no-owner < $STAND_TMP/epe_2026_walk_${STAMP}.dump" || true
 USER_COUNT="$("${SSH[@]}" "docker exec postgres_n8n psql -U admin -d $DB -tAc 'SELECT count(*) FROM performance_db.users'")"
 test "$USER_COUNT" = "89" || { echo "restore verification failed: users=$USER_COUNT"; exit 1; }
 CRIT_COUNT="$("${SSH[@]}" "docker exec postgres_n8n psql -U admin -d $DB -tAc 'SELECT count(*) FROM performance_db.criteria WHERE is_active = true'")"
@@ -125,14 +126,14 @@ for i in $(seq 1 30); do
   fi
   sleep 2
 done
-scp -q "$CRED_FILE" "$HOST:/tmp/epe_walk_cred.json"
+scp -q "$CRED_FILE" "$HOST:$STAND_TMP/epe_walk_cred.json"
 # docker cp NESTS a directory when the target exists — clear the container path first.
-tar -C "$IMPORT_DIR" -cf - . | "${SSH[@]}" "rm -rf /tmp/epe_wk_wf && mkdir -p /tmp/epe_wk_wf && tar -C /tmp/epe_wk_wf -xf -"
+tar -C "$IMPORT_DIR" -cf - . | "${SSH[@]}" "rm -rf $STAND_TMP/epe_wk_wf && mkdir -p $STAND_TMP/epe_wk_wf && tar -C $STAND_TMP/epe_wk_wf -xf -"
 "${SSH[@]}" "docker exec $CONTAINER rm -rf /tmp/wf 2>/dev/null || true"
-"${SSH[@]}" "docker cp /tmp/epe_walk_cred.json $CONTAINER:/tmp/cred.json && docker cp /tmp/epe_wk_wf $CONTAINER:/tmp/wf && docker exec -u root $CONTAINER chown -R node:node /tmp/cred.json /tmp/wf"
+"${SSH[@]}" "docker cp $STAND_TMP/epe_walk_cred.json $CONTAINER:/tmp/cred.json && docker cp $STAND_TMP/epe_wk_wf $CONTAINER:/tmp/wf && docker exec -u root $CONTAINER chown -R node:node /tmp/cred.json /tmp/wf"
 "${SSH[@]}" "docker exec -u node $CONTAINER n8n import:credentials --input=/tmp/cred.json"
 "${SSH[@]}" "docker exec -u node $CONTAINER n8n import:workflow --separate --input=/tmp/wf/"
-"${SSH[@]}" "rm -f /tmp/epe_walk_cred.json && rm -rf /tmp/epe_wk_wf"
+"${SSH[@]}" "rm -f $STAND_TMP/epe_walk_cred.json && rm -rf $STAND_TMP/epe_wk_wf"
 
 echo "== 7. Activate webhook workflows (guard stays inactive, live parity) =="
 # Mail-touching auth flows (register / password reset) stay inactive: the
