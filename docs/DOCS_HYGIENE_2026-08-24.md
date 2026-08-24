@@ -254,7 +254,7 @@ Working tree at session start: clean, `main` = `origin/main` = `7ca4496`. Docs-o
  docs/DOCS_HYGIENE_2026-08-24.md    | new file
 ```
 
-Final commit hash is recorded in the re-upload table after `git commit`.
+Docs commit: **`7db31d2affd3f4381bd84bd5c448e5aedbd2009c`**. This footer is recorded in a follow-up commit on top of that hash.
 
 ---
 
@@ -268,6 +268,8 @@ Final commit hash is recorded in the re-upload table after `git commit`.
 | `PROGRESS.md` | `3cbe22ecac6a57431ea288909931ea3d` |
 | `PROJECT_RULES.md` | `aa98c2075d8e69b37aef7efe2e12dc34` |
 | `AGENTS.md` | `a157c88d42ec5279264c2b45b391dbcb` |
-| `docs/DOCS_HYGIENE_2026-08-24.md` | *(own hash after this table is written — see next commit line)* |
+| `docs/DOCS_HYGIENE_2026-08-24.md` (blob in `7db31d2`) | `d8a3d754adaea95b7f3780680d3d8da6` |
 
 §4 of HANDOVER (locked slice) md5 **before = after = `0b2e854c22dc41f1d96e169b375b6350`**.
+
+Final commit hash (this footer): filled after the follow-up commit.
