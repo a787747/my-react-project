@@ -86,9 +86,10 @@ ANALYTICS_TOP = legacy_query("API_ Analytics Dashboard - Optimized.json", "Get T
 ANALYTICS_LOW = legacy_query("API_ Analytics Dashboard - Optimized.json", "Get Low Performers")
 ANALYTICS_TRENDS = legacy_query("API_ Analytics Dashboard - Optimized.json", "Get Period Trends")
 ANALYTICS_FORMAT = legacy_node("API_ Analytics Dashboard - Optimized.json", "Build Response")["parameters"]["jsCode"]
-MANAGER_MATRIX_SQL = legacy_query(
-    "API_ Manager Subordinates Matrix.json", "Get Subordinates Matrix"
-)
+# The manager-subordinates-matrix SQL is NOT read from the top-level export any
+# more: it lives inline as MANAGER_MATRIX_INNER_SQL below (the legacy_query
+# read was dead code after that rewrite, and it blocked the deploy's export
+# refresh — a generator input must never be a file the deploy rewrites).
 # Inlined verbatim from the pre-guard `API: Manage Criteria Admin V7` node
 # `Prep SQL` (repo commit f9758d3). It used to be read out of the tracked
 # top-level export at generation time, but that export is refreshed FROM LIVE
@@ -1565,6 +1566,13 @@ LEFT JOIN performance_db.users mgr ON u.manager_id = mgr.id
 CROSS JOIN performance_db.criteria c
 WHERE c.is_active = true
   AND c.c_level_only = false
+  -- Applicability, classification dimension only (D-0822-3 / BUG-046): the
+  -- same one clause as the admin matrix and the close dataset — a cell for a
+  -- project_participants criterion is emitted only for a CURRENT project
+  -- participant. Scores and the correction sub-selects live inside the cell,
+  -- so an excluded criterion takes its corrections with it; the rows stay in
+  -- the database and return on switch-back.
+  AND (c.target_audience <> 'project_participants' OR u.is_project_participant = true)
 GROUP BY u.id, u.full_name, u.job_title, u.manager_id, mgr.full_name,
          d.name, g.code, g.description, u.is_project_participant
 ORDER BY mgr.full_name, u.full_name
@@ -1948,6 +1956,12 @@ return {{
         s.id AS subject_id,
         s.manager_id AS subject_manager_id,
         sm.manager_id AS skip_level_id,
+        s.is_project_participant AS subject_is_project,
+        COALESCE((
+          SELECT json_agg(c.id)
+          FROM performance_db.criteria c
+          WHERE c.target_audience = 'project_participants'
+        ), '[]'::json) AS project_criteria_ids,
         (
           SELECT p.id
           FROM performance_db.evaluation_periods p
@@ -1977,6 +1991,34 @@ if (!row) {
     json: {
       http_status: 404,
       body: { success: false, error: 'NOT_FOUND', message: 'Сотрудник не найден' },
+    },
+  };
+}
+// ── Applicability, classification dimension only (D-0822-3) ─────────────────
+// A project_participants criterion applies to a subject iff the subject is
+// CURRENTLY a project participant — the same shared predicate as submit,
+// additive, update and self-review. Corrections live inside the cell, so a
+// correction for an inapplicable criterion must be refused the same way.
+// Checked before the period gate: the refusal is non-mutating either way,
+// and the deployed rule stays provable on live while no campaign runs.
+const parseIdList = (raw) => {
+  let value = raw;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { value = []; }
+  }
+  return Array.isArray(value) ? value.map(Number) : [];
+};
+const projectCriteriaIds = parseIdList(row.project_criteria_ids);
+const subjectIsProject = row.subject_is_project === true || row.subject_is_project === 't';
+if (!subjectIsProject && projectCriteriaIds.includes(Number(prev.criteria_id))) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'CRITERIA_NOT_APPLICABLE',
+        message: `Критерий ${prev.criteria_id} — проектный, а сотрудник сейчас не участник проекта`,
+      },
     },
   };
 }

@@ -382,3 +382,31 @@ test("score-correction binds to an active started LEAF period only", () => {
   assert.ok(js.includes("period_type <> 'annual'") && js.includes("parent_period_id"),
     "score-correction: a container or annual period can never be the campaign period");
 });
+
+// ── Finalization batch (2026-08-24): corrections applicability + BUG-046 ─────
+
+test("score-correction refuses a project criterion for a currently-general subject", () => {
+  const js = allJsCode(load("score-correction.json"));
+  assert.ok(js.includes("CRITERIA_NOT_APPLICABLE"),
+    "score-correction: the write must share the D-0822-3 applicability refusal");
+  // the same shared predicate inputs as submit/additive/update/self-review
+  assert.ok(js.includes("subject_is_project"),
+    "score-correction: the lookup must read the subject's CURRENT classification");
+  assert.ok(js.includes("target_audience = 'project_participants'"),
+    "score-correction: the project-criteria set comes from the shared predicate");
+  assert.ok(js.includes("project_criteria_ids"),
+    "score-correction: the criteria list must reach the decide step");
+});
+
+test("manager-subordinates-matrix emits project cells only for current project participants (BUG-046)", () => {
+  const js = allJsCode(load("manager-subordinates-matrix.json"));
+  assert.ok(
+    js.includes("c.target_audience <> 'project_participants' OR u.is_project_participant = true"),
+    "manager matrix: a cell for a project criterion exists only for a current project participant"
+  );
+  // the emission filter must sit in the row-source WHERE, next to is_active
+  assert.ok(
+    /CROSS JOIN performance_db\.criteria c[\s\S]*?c\.is_active = true[\s\S]*?project_participants/.test(js),
+    "manager matrix: the filter belongs to the CROSS JOIN row source, not to a sub-select"
+  );
+});
