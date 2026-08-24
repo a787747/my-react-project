@@ -35,13 +35,17 @@ test('formatPeriodDateRu uses Russian month names and does not shift a UTC midni
   assert.equal(formatPeriodDateRu(''), null);
 });
 
-test('extractPeriodMeta reads optional name/dates and ignores the current employees shape', () => {
+test('extractPeriodMeta reads optional name/dates and handles the no-period employees shape', () => {
+  // Draft / no current period: the server sends the three meta keys as null.
   const today = extractPeriodMeta({
     success: true,
     campaign_active: false,
     period_in_preparation: false,
     current_period_id: null,
     current_period_status: null,
+    period_name: null,
+    period_start_date: null,
+    period_end_date: null,
     actor_is_in_scope: null,
     data: [],
   });
@@ -57,6 +61,26 @@ test('extractPeriodMeta reads optional name/dates and ignores the current employ
   assert.equal(future.periodName, 'H1-EXAMPLE');
   assert.equal(future.startDate, '2026-01-01');
   assert.equal(future.endDate, '2026-06-30');
+});
+
+test('extractPeriodMeta reads the exact keys GET /api/employees now serves (EMPLOYEES_PERIOD_META)', () => {
+  const served = extractPeriodMeta({
+    success: true,
+    campaign_active: false,
+    period_in_preparation: true,
+    current_period_id: 2,
+    current_period_status: 'active',
+    period_name: 'H1-2026',
+    period_start_date: '2026-01-01',
+    period_end_date: '2026-06-30',
+    actor_is_in_scope: true,
+    data: [],
+  });
+  assert.deepEqual(served, {
+    periodName: 'H1-2026',
+    startDate: '2026-01-01',
+    endDate: '2026-06-30',
+  });
 });
 
 test('three period-notice states: copy, title/scope visibility, mocked responses', () => {

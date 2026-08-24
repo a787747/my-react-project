@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# Build the isolated EMPLOYEES_PERIOD_META stand on the VPS (brief 2026-08-24:
+# period name + dates on the employees payload):
+#   - dated dump of live epe_2026
+#   - throwaway DB epe_empmeta_<stamp> restored from it (no schema change)
+#   - fixture seed applied to the throwaway ONLY (walkthrough actors 1301-1310
+#     plus 1311, an out-of-scope direct report; real scrypt logins for the
+#     browser check)
+#   - isolated n8n `epe-empmeta-n8n` on VPS loopback :25679 (same pinned
+#     image), with the guard + the FULL generated workflow surface imported:
+#     the browser check renders Welcome, which calls several routes
+# Live epe_2026 and the live n8n are never written by this script.
+set -euo pipefail
+
+HOST="root@92.51.45.147"
+SSH=(ssh -o BatchMode=yes "$HOST")
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+STAMP="$(date -u +%Y%m%d_%H%M)"
+STAND_TMP="/root/epe_stand_tmp"  # never /tmp: PROJECT_RULES 2026-08-24 (BUG-053)
+DB="epe_empmeta_${STAMP}"
+BACKUP_DIR="$REPO/backups/2026-08-24-empmeta"
+IMAGE="n8nio/n8n@sha256:0a65e6e5995c19e0cf7e83d6b08ffa6c1898e8a53ff1658e6e7b22e68576c673"
+CONTAINER="epe-empmeta-n8n"
+CRED_ID="VNbfkY8IKbEzn88B"
+GUARD_ID="L0Zr7nVa8O5YWXd3"
+
+mkdir -p "$BACKUP_DIR"
+
+echo "== 1. Dated dump of live epe_2026 =="
+"${SSH[@]}" "mkdir -p $STAND_TMP && chmod 700 $STAND_TMP && docker exec postgres_n8n pg_dump -U admin -Fc epe_2026 > $STAND_TMP/epe_2026_empmeta_${STAMP}.dump && chmod 600 $STAND_TMP/epe_2026_empmeta_${STAMP}.dump && ls -la $STAND_TMP/epe_2026_empmeta_${STAMP}.dump"
+"${SSH[@]}" "cat $STAND_TMP/epe_2026_empmeta_${STAMP}.dump" > "$BACKUP_DIR/epe_2026_empmeta_${STAMP}.dump"
+echo "local copy: $BACKUP_DIR/epe_2026_empmeta_${STAMP}.dump ($(wc -c < "$BACKUP_DIR/epe_2026_empmeta_${STAMP}.dump") bytes)"
+
+echo "== 2. Throwaway DB $DB restored from the dump =="
+"${SSH[@]}" "docker exec postgres_n8n createdb -U admin $DB"
+"${SSH[@]}" "docker exec -i postgres_n8n pg_restore -U admin -d $DB --no-owner < $STAND_TMP/epe_2026_empmeta_${STAMP}.dump" || true
+USER_COUNT="$("${SSH[@]}" "docker exec postgres_n8n psql -U admin -d $DB -tAc 'SELECT count(*) FROM performance_db.users'")"
+test "$USER_COUNT" = "89" || { echo "restore verification failed: users=$USER_COUNT"; exit 1; }
+CRIT_COUNT="$("${SSH[@]}" "docker exec postgres_n8n psql -U admin -d $DB -tAc 'SELECT count(*) FROM performance_db.criteria WHERE is_active = true'")"
+test "$CRIT_COUNT" = "9" || { echo "restore verification failed: active criteria=$CRIT_COUNT"; exit 1; }
+echo "restore verified: users=$USER_COUNT, active criteria=$CRIT_COUNT"
+
+echo "== 3. Fixture seed on the throwaway =="
+"${SSH[@]}" "docker exec -i postgres_n8n psql -U admin -d $DB -v ON_ERROR_STOP=1" < "$REPO/scripts/seed_empmeta_throwaway.sql"
+
+echo "== 4. Generate workflows with real credential/guard ids =="
+GEN_H1="$(mktemp -d)"; GEN_DEF="$(mktemp -d)"; GEN_AUTH="$(mktemp -d)"
+# NOTE: top-level exports are untrusted (BUG-028/045). Everything is generated here.
+python3 "$REPO/scripts/build_route_guard_workflows.py" \
+  --postgres-credential-id "$CRED_ID" --guard-workflow-id "$GUARD_ID" \
+  --output-directory "$GEN_H1" >/dev/null
+python3 "$REPO/scripts/build_route_guard_deferred.py" \
+  --postgres-credential-id "$CRED_ID" --guard-workflow-id "$GUARD_ID" \
+  --output-directory "$GEN_DEF" >/dev/null
+python3 "$REPO/scripts/build_auth_workflows.py" \
+  --postgres-credential-id "$CRED_ID" --guard-workflow-id "$GUARD_ID" \
+  --output-directory "$GEN_AUTH" >/dev/null
+
+echo "== 5. Isolated n8n on VPS loopback :25679 =="
+JWT_SECRET="$(openssl rand -hex 32)"
+ENC_KEY="$(openssl rand -hex 24)"
+PGPASS="$("${SSH[@]}" "docker exec postgres_n8n env | grep '^POSTGRES_PASSWORD=' | cut -d= -f2-")"
+test -n "$PGPASS"
+"${SSH[@]}" "docker rm -f $CONTAINER 2>/dev/null || true"
+"${SSH[@]}" "docker run -d --name $CONTAINER --network n8n_default \
+  -p 127.0.0.1:25679:5678 \
+  -e N8N_ENCRYPTION_KEY=$ENC_KEY \
+  -e JWT_SIGNING_SECRET=$JWT_SECRET \
+  -e NODE_FUNCTION_ALLOW_BUILTIN=crypto \
+  -e NODE_FUNCTION_ALLOW_EXTERNAL=jsonwebtoken \
+  -e N8N_BLOCK_ENV_ACCESS_IN_NODE=false \
+  -e N8N_SECURE_COOKIE=false \
+  -e WEBHOOK_URL=http://127.0.0.1:25679/ \
+  -e GENERIC_TIMEZONE=Europe/Moscow -e TZ=Europe/Moscow \
+  $IMAGE"
+
+cat > "$BACKUP_DIR/throwaway_env.json" <<EOF
+{"database": "$DB", "jwt_secret": "$JWT_SECRET", "container": "$CONTAINER", "stamp": "$STAMP"}
+EOF
+echo "stand facts written to $BACKUP_DIR/throwaway_env.json (backups/ is gitignored)"
+
+echo "== 6. Import credential + workflows via n8n CLI =="
+CRED_FILE="$(mktemp)"
+python3 - "$DB" "$PGPASS" > "$CRED_FILE" <<'PYEOF'
+import json, sys
+db, password = sys.argv[1], sys.argv[2]
+print(json.dumps([{
+    "id": "VNbfkY8IKbEzn88B",
+    "name": "EPE 2026 Postgres",
+    "type": "postgres",
+    "data": {
+        "host": "postgres_n8n", "port": 5432, "database": db,
+        "user": "admin", "password": password, "ssl": "disable",
+        "allowUnauthorizedCerts": False, "sshTunnel": False,
+    },
+}]))
+PYEOF
+
+IMPORT_DIR="$(mktemp -d)"
+prep () {  # <src> <dest-name> [id]  — n8n CLI import needs explicit active + versionId
+  python3 - "$1" "$IMPORT_DIR/$2" "${3:-}" <<'PYEOF'
+import json, sys, uuid
+wf = json.load(open(sys.argv[1]))
+wf["active"] = False
+wf["versionId"] = str(uuid.uuid4())
+# n8n import assigns a NEW id unless the file carries one. The guard MUST keep
+# the live id: every Run Auth Guard node references it by literal id, and a
+# regenerated guard id makes every protected route answer an empty 200.
+if len(sys.argv) > 3 and sys.argv[3]:
+    wf["id"] = sys.argv[3]
+json.dump(wf, open(sys.argv[2], "w"), ensure_ascii=False, indent=2)
+PYEOF
+}
+prep "$GEN_AUTH/auth-guard.json" auth-guard.json "$GUARD_ID"
+# The full generated surface: every other workflow from the three builders.
+for SRC in "$GEN_AUTH" "$GEN_H1" "$GEN_DEF"; do
+  for F in "$SRC"/*.json; do
+    BASE="$(basename "$F")"
+    [ "$BASE" = "auth-guard.json" ] && continue
+    prep "$F" "$BASE"
+  done
+done
+
+for i in $(seq 1 30); do
+  if "${SSH[@]}" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:25679/healthz" | grep -q 200; then
+    break
+  fi
+  sleep 2
+done
+scp -q "$CRED_FILE" "$HOST:$STAND_TMP/epe_empmeta_cred.json"
+# docker cp NESTS a directory when the target exists — clear the container path first.
+tar -C "$IMPORT_DIR" -cf - . | "${SSH[@]}" "rm -rf $STAND_TMP/epe_em_wf && mkdir -p $STAND_TMP/epe_em_wf && tar -C $STAND_TMP/epe_em_wf -xf -"
+"${SSH[@]}" "docker exec $CONTAINER rm -rf /tmp/wf 2>/dev/null || true"
+"${SSH[@]}" "docker cp $STAND_TMP/epe_empmeta_cred.json $CONTAINER:/tmp/cred.json && docker cp $STAND_TMP/epe_em_wf $CONTAINER:/tmp/wf && docker exec -u root $CONTAINER chown -R node:node /tmp/cred.json /tmp/wf"
+"${SSH[@]}" "docker exec -u node $CONTAINER n8n import:credentials --input=/tmp/cred.json"
+"${SSH[@]}" "docker exec -u node $CONTAINER n8n import:workflow --separate --input=/tmp/wf/"
+"${SSH[@]}" "rm -f $STAND_TMP/epe_empmeta_cred.json && rm -rf $STAND_TMP/epe_em_wf"
+
+echo "== 7. Activate webhook workflows (guard stays inactive, live parity) =="
+# Mail-touching auth flows (register / password reset) stay inactive: the
+# proof does not cover registration and the stand has no SMTP credential.
+LIST="$("${SSH[@]}" "docker exec -u node $CONTAINER n8n list:workflow")"
+echo "$LIST"
+while IFS= read -r NAME; do
+  WF_ID="$(echo "$LIST" | grep -F "|$NAME" | cut -d'|' -f1 | head -1)"
+  test -n "$WF_ID" || { echo "workflow not found: $NAME"; exit 1; }
+  # ssh -n: without it ssh slurps the rest of this heredoc off stdin and the
+  # loop ends after one name (cost a previous stand a re-activation pass).
+  ssh -n -o BatchMode=yes "$HOST" "docker exec -u node $CONTAINER n8n update:workflow --id=$WF_ID --active=true" >/dev/null
+  echo "activated $WF_ID $NAME"
+done <<'NAMES'
+API: Auth Login (No Params)
+API: Get Employees (Smart Role Based)
+API: Manage Periods
+API: Admin Get Users Data
+API: Check Evaluated V2
+API: Check Self Review
+API: Get Criteria With Levels
+API: Get Evaluation Details FIXED
+API: My Evaluation History (Received)
+API: Get My Manager
+API: HR Evaluation Status
+API: My Profile V5 (Fixed Empty)
+API: Save Score Coefficients
+API: Get Score Coefficients
+API: Admin Save User (GUI Mode)
+API: Submit Self Review
+API: Submit Evaluation
+API: Update Evaluation WITH PERIOD
+API: All-evaluation
+API: Analytics Dashboard - Optimized
+API: Get Employee Self Review
+API: evaluation-details-by-user
+API: evaluations-matrix
+API: Get Admin Data Fixed
+API: Manage Criteria Admin V7
+API: Manager Subordinates Matrix
+API: Score Correction
+API: Update Admin Data
+NAMES
+"${SSH[@]}" "docker restart $CONTAINER" >/dev/null
+sleep 12
+"${SSH[@]}" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:25679/healthz" | grep -q 200 && echo "stand healthy"
+
+echo "== DONE. Stand: $CONTAINER, DB: $DB, VPS loopback :25679 =="
+echo "Local access: ssh -N -L 25679:127.0.0.1:25679 $HOST  (then http://127.0.0.1:25679/webhook)"

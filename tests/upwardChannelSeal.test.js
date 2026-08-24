@@ -113,21 +113,31 @@ test('HR evaluation-status: completion flags only, no score or comment columns',
   assert.equal(js.includes('weighted_score'), false);
 });
 
-test('employees campaign payload has flags, not period name/dates and not upward content', () => {
+test('employees campaign payload carries flags plus period name/dates as SQL text, not upward content', () => {
   const wf = load(AUTH_DIR, 'protected-employees.json');
   const build = jsOf(wf, 'Build Identity-Bound Query');
   const format = jsOf(wf, 'Format Response');
   assert.equal(guardRoles(wf), '[]', 'any authenticated session');
-  assert.match(build, /SELECT id, status, is_active, evaluation_started_at/);
-  assert.equal(build.includes('cp.name'), false);
-  assert.equal(build.includes('start_date'), false);
-  assert.equal(build.includes('end_date'), false);
+  // EMPLOYEES_PERIOD_META: the Welcome notice title/scope feed. Dates are
+  // serialised inside SQL — a date column through the n8n Postgres node
+  // becomes a UTC JS Date and can shift a calendar day (BUG-031).
+  assert.match(build, /to_char\(start_date, 'YYYY-MM-DD'\) AS start_date_text/);
+  assert.match(build, /to_char\(end_date, 'YYYY-MM-DD'\) AS end_date_text/);
+  assert.match(build, /\(SELECT name FROM current_period\) AS period_name/);
+  assert.match(build, /\(SELECT start_date_text FROM current_period\) AS period_start_date/);
+  assert.match(build, /\(SELECT end_date_text FROM current_period\) AS period_end_date/);
+  assert.equal(build.includes('.slice(0, 10)'), false, 'BUG-031: never slice a serialised Date');
   assert.match(format, /campaign_active:/);
   assert.match(format, /period_in_preparation:/);
   assert.match(format, /current_period_id:/);
-  assert.equal(format.includes('period_name'), false);
-  assert.equal(format.includes('start_date'), false);
-  assert.equal(format.includes('end_date'), false);
+  assert.match(format, /period_name: row\.period_name \|\| null/);
+  assert.match(format, /period_start_date: row\.period_start_date \|\| null/);
+  assert.match(format, /period_end_date: row\.period_end_date \|\| null/);
+  // The payload still carries no scores, comments or upward content.
+  assert.equal(build.includes('calculated_score'), false);
+  assert.equal(build.includes('weighted_score'), false);
+  assert.equal(format.includes('general_comment'), false);
+  assert.equal(format.includes('private_comment'), false);
 });
 
 test('GET api/periods does not admit employee or manager', () => {

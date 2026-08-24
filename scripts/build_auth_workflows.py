@@ -1374,7 +1374,13 @@ return {
         -- the highest id decided. With no active leaf the answer is
         -- explicitly "none" — a container or a draft is never "the current
         -- period".
-        SELECT id, status, is_active, evaluation_started_at
+        -- Period name/dates ride to the Welcome notice. Dates leave Postgres
+        -- as text: a date column crosses the n8n Postgres node as a
+        -- UTC-serialised JS Date and can shift a calendar day (BUG-031).
+        SELECT id, status, is_active, evaluation_started_at,
+               name,
+               to_char(start_date, 'YYYY-MM-DD') AS start_date_text,
+               to_char(end_date, 'YYYY-MM-DD') AS end_date_text
         FROM performance_db.evaluation_periods cp
         WHERE cp.is_active = true AND cp.status = 'active'
           AND cp.period_type <> 'annual'
@@ -1509,6 +1515,9 @@ return {
         EXISTS(SELECT 1 FROM active_period) AS campaign_active,
         (SELECT id FROM current_period) AS current_period_id,
         (SELECT status FROM current_period) AS current_period_status,
+        (SELECT name FROM current_period) AS period_name,
+        (SELECT start_date_text FROM current_period) AS period_start_date,
+        (SELECT end_date_text FROM current_period) AS period_end_date,
         EXISTS(
           SELECT 1 FROM current_period
           WHERE is_active = true AND status = 'active'
@@ -1579,6 +1588,9 @@ return {
       period_in_preparation: periodInPreparation,
       current_period_id: row.current_period_id || null,
       current_period_status: row.current_period_status || null,
+      period_name: row.period_name || null,
+      period_start_date: row.period_start_date || null,
+      period_end_date: row.period_end_date || null,
       actor_is_in_scope: actorIsInScope,
       data: employees,
     },

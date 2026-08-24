@@ -1037,3 +1037,16 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - Report: `docs/WELCOME_PERIOD_NOTICE_2026-08-2x.md`.
 - `npm test` **295 → 312**. bugs.md **16 open / 37 closed** (recounted).
 - Deployed release **`20260824T182054Z`**. Previous `20260824T175642Z` retained. Live still H1 draft, four data tables 0, `evaluation_started_at` NULL.
+
+## 2026-08-24 — Employees period meta: period name + dates on /api/employees, stand-proven, deployed
+
+**What was done:**
+- One workflow changed, additively, through its builder (`scripts/build_auth_workflows.py`): `GET /api/employees` now carries `period_name`, `period_start_date`, `period_end_date` for the current period (active leaf — preparation and started states), all `null` when there is no current period. Dates leave Postgres as `to_char(…, 'YYYY-MM-DD')` text (BUG-031 defence). Guard unchanged; `GET /api/periods` not opened. Frontend untouched — `extractPeriodMeta` already reads exactly these keys.
+- Stand proof (walkthrough pattern, `epe-empmeta-n8n` / `epe_empmeta_20260824_1840`, VPS loopback :25679): old and new definitions both imported and verified node-for-node via n8n export; 3 states (draft → real activate → real start-evaluation) × 3 fixture actors (employee, manager, out-of-scope 1311). All 9 cells: added keys exactly the three, removed none, payload minus the three keys deep-equal to the old payload. Values: draft → three nulls; preparation/started → `H1-2026` / `2026-01-01` / `2026-06-30` — not the previous day. Artifact: `backups/2026-08-24-empmeta/empmeta_proof.json`.
+- Browser check on the stand (vite :5299, real login as `wt.employee.g`): preparation and started render «Промежуточная оценка: H1-2026 (1 января 2026 — 30 июня 2026)» + the scope sentence with the same dates; draft hides both.
+- Live PUT via `scripts/deploy_employees_period_meta.py` (guard frozen before/during/after, activation `true → true`, graph re-read node-for-node, export refreshed): `bKB4Sb46yWoq1tSV` `updatedAt` `2026-08-24T06:10:17.952Z` → **`2026-08-24T18:49:55.486Z`**. Drift before PUT: exactly the one intended workflow; after: **30 identical / 0 changed**. Live probe (marked session, deleted; fingerprint identical): admin GET 200, key set = previous eight + the three new keys, all three `null` (H1 draft).
+- Riders: BUG-054 (history workflow named Received, SQL given-only) and BUG-055 (Profile «Оценен подчиненным:» against a nulled name) filed as low; bugs.md 18/37.
+
+**Results:**
+- Report: `docs/EMPLOYEES_PERIOD_META_2026-08-2x.md`. HANDOVER §3 employees bullet updated.
+- `npm test` **312 → 313**. Live after everything: H1 id 2 `draft`/inactive/not-started, four data tables 0/0/0/0. Teardown complete: container removed, stand DB dropped (`epe_2026` the only `epe_%` DB), `/root/epe_stand_tmp` empty, tunnels killed.

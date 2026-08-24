@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 16 |
+| 🔴 Open | 18 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 37 |
 
@@ -443,6 +443,26 @@
 - Why it matters: same class as BUG-049 — the repo is the memory (§9 HANDOVER). The H2 rewrite, or any stand built from `schema.sql` + migrations instead of a live dump, inherits a table the deployed workflows cannot write to, and the gate that catches it would blame the workflow layer, not the DDL record.
 - How to fix: a reconcile migration `015_reconcile_score_corrections_period.sql` that idempotently adds `period_id` + its FK + the 4-column unique index (dropping the 3-column one) and records the CHECK divergence, plus a regenerated `schema.sql` snapshot at rewrite time.
 - Source: live `pg_constraint` / `pg_indexes` read during the criterion-9 batch while closing BUG-049 (`docs/CRITERION9_2026-08-2x.md`).
+
+### BUG-054: The evaluation-history workflow is named «Received» while its SQL is given-only
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: live workflow `API: My Evaluation History (Received)` (`updatedAt=2026-08-19T08:40:21.096Z`), generated as `route_guard_h1/evaluation-history.json`; node `Build History Query`.
+- Description: the workflow's name says Received, but the SQL is `WHERE e.evaluator_id = ${actorId} AND e.is_self_evaluation = false` — the route (`GET /api/evaluation-history`) returns only evaluations the actor **gave**. Received upward content deliberately does not reach this route (D-0824-3); the behaviour is correct, the name is not.
+- Why it matters: the name is the first thing the next engineer reads. A future change "fixing" the route to match its name would open the upward channel the server currently seals.
+- How to fix: rename the workflow (builder + a live PUT that changes the name only, or fold into the next PUT touching this workflow) to e.g. `API: My Evaluation History (Given)`.
+- Source: surfaced in `docs/WELCOME_PERIOD_NOTICE_2026-08-2x.md` §4/§8; filed in `docs/EMPLOYEES_PERIOD_META_2026-08-2x.md`.
+
+### BUG-055: Profile prints the label «Оценен подчиненным:» against an evaluator name the server nulls
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: `src/pages/Profile.jsx:221` and `src/pages/Profile.jsx:316` — `Оценен подчиненным: {evaluation.evaluator_name}`.
+- Description: for upward rows (`evaluation_source='subordinate'`) `API: My Profile V5` nulls `evaluator_name`/`evaluator_title` before the row reaches the subject (D-0824-3 anonymity). The Profile card still renders the label with the nulled field, producing «Оценен подчиненным: » followed by nothing.
+- Why it matters: cosmetic — an empty-looking label on the subject's own profile once upward evaluations exist. No data leaks; the null is the seal working.
+- How to fix: when `evaluation_source === 'subordinate'`, render the label without the name (e.g. just «Оценен подчиненным») or an anonymized wording.
+- Source: surfaced in `docs/WELCOME_PERIOD_NOTICE_2026-08-2x.md` §4/§8; filed in `docs/EMPLOYEES_PERIOD_META_2026-08-2x.md`.
 
 ## ✅ Closed
 
