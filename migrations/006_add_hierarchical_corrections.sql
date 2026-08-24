@@ -6,6 +6,14 @@
 -- Если нет - создаём, если да - модифицируем
 
 -- Создаём таблицу score_corrections если её нет
+--
+-- ИСПРАВЛЕНО 2026-08-24 (BUG-049): FK критерия ссылался на users(id) (опечатка), и все три FK
+-- объявляли ON DELETE CASCADE. Живая epe_2026 (pg_constraint, прочитано 2026-08-24) имеет:
+-- criteria_id -> performance_db.criteria(id), subject_id / evaluator_id -> users(id),
+-- действия NO ACTION (по умолчанию), имена без «_id»: score_corrections_subject_fkey /
+-- score_corrections_criteria_fkey / score_corrections_evaluator_fkey. Файл приведён к живой
+-- схеме; сама живая база корректна и этим исправлением не менялась. Остаточные расхождения
+-- таблицы с цепочкой миграций (period_id и его FK/уникальный индекс, CHECK, schema.sql) — BUG-050.
 CREATE TABLE IF NOT EXISTS performance_db.score_corrections (
     id serial4 NOT NULL,
     subject_id int4 NOT NULL,
@@ -15,9 +23,9 @@ CREATE TABLE IF NOT EXISTS performance_db.score_corrections (
     correction_level varchar(20) DEFAULT 'c_level'::character varying NOT NULL,
     updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
     CONSTRAINT score_corrections_pkey PRIMARY KEY (id),
-    CONSTRAINT score_corrections_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES performance_db.users(id) ON DELETE CASCADE,
-    CONSTRAINT score_corrections_criteria_id_fkey FOREIGN KEY (criteria_id) REFERENCES performance_db.users(id) ON DELETE CASCADE,
-    CONSTRAINT score_corrections_evaluator_id_fkey FOREIGN KEY (evaluator_id) REFERENCES performance_db.users(id) ON DELETE CASCADE,
+    CONSTRAINT score_corrections_subject_fkey FOREIGN KEY (subject_id) REFERENCES performance_db.users(id),
+    CONSTRAINT score_corrections_criteria_fkey FOREIGN KEY (criteria_id) REFERENCES performance_db.criteria(id),
+    CONSTRAINT score_corrections_evaluator_fkey FOREIGN KEY (evaluator_id) REFERENCES performance_db.users(id),
     CONSTRAINT score_corrections_score_check CHECK (correction_score >= 0 AND correction_score <= 10)
 );
 

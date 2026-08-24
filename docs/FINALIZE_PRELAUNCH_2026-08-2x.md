@@ -27,11 +27,16 @@ Write-side only, as briefed — the read-side exclusion (corrections live inside
 in the reclass build and gate.
 
 **Ordering decision, surfaced.** The new check sits **after the subject 404 and before the period
-409 / ownership 403** — not last. Reasons: the refusal is non-mutating wherever it sits; the
-deployed submit path already answers applicability before its relation checks, so this leaks
-nothing submit does not; and it keeps the deployed rule provable on live while the launch is paused
-(otherwise every live probe would stop at `NO_ACTIVE_PERIOD` and the deploy would be verifiable
-only by byte-identity). The relative order of all pre-existing checks is unchanged.
+409 / ownership 403** — not last. Reasons: the refusal is non-mutating wherever it sits, and it
+keeps the deployed rule provable on live while the launch is paused (otherwise every live probe
+would stop at `NO_ACTIVE_PERIOD` and the deploy would be verifiable only by byte-identity).
+*Correction (2026-08-24, BUG-048):* this paragraph originally gave a third reason — "the deployed
+submit path already answers applicability before its relation checks, so this leaks nothing submit
+does not" — and that reason is wrong. Submit answers `SCOPE_MISMATCH` / `PERIOD_NOT_STARTED` /
+`CANNOT_EVALUATE` **before** its applicability 422, so it never reveals applicability on paused
+live; the corrections ordering does give a role-gated writer a marginal pre-period classification
+probe that submit does not offer. That cost was accepted by decision (D-0824-1: the pre-period
+applicability answer is intentional). The relative order of all pre-existing checks is unchanged.
 
 **Stand evidence** (`finalize_proof.json` → `corrections_applicability`, campaign running):
 

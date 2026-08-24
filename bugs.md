@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 22 |
+| 🔴 Open | 21 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 27 |
+| 🟢 Closed | 29 |
 
 ---
 
@@ -374,23 +374,35 @@
 
 ### BUG-048: FINALIZE §1 mis-describes the submit path's check order; the pre-period 422 is a paused-state classification disclosure submit does not make
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📝 Low (report-accuracy; the deployed corrections behaviour itself is exactly as claimed and approved — only one of the three justification sentences is wrong, and the disclosure it waves away is real but marginal)
 - Location: `docs/FINALIZE_PRELAUNCH_2026-08-2x.md` §1 "Ordering decision, surfaced", the sentence "the deployed submit path already answers applicability before its relation checks, so this leaks nothing submit does not".
 - Description: the deployed `API: Submit Evaluation` → `Build Insert SQL` answers `SCOPE_MISMATCH` 403 (one lookup bundling the actor–subject relation and active-period scope), `PERIOD_NOT_STARTED` 409 and `CANNOT_EVALUATE` 403 **before** its applicability 422 — read from live `workflow_entity` 2026-08-24 (byte-identical to the generator). Submit therefore never reveals applicability while the launch is paused (it answers `SCOPE_MISMATCH` first), whereas the corrections route now answers 422 `CRITERIA_NOT_APPLICABLE` before its period gate — so any role-gated writer (admin / c_level / any manager) can distinguish a subject's current project/general classification for **any** subject id by probing criterion 8, on paused live and mid-campaign pre-ownership.
 - Why it matters: DECISIONS/report accuracy is the §6.11 wrong-premise class — a future session citing the sentence would believe the ordering introduces no new information surface. The disclosure itself is minor (classification is visible to admin/c_level on every matrix, and to a manager for their own span), but it is real, was traded deliberately for live provability, and should be recorded as a cost, not denied.
 - How to fix: correct the §1 sentence (and mirror the nuance in the D-0822-3 extension note): the refusal is non-mutating and keeps the rule provable on paused live — those two reasons stand — at the cost of a marginal classification probe that submit does not offer. Alternatively reorder the check behind the period gate and accept byte-identity-only deploy verification; that trade-off is Alexander's to re-make, not an executor's.
 - Source: verification gate `docs/GATE_FINALIZE_2026-08-2x.md` §2, deployed submit order vs report text.
+- Closed (2026-08-24, criterion-9 batch): **accepted behavior by decision D-0824-1** — the pre-period applicability answer is intentional. The two standing reasons (non-mutating refusal; the deployed rule stays provable on paused live) hold; the cost — a role-gated writer can distinguish a subject's current project/general classification pre-period by probing a project criterion, which submit does not offer — is recorded as an accepted cost, not denied. The wrong justification sentence in `docs/FINALIZE_PRELAUNCH_2026-08-2x.md` §1 is corrected in place as a marked correction (2026-08-24). No code change; the deployed ordering stays as approved.
 
 ### BUG-049: Migration 006 does not reproduce live's `score_corrections` constraints (criteria FK typo'd to `users`, CASCADE vs live NO ACTION); `schema.sql` predates the table
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📝 Low (no live impact — stands restore from live dumps; wrong only for a from-migrations rebuild)
 - Location: `migrations/006_add_hierarchical_corrections.sql` (`score_corrections_criteria_id_fkey FOREIGN KEY (criteria_id) REFERENCES performance_db.users(id) ON DELETE CASCADE` — criteria FK pointing at **users**, and `ON DELETE CASCADE` on subject/evaluator/criteria); `schema.sql` (no `score_corrections` table at all).
 - Description: live `epe_2026` (pg_constraint, read 2026-08-24) has `score_corrections_criteria_fkey FOREIGN KEY (criteria_id) REFERENCES performance_db.criteria(id)` and plain `NO ACTION` on all of subject/evaluator/criteria/period FKs. The migration as written would create a criteria FK that only accepts criterion ids that happen to be user ids, and CASCADE deletes that would silently destroy correction history when a user or criterion is removed. Live was evidently built/repaired by another path; the repo's DDL record does not say so anywhere.
 - Why it matters: the repo is the memory (§9 HANDOVER). The H2 rewrite, or any stand built from `schema.sql` + `migrations/001…014` instead of a live dump, inherits materially different — and data-destroying — constraints, and the gate that catches it would blame the wrong layer. Live's `NO ACTION` FKs are also what makes the Manage Criteria hard-delete safe (FK-blocked once data references a criterion) — a from-migrations rebuild loses that protection.
 - How to fix: a reconcile migration (or a corrective note in 006) stating the live constraint set verbatim, plus a regenerated `schema.sql` snapshot at rewrite time; cheapest correct fix is a new migration `015_reconcile_score_corrections_constraints.sql` that drops-if-exists the typo'd FK and recreates the live set idempotently.
 - Source: verification gate `docs/GATE_FINALIZE_2026-08-2x.md` §6 (FK check behind the criterion-delete adversarial question).
+- Fix (2026-08-24, criterion-9 batch): `migrations/006_add_hierarchical_corrections.sql` brought to the live FK set — criteria FK now `REFERENCES performance_db.criteria(id)` (was the `users(id)` typo), all three FKs plain `NO ACTION` (were `ON DELETE CASCADE`), constraint names aligned to live (`score_corrections_subject_fkey` / `_criteria_fkey` / `_evaluator_fkey`, without `_id`). Migration file only — live was already correct and was not touched (read-only `pg_constraint` evidence, `epe_2026` 2026-08-24: `score_corrections_criteria_fkey FOREIGN KEY (criteria_id) REFERENCES performance_db.criteria(id)`; `_subject_fkey` / `_evaluator_fkey` → `users(id)`; `_period_id_fkey` → `evaluation_periods(id)`; all plain NO ACTION; recorded in `docs/CRITERION9_2026-08-2x.md`). The same read surfaced residual divergences beyond this bug's FK scope — `period_id` absent from the entire migration chain, live's 4-column unique index vs 006's 3-column one, 006's CHECK absent on live, `schema.sql` still without the table — re-filed precisely as BUG-050 so they are not lost in this closure.
+
+### BUG-050: The migration chain cannot rebuild live `score_corrections`: `period_id` (column, FK, unique index) appears in no migration; 006's CHECK is absent on live; `schema.sql` predates the table
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low (no live impact — stands restore from live dumps; wrong only for a from-migrations rebuild)
+- Location: `migrations/001…014` (no statement adds `score_corrections.period_id`); `migrations/006_add_hierarchical_corrections.sql` (declares `score_corrections_score_check` and the 3-column unique index `idx_score_corrections_unique (subject_id, criteria_id, correction_level)`); `schema.sql` (no `score_corrections` table at all).
+- Description: live `epe_2026` (`pg_constraint` + `pg_indexes`, read 2026-08-24) has a `period_id` column with `score_corrections_period_id_fkey FOREIGN KEY (period_id) REFERENCES performance_db.evaluation_periods(id)` and the UNIQUE index `idx_score_corrections_unique_period (subject_id, criteria_id, correction_level, period_id)`, and **no** CHECK constraint on `correction_score`. Nothing in the migration chain creates any of that — BUG-049's fix reconciled 006's FK declarations only. A from-migrations rebuild gets a table without `period_id` — a column `API: Score Correction` writes — and a 3-column uniqueness that allows one correction per subject+criterion+level across **all** periods instead of per period.
+- Why it matters: same class as BUG-049 — the repo is the memory (§9 HANDOVER). The H2 rewrite, or any stand built from `schema.sql` + migrations instead of a live dump, inherits a table the deployed workflows cannot write to, and the gate that catches it would blame the workflow layer, not the DDL record.
+- How to fix: a reconcile migration `015_reconcile_score_corrections_period.sql` that idempotently adds `period_id` + its FK + the 4-column unique index (dropping the 3-column one) and records the CHECK divergence, plus a regenerated `schema.sql` snapshot at rewrite time.
+- Source: live `pg_constraint` / `pg_indexes` read during the criterion-9 batch while closing BUG-049 (`docs/CRITERION9_2026-08-2x.md`).
 
 ## ✅ Closed
 

@@ -496,7 +496,10 @@ Weights, level coefficients and grade coefficients stay editable **until the per
 
 ---
 
-## 2026-08-24 decision
+## 2026-08-24 decisions
+
+### D-0824-1 — The pre-period applicability answer is intentional
+The corrections route answers 422 `CRITERIA_NOT_APPLICABLE` before its period gate by design: the refusal is non-mutating and keeps the deployed applicability rule provable on live while the launch is paused; the cost — a role-gated writer can distinguish a subject's current project/general classification pre-period by probing a project criterion, which submit does not offer — is accepted and recorded (closes BUG-048; `docs/FINALIZE_PRELAUNCH_2026-08-2x.md` §1 corrected in place).
 
 ### D-0822-3 — Classification stays editable during a running campaign; a switch never destroys evaluation data
 Approved by Alexander 2026-08-22, implemented 2026-08-24 (`docs/RECLASS_2026-08-2x.md`). The project/general classification is editable at any time, including mid-campaign: the `CLASSIFICATION_FROZEN` 409 and its global first-submission probe are removed from `POST /admin/save-user`. What replaces the freeze is server-side **applicability, classification dimension only**: a criterion with `target_audience='project_participants'` applies to a subject iff the subject is **currently** a project participant; all other audiences keep their existing semantics everywhere.
