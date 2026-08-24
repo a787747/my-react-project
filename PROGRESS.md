@@ -1050,3 +1050,15 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 **Results:**
 - Report: `docs/EMPLOYEES_PERIOD_META_2026-08-2x.md`. HANDOVER §3 employees bullet updated.
 - `npm test` **312 → 313**. Live after everything: H1 id 2 `draft`/inactive/not-started, four data tables 0/0/0/0. Teardown complete: container removed, stand DB dropped (`epe_2026` the only `epe_%` DB), `/root/epe_stand_tmp` empty, tunnels killed.
+
+## 2026-08-25 — HR review of the criteria catalogue: 9 criteria / 90 level texts, verdict «start is possible», 39-row decision table
+
+**What was done:**
+- **Read-only everywhere.** No catalogue write, no coefficient write, no methodology edit, no workflow change, no deploy, no mail, no stand. Live was touched only by SELECTs on `performance_db.criteria`, `score_coefficients`, `grades`, `evaluation_periods` (2026-08-24 19:22:58 UTC by the server clock).
+- Full HR review of all 9 titles, 9 descriptions and 90 level texts, quoted verbatim from live, each with a verdict (ok / finding) — lenses: wording, ambiguity, distortion, scale integrity, perspective fit, role fit, overlap/double-pay, completeness, rater guidance. Criterion 14 texts confirmed char-for-char equal to `docs/briefs/criterion9_texts.json` (no drift since creation).
+- **Verdict: H1 can start on these texts.** P0 before the freeze: criterion 3 level 10 «в рамках года» (annual leftover), criterion 12 level 8 threshold «не менее 2-х за период» (written for an annual cycle), criterion 14 level 2 «качественно» (hole for the weak-no-extras case). P1: beyond-role facts paid in 3/4/8/13 in parallel with 14; «лояльность»/«незаменим»/«свой человек» anchors; criterion 13 mid-levels keyed to time-on-site; criterion 1 levels 8–9 closed to non-manager experts; jargon/typos. P2: criterion 1 role-ladder vs grade, upward reading of criterion 2, completeness gaps, 5-vs-6 norm convention. One-page rating guide drafted (report §5).
+- **Surfaced, not resolved:** live criterion-14 coefficient curve 0.70…7.00 ≠ approved D-0824-2 0.20…6.00 ≠ methodology draft §5 (which claims «verbatim from live 2026-08-24»); live pays the declared normal state (level 2) a full 1.00 and is the only non-strictly-increasing curve. Criterion 14 weight read **1.50** at SELECT time (the 2.00 seen by PRELAUNCH_FIX_BATCH is no longer live). Criterion 13 level 9 «или совмещение ролей» contradicts the methodology §10 13-vs-14 test. H1 (id 2) was `active` / `evaluation_started_at` NULL at read time — preparation window, catalogue still editable.
+
+**Results:**
+- Report: `docs/CRITERIA_HR_REVIEW_2026-08-2x.md` (RU, EN executive summary; per-criterion sections; overlap matrix; rating guide; 39-row decision table R-01…R-44; verbatim appendix of all nine rows, 90 level texts and 90 coefficient rows with timestamp). md5 `285d1cf3238c0cfc69ee49bb8db945cc` for re-upload.
+- No bugs.md rows, no other repo changes (per the brief's boundary). Catalogue, coefficients, methodology, workflows untouched; decisions are the owner's, line by line.
