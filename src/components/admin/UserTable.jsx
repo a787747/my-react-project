@@ -14,6 +14,7 @@
  * - onSubordinateEvaluationClick: function(user) - колбэк при клике на оценки от сотрудников (опционально)
  * - showSelfReviewScore: boolean - показывать ли балл самооценки (опционально)
  * - showThreeColumns: boolean - показывать ли 3 колонки статусов (Self, Сотрудники, Manager)
+ * - showEvaluationStatus: boolean - колонка кружков; AdminUsers hides it (BUG-034)
  * - sortField / sortDirection / onSort: клиентская сортировка (опционально; без onSort заголовки статичны)
  */
 
@@ -58,6 +59,7 @@ const UserTable = ({
   onSubordinateEvaluationClick,
   showSelfReviewScore = false,
   showThreeColumns = false,
+  showEvaluationStatus = true,
   sortField = null,
   sortDirection = 'asc',
   onSort
@@ -190,9 +192,11 @@ const UserTable = ({
                   'Менеджер'
                 )}
               </th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-center">
-                {showThreeColumns ? 'Статусы оценок' : 'Статус (Само. / Рук.)'}
-              </th>
+              {showEvaluationStatus && (
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-center">
+                  {showThreeColumns ? 'Статусы оценок' : 'Статус (Само. / Рук.)'}
+                </th>
+              )}
               {canEdit && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">Действия</th>}
             </tr>
           </thead>
@@ -269,7 +273,8 @@ const UserTable = ({
                     )}
                   </td>
                   
-                  {/* Статусы */}
+                  {/* Статусы — omitted on AdminUsers: no admin-allowed route returns these metrics */}
+                  {showEvaluationStatus && (
                   <td className="px-4 py-4">
                     <div className="flex items-center justify-center gap-2">
                       {/* Колонка 1: Самооценка - фиксированная ширина */}
@@ -367,6 +372,7 @@ const UserTable = ({
                       </div>
                     </div>
                   </td>
+                  )}
                   
                   {/* Действия */}
                   {canEdit && (
@@ -387,7 +393,7 @@ const UserTable = ({
               ))
             ) : (
               <tr>
-                <td colSpan={canEdit ? "6" : "5"} className="text-center py-10 text-gray-500">
+                <td colSpan={(canEdit ? 5 : 4) + (showEvaluationStatus ? 1 : 0)} className="text-center py-10 text-gray-500">
                   Сотрудники не найдены.
                 </td>
               </tr>

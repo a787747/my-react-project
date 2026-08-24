@@ -522,3 +522,10 @@ coefficients route has no server-side audit trail.
 **Consequence:** the methodology table (§4, pending approval) stays at 1.50. Architect's note:
 the coefficients route records no who/when/old→new for edits; an audit log for coefficient
 writes is listed in the September queue as a candidate, next to coefficient-table versioning.
+
+**Amendment (owner, 2026-08-24, later the same day):** the level curve of criterion 14 read
+on live at 17:15Z (0.70/1.00/1.00/1.10/1.20/1.50/2.00/3.00/5.00/7.00) was also the owner's
+/admin/scoring editability test, not a decision. The approved curve remains
+0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00; the owner restores it himself. A
+read-only comparison of live weights, level coefficients and grade coefficients against
+the approved tables is a runbook step before «Запустить оценку» and before close.

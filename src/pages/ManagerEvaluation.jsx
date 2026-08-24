@@ -153,6 +153,7 @@ const ManagerEvaluation = ({ user }) => {
 
   // Если у пользователя нет менеджера
   if (!hasManager || !manager) {
+    const isCLevelOrAdmin = user?.role === 'c_level' || user?.role === 'admin';
     return (
       <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-2xl mx-auto">
@@ -161,11 +162,14 @@ const ManagerEvaluation = ({ user }) => {
               <Users className="w-10 h-10 text-gray-400" />
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-3">
-              Руководитель не назначен
+              {isCLevelOrAdmin
+                ? 'Оценка руководителя не предусмотрена'
+                : 'Руководитель не назначен'}
             </h2>
             <p className="text-gray-600 mb-6">
-              В системе не указан ваш непосредственный руководитель. 
-              Обратитесь к HR-отделу для уточнения информации.
+              {isCLevelOrAdmin
+                ? 'Для руководителей C-level и администратора оценка непосредственного руководителя в этой программе не проводится: руководитель вам не назначается.'
+                : 'В системе не указан ваш непосредственный руководитель. Обратитесь к HR-отделу для уточнения информации.'}
             </p>
             <button
               onClick={refreshData}

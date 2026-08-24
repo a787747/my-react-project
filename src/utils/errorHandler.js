@@ -28,9 +28,9 @@ export const handleApiError = (error) => {
       case 400:
         return serverMessage || 'Некорректные данные запроса';
       case 401:
-        return 'Сессия истекла. Пожалуйста, войдите снова';
+        return serverMessage || 'Сессия истекла. Пожалуйста, войдите снова';
       case 403:
-        return 'Доступ запрещен. Недостаточно прав';
+        return serverMessage || 'Доступ запрещен. Недостаточно прав';
       case 404:
         return serverMessage || 'Запрашиваемый ресурс не найден';
       case 409:
@@ -38,7 +38,7 @@ export const handleApiError = (error) => {
       case 422:
         return serverMessage || 'Ошибка валидации данных';
       case 429:
-        return 'Слишком много запросов. Попробуйте позже';
+        return serverMessage || 'Слишком много запросов. Попробуйте позже';
       case 500:
         return 'Внутренняя ошибка сервера. Попробуйте позже';
       case 502:

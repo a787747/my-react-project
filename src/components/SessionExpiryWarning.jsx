@@ -37,7 +37,7 @@ const SessionExpiryWarning = () => {
         <Clock className="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true" />
         <p className="text-sm">
           Сессия завершится примерно через {minutes} мин. Завершите форму;
-          незавершённая оценка сохранится локально.
+          незавершённая оценка сохранится в этом браузере и истечёт через 7 дней.
         </p>
       </div>
     </div>

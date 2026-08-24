@@ -18,30 +18,19 @@
  * - useUserFilters - логика фильтрации
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Users, Plus, Info, Upload } from 'lucide-react';
 
 // Компоненты
 import { Toast, LoadingSpinner, Pagination } from '../components/common';
 import { UserTable, UserFilters, UserModal, UserImportModal } from '../components/admin';
-import SelfReviewDetailsModal from '../components/SelfReviewDetailsModal';
-import ManagerEvaluationDetailsModal from '../components/ManagerEvaluationDetailsModal';
-import SubordinateEvaluationsModal from '../components/SubordinateEvaluationsModal';
-
-// API
-import apiClient from '../api/client';
-import { API_ENDPOINTS } from '../config/api';
 
 // Хуки
 import { useUsers } from '../hooks/useUsers';
 import { useUserFilters } from '../hooks/useUserFilters';
 
-// Утилиты
-import logger from '../utils/logger';
-
 // Константы
 import { UI_CONFIG } from '../config/constants';
-import { canViewAnalytics } from '../utils/permissions';
 
 /**
  * Рекурсивно находит всех подчинённых пользователя
@@ -70,7 +59,6 @@ const AdminUsers = ({ user }) => {
   // Проверка прав доступа - Admin, C-level, HR видят всех и могут редактировать
   const isFullAccess = ['admin', 'c_level', 'hr'].includes(user?.role);
   const canEdit = isFullAccess;
-  const canOpenDossier = canViewAnalytics(user?.role);
 
   // Хук для работы с пользователями
   const { 
@@ -82,74 +70,11 @@ const AdminUsers = ({ user }) => {
     importUsers
   } = useUsers();
 
-  // Состояние для статусов оценок
-  const [selfReviewsStatus, setSelfReviewsStatus] = useState({});
-  const [evaluationStatuses, setEvaluationStatuses] = useState({});
-
-  // Состояние для модальных окон оценок
-  const [selectedEmployeeForSelfReview, setSelectedEmployeeForSelfReview] = useState(null);
-  const [isSelfReviewModalOpen, setIsSelfReviewModalOpen] = useState(false);
-  const [selectedEmployeeForManager, setSelectedEmployeeForManager] = useState(null);
-  const [isManagerModalOpen, setIsManagerModalOpen] = useState(false);
-  const [selectedEmployeeForSubordinates, setSelectedEmployeeForSubordinates] = useState(null);
-  const [isSubordinatesModalOpen, setIsSubordinatesModalOpen] = useState(false);
-
-  // Загрузка статусов оценок
-  useEffect(() => {
-    const loadStatuses = async () => {
-      if (users.length === 0) return;
-
-      try {
-        setLoadingStatuses(true);
-        
-        const [selfReviewsRes, hrStatusRes] = await Promise.all([
-          apiClient.get(API_ENDPOINTS.CHECK_SELF_REVIEWS).catch(() => ({ data: {} })),
-          apiClient.get(API_ENDPOINTS.HR_EVALUATION_STATUS).catch(() => ({ data: { employees: [] } }))
-        ]);
-        
-        // Обрабатываем самооценки
-        const selfReviews = selfReviewsRes.data?.data || {};
-        setSelfReviewsStatus(selfReviews);
-        
-        // Обрабатываем HR статусы
-        const hrEmployees = hrStatusRes.data?.employees || [];
-        const statusMap = {};
-        hrEmployees.forEach(emp => {
-          statusMap[emp.id] = {
-            was_evaluated_by_manager: emp.was_evaluated_by_manager,
-            subordinate_evaluations_received: emp.subordinate_evaluations_received || 0
-          };
-        });
-        setEvaluationStatuses(statusMap);
-      } catch (err) {
-        logger.error('Ошибка загрузки статусов оценок:', err);
-      } finally {
-        setLoadingStatuses(false);
-      }
-    };
-
-    loadStatuses();
-  }, [users.length]);
-
-  // Обработчики для модальных окон
-  const handleSelfReviewClick = (employee) => {
-    // Открываем только если есть самооценка
-    const selfReviewData = selfReviewsStatus[employee.id];
-    if (selfReviewData?.has_self_review || employee.self_review_done) {
-      setSelectedEmployeeForSelfReview(employee);
-      setIsSelfReviewModalOpen(true);
-    }
-  };
-
-  const handleManagerEvaluationClick = (employee) => {
-    setSelectedEmployeeForManager(employee);
-    setIsManagerModalOpen(true);
-  };
-
-  const handleSubordinateEvaluationClick = (employee) => {
-    setSelectedEmployeeForSubordinates(employee);
-    setIsSubordinatesModalOpen(true);
-  };
+  // Evaluation-status circles were removed (BUG-034): no admin-allowed
+  // route returns the subject-centric metrics the column claimed to show.
+  // GET /api/check-self-review is single-subject; GET /api/hr/evaluation-status
+  // is allowed for admin but answers evaluator-task flags, not received scores,
+  // and uses different field names than this page mapped.
 
   // Фильтрация пользователей на основе роли
   const visibleUsers = useMemo(() => {
@@ -168,16 +93,7 @@ const AdminUsers = ({ user }) => {
     return subordinates;
   }, [users, user?.id, isFullAccess]);
 
-  // Добавляем статусы оценок к пользователям
-  const usersWithStatus = useMemo(() => {
-    return visibleUsers.map(u => ({
-      ...u,
-      manager_review_status: evaluationStatuses[u.id]?.was_evaluated_by_manager ? 'completed' : null,
-      subordinate_evaluations_count: evaluationStatuses[u.id]?.subordinate_evaluations_received || 0
-    }));
-  }, [visibleUsers, evaluationStatuses]);
-
-  // Хук для фильтрации (работает с usersWithStatus)
+  // Хук для фильтрации
   const {
     filters,
     searchInput,
@@ -192,7 +108,7 @@ const AdminUsers = ({ user }) => {
     sortField,
     sortDirection,
     handleSort
-  } = useUserFilters(usersWithStatus, UI_CONFIG.ITEMS_PER_PAGE);
+  } = useUserFilters(visibleUsers, UI_CONFIG.ITEMS_PER_PAGE);
 
   // Состояние модального окна
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -335,12 +251,7 @@ const AdminUsers = ({ user }) => {
         users={paginatedUsers}
         canEdit={canEdit}
         onEdit={handleOpenModal}
-        selfReviewsStatus={selfReviewsStatus}
-        onRowClick={handleSelfReviewClick}
-        onManagerEvaluationClick={canOpenDossier ? handleManagerEvaluationClick : undefined}
-        onSubordinateEvaluationClick={canOpenDossier ? handleSubordinateEvaluationClick : undefined}
-        showSelfReviewScore={true}
-        showThreeColumns={true}
+        showEvaluationStatus={false}
         sortField={sortField}
         sortDirection={sortDirection}
         onSort={handleSort}
@@ -373,37 +284,6 @@ const AdminUsers = ({ user }) => {
         users={users}
         onClose={() => setIsImportModalOpen(false)}
         onImport={handleImport}
-      />
-
-      {/* Модальное окно деталей самооценки */}
-      <SelfReviewDetailsModal
-        isOpen={isSelfReviewModalOpen}
-        employee={selectedEmployeeForSelfReview}
-        onClose={() => {
-          setIsSelfReviewModalOpen(false);
-          setSelectedEmployeeForSelfReview(null);
-        }}
-      />
-
-      {/* Модальное окно оценок от руководителя */}
-      <ManagerEvaluationDetailsModal
-        isOpen={isManagerModalOpen}
-        employee={selectedEmployeeForManager}
-        onClose={() => {
-          setIsManagerModalOpen(false);
-          setSelectedEmployeeForManager(null);
-        }}
-      />
-
-      {/* Модальное окно оценок от подчинённых */}
-      <SubordinateEvaluationsModal
-        isOpen={isSubordinatesModalOpen}
-        employee={selectedEmployeeForSubordinates}
-        currentUser={user}
-        onClose={() => {
-          setIsSubordinatesModalOpen(false);
-          setSelectedEmployeeForSubordinates(null);
-        }}
       />
     </div>
   );

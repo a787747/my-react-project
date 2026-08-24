@@ -98,6 +98,7 @@ test('rename, reparent, activate and close render only for admin', () => {
   assert.match(periods, /import \{ isAdmin \} from '\.\.\/utils\/permissions'/);
   assert.match(periods, /const canManage = isAdmin\(user\?\.role\);/);
   // each of the four controls sits behind canManage
+  assert.match(periods, /\{canManage && \(\s*<button[\s\S]{0,400}Создать период/, 'create is gated');
   assert.match(periods, /\{canManage && \(\s*<button[\s\S]{0,400}Переименовать/, 'rename is gated');
   assert.match(periods, /\{canManage && !isContainer\(period\) && \([\s\S]{0,700}FolderTree/, 'reparent is gated');
   assert.match(periods, /\{canManage && !period\.is_active[\s\S]{0,200}handleActivate/, 'activate is gated');

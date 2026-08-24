@@ -452,13 +452,15 @@ const AdminPeriods = ({ user }) => {
             Управление циклами оценки эффективности
           </p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm font-medium"
-        >
-          <Plus className="w-5 h-5" />
-          Создать период
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            Создать период
+          </button>
+        )}
       </div>
 
       {/* Карточка генерации ссылки для регистрации */}

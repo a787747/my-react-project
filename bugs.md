@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 20 |
+| 🔴 Open | 16 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 33 |
+| 🟢 Closed | 37 |
 
 ---
 
@@ -171,22 +171,26 @@
 - Source: M3 of `docs/PERIODS_VERIFY_2026-08-2x.md`; still listed open in `docs/POSTVERIFY_BATCH_2026-08-2x.md`.
 
 ### BUG-034: Admin → Сотрудники evaluation circles never load (`setLoadingStatuses` has no state)
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📌 Medium
-- Location: `src/pages/AdminUsers.jsx:103` and `:127` call `setLoadingStatuses(true/false)`; no `useState` declares it anywhere in the file or the repo.
+- Location: `src/pages/AdminUsers.jsx` (the undeclared `setLoadingStatuses` effect is gone).
 - Description: the status-loading effect throws `ReferenceError` on its first line inside the `try`, is swallowed by the `catch`, and then throws again in the `finally` — an unhandled rejection. `selfReviewsStatus` and `evaluationStatuses` are never populated, so the evaluation-status circles stay empty for every row.
 - Why it matters: the classification pass Alexander runs on this screen still works (the circles are not classification), but the screen silently reports that nobody has done anything, and the console carries an unhandled rejection on every list load.
-- Fix: declare the state, or delete both calls.
-- Source: §6 of `docs/ADMIN_USERS_SORT_2026-08-2x.md`, confirmed in the working tree 2026-08-21.
+- Fix (2026-08-24): **circles removed**, not loaded. No admin-allowed route returns the subject-centric metrics the column claimed (self score, received-from-manager, received-from-subordinates). `GET /api/check-self-review` is single-subject; `GET /api/hr/evaluation-status` is allowed for admin/c_level/hr but answers evaluator-task flags under different field names, keyed on an active period (empty while H1 is draft), and strips scores. `API: Get Employee Self Review` is deleted. The broken effect and the status column on AdminUsers are gone (`showEvaluationStatus={false}`); no unhandled rejection.
+- Remaining: `src/pages/TeamView.jsx` still calls undeclared `setLoadingSelfReviews` (same class, `/team`, BUG-012 territory) — surfaced, not fixed.
+- Source: §6 of `docs/ADMIN_USERS_SORT_2026-08-2x.md`; closed in `docs/PRELAUNCH_COPY_BATCH_2026-08-2x.md`.
+- Closed: 2026-08-24
 
 ### BUG-036: Copy that contradicts behaviour, including a button that can only 409
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📌 Medium
-- Location: `src/components/SelfReviewStatusCard.jsx` («Оценить новые критерии») against `API: Submit Self Review`, which ignores `is_update`; plus `src/pages/Welcome.jsx`, `src/components/SessionExpiryWarning.jsx`, `src/pages/Login.jsx`, `src/pages/ManagerEvaluation.jsx`.
+- Location: `src/components/self-review/SelfReviewStatusCard.jsx`, `src/pages/Welcome.jsx`, `src/components/SessionExpiryWarning.jsx`, `src/pages/Login.jsx`, `src/pages/ManagerEvaluation.jsx`.
 - Description: rows 2, 3, 7, 8, 9 and 10 of the §4.8 copy-vs-behaviour table are still open after the 20 Aug fixes closed rows 1 and 5. The functional one is row 7: «Оценить новые критерии» is rendered, is clickable, and **always** returns 409. The rest are false or incomplete statements — «Все данные видят только C-level менеджеры» (admin, HR statuses and `/team-scores` also see data); «Критерий для оценки руководителя» used as if it were the criterion's name (it is `Качество управления и развитие команды`); «Руководитель не назначен» shown to C-level who correctly have none; the draft notice not saying the draft is browser-local and expires in 7 days; the login placeholder `name@company.com` when registration requires `@sedamedical.com`.
 - Why it matters: a button that cannot succeed trains people to distrust the product on their first real task, and a confidentiality promise that is broader than the implementation is the kind of statement an employee will test.
-- Fix: either remove the button or implement `is_update`; correct the five copy strings. Neither needs a workflow change except row 7.
-- Source: §4.8 of `docs/USER_FACING_COPY_2026-08-2x.md`; re-checked in the §4.8 table of `docs/PRELAUNCH_FIXES_2026-08-2x.md`.
+- Fix (2026-08-24, owner decision): button **removed** (no `is_update`, no workflow change). Five strings corrected; visibility sentence mapped clause-by-clause to HANDOVER §3 / D-0820-16…21. See `docs/PRELAUNCH_COPY_BATCH_2026-08-2x.md`.
+- Remaining: `CriteriaOverview.jsx` still names the criterion «Критерий для оценки руководителя» — leftover, not one of the five strings.
+- Source: §4.8 of `docs/USER_FACING_COPY_2026-08-2x.md`; closed in `docs/PRELAUNCH_COPY_BATCH_2026-08-2x.md`.
+- Closed: 2026-08-24
 
 ---
 
@@ -295,22 +299,24 @@
 ---
 
 ### BUG-035: `errorHandler.js` overwrites 401 / 403 / 429 server messages
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📝 Low
-- Location: `src/utils/errorHandler.js:30-40`.
+- Location: `src/utils/errorHandler.js`.
 - Description: the interceptor replaces the server's message for 401, 403 and 429 with fixed Russian strings. `CAPABILITY_FORBIDDEN` therefore reaches the user as the generic «Доступ запрещен. Недостаточно прав». The 20 Aug Russian-message pass covered 400/404/409/422 only, and the workflow strings behind these three codes are still English underneath.
 - Why it matters: the read-only C-level trio hitting the correction gate, and any non-admin clicking a `/admin/periods` control, get a message that does not say what actually happened.
-- Fix: surface the server's `message` when present; keep the fixed string as the fallback.
-- Source: leftovers of `docs/PRELAUNCH_FIXES_2026-08-2x.md`.
+- Fix (2026-08-24): `handleApiError` returns `serverMessage` on 401/403/429 when present; the fixed Russian string is the fallback. `isAuthError` / client interceptor (clear `user`+`token`, redirect to `/login`, no draft sweep) unchanged — pinned in `tests/prelaunchCopyBatch.test.js`.
+- Source: leftovers of `docs/PRELAUNCH_FIXES_2026-08-2x.md`; closed in `docs/PRELAUNCH_COPY_BATCH_2026-08-2x.md`.
+- Closed: 2026-08-24
 
 ### BUG-037: «Создать период» is still rendered for c_level and HR
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📝 Low
-- Location: `src/pages/AdminPeriods.jsx:393-399` — the header button has no `canManage` gate; rename, reparent, activate and close all do (`:71`, `:557`, `:567`, `:582`, `:604`).
+- Location: `src/pages/AdminPeriods.jsx` header button.
 - Description: `/admin/periods` is wrapped in `AdminRoute`, which admits admin, c_level and hr. The 21 Aug hardening gated the four controls the brief named; the create button was outside that list. The server answers 403 (`POST api/periods/create` is admin-only), so this is presentation, not access.
 - Why it matters: same family as [BUG-013] — a non-admin is shown a write control and learns it is forbidden only by clicking it.
-- Fix: put the button behind the same `canManage`.
-- Source: §2 "boundary kept" of `docs/POSTVERIFY_BATCH_2026-08-2x.md`, which names it explicitly as left open for Alexander's decision.
+- Fix (2026-08-24): the button sits behind the same `canManage = isAdmin(user?.role)` as rename, reparent, activate and close. Pinned in `tests/moneyScreenGuards.test.js` and `tests/prelaunchCopyBatch.test.js`.
+- Source: §2 "boundary kept" of `docs/POSTVERIFY_BATCH_2026-08-2x.md`; closed in `docs/PRELAUNCH_COPY_BATCH_2026-08-2x.md`.
+- Closed: 2026-08-24
 
 ### BUG-038: The guard contract fails open when `required_roles` is omitted
 - Status: 🔴 OPEN

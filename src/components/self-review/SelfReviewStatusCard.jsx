@@ -1,21 +1,23 @@
 /**
  * SelfReviewStatusCard - Карточка статуса самооценки
  * 
- * Назначение: Показывает текущий статус самооценки (завершена, есть новые критерии, не начата)
+ * Назначение: Показывает текущий статус самооценки (завершена или не начата).
+ * H1 has no self-review update path: Submit Self Review ignores is_update,
+ * the catalogue freezes at «Запустить оценку», and no self criterion is
+ * project-scoped. The mid-period add-criteria control was removed (BUG-036).
  * Используется в: SelfReview
  * 
  * Props:
  * - hasReview: boolean - есть ли уже самооценка
  * - reviewData: object - данные существующей самооценки
- * - newCriteriaCount: number - количество новых критериев
  * - totalCriteriaCount: number - общее количество критериев
  * - evaluatedCount: number - количество оцененных критериев
- * - onStartReview: function - начать/продолжить самооценку
+ * - onStartReview: function - начать самооценку (first submit only)
  * - formatDate: function - функция форматирования даты
  */
 
 import React from 'react';
-import { CheckCircle, Plus, Star } from 'lucide-react';
+import { CheckCircle, Star } from 'lucide-react';
 
 const criteriaNoun = (count) => {
   const n = Math.abs(Number(count)) % 100;
@@ -29,14 +31,13 @@ const criteriaNoun = (count) => {
 const SelfReviewStatusCard = ({ 
   hasReview, 
   reviewData, 
-  newCriteriaCount,
   totalCriteriaCount,
   evaluatedCount,
   onStartReview,
   formatDate 
 }) => {
-  // Все критерии оценены
-  if (hasReview && newCriteriaCount === 0) {
+  // Already submitted — there is no H1 path to add criteria later.
+  if (hasReview) {
     return (
       <div className="bg-green-50 border border-green-200 rounded-xl p-6 mb-6">
         <div className="flex items-start gap-4">
@@ -54,32 +55,6 @@ const SelfReviewStatusCard = ({
                 🎉 Все {evaluatedCount} критериев оценены
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Есть новые критерии
-  if (hasReview && newCriteriaCount > 0) {
-    return (
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-6">
-        <div className="flex items-start gap-4">
-          <Plus className="w-8 h-8 text-blue-600 flex-shrink-0 mt-1" />
-          <div className="flex-1">
-            <h3 className="text-lg font-semibold text-blue-900 mb-2">
-              🆕 Появились новые критерии оценки
-            </h3>
-            <div className="space-y-1 text-blue-700 text-sm mb-4">
-              <p>Администратор добавил новые критерии ({newCriteriaCount} шт.), требующие вашей оценки.</p>
-            </div>
-            <button
-              onClick={onStartReview}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm"
-            >
-              <Plus className="w-5 h-5" />
-              Оценить новые критерии
-            </button>
           </div>
         </div>
       </div>

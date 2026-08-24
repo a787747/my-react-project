@@ -1007,3 +1007,19 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - Live: H1 id 2 `draft` / `is_active=false` / `evaluation_started_at` NULL on all three periods; four data tables 0; criterion 14 **weight 1.50**; `/tmp` dumps 0; `backup-epe-live.status` OK today; frontend `20260824T145133Z`; webhooks **42** (19 GET / 21 POST / 2 OPTIONS); Manage Periods **70 nodes / 8 routes**; Auth Guard `2026-08-18T16:34:30.674Z` unchanged.
 - `npm test` **284/284**. `npm audit` 15 (11 high / 3 moderate / 1 low). `check_live_drift.py` 30 identical / 0 changed / 2 absent. Stale top-level exports: **9** (+ 2 deleted-workflow files).
 - **Surfaced, not resolved:** criterion 14 live level curve is `0.70/1.00/1.00/1.10/1.20/1.50/2.00/3.00/5.00/7.00`, not the CRITERION9 / D-0824-2 approved `0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00`. Weight matches; levels do not.
+
+## 2026-08-24 — Prelaunch copy batch: BUG-034/035/036/037 closed and deployed
+
+**What was done:**
+- Frontend-only. No workflow PUT, no DB write, no mail, no stand. `useFinalScoresMatrix` / `useScoreCalculation` / money screens not opened.
+- **BUG-036 CLOSED.** «Оценить новые критерии» removed from `SelfReviewStatusCard` (owner decision; no `is_update`). Five strings corrected: Welcome visibility sentence mapped clause-by-clause to HANDOVER §3; criterion title «Качество управления и развитие команды»; C-level/admin no-manager notice; draft is browser-local and expires in 7 days; login placeholder `name@sedamedical.com`.
+- **BUG-035 CLOSED.** `handleApiError` passes the server message on 401/403/429; fixed Russian fallback. 401 interceptor unchanged (test).
+- **BUG-037 CLOSED.** «Создать период» behind the same `canManage` as the other four write controls.
+- **BUG-034 CLOSED by removing the circles.** No admin-allowed route returns the subject-centric metrics the column claimed. The undeclared `setLoadingStatuses` effect is gone.
+- Riders: D-0824-2 amendment appended verbatim; HANDOVER §7 steps 1 and 3 gained the coefficient-comparison runbook line. Criterion 14 live curve still ≠ approved (SELECT 17:57:33Z) — note left, coefficients not written. HR 52/80: two capability-only write routes surfaced (BUG-038). `assessment.sedamedical.com` → `216.250.12.243`, 80/443/8080 refused.
+- Deployed release **`20260824T175642Z`**. Previous `20260824T145133Z` retained. Chunks md5-identical to the local build; new strings present in the served bundle. Live still H1 draft, four data tables 0.
+
+**Results:**
+- Report: `docs/PRELAUNCH_COPY_BATCH_2026-08-2x.md`.
+- `npm test` **284 → 295**. bugs.md **16 open / 37 closed**.
+- Surfaced, not resolved: criterion-14 curve; submit/update capability-only guards; TeamView `setLoadingSelfReviews`; CriteriaOverview leftover fake title.

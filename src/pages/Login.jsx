@@ -160,7 +160,7 @@ const Login = () => {
                   autoCorrect="off"
                   spellCheck="false"
                   className="input pl-11"
-                  placeholder="name@company.com"
+                  placeholder="name@sedamedical.com"
                   value={formData.email}
                   onChange={(e) => setFormData({...formData, email: e.target.value})}
                   aria-describedby={error ? 'login-error' : undefined}
