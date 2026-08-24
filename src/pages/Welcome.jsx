@@ -18,11 +18,12 @@ import {
   Info,
   CheckCircle2
 } from 'lucide-react';
-import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice } from '../components/common';
+import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice, PeriodNotice } from '../components/common';
 import { CriteriaOverview } from '../components/profile';
 import { useProfile } from '../hooks/useProfile';
 import { useUser } from '../context/UserContext';
 import { useTaskStatus } from '../context/TaskStatusContext';
+import { buildPeriodNotice } from '../utils/periodNotice';
 
 const Welcome = () => {
   const { user } = useUser();
@@ -31,6 +32,9 @@ const Welcome = () => {
   const { 
     campaignActive,
     periodInPreparation,
+    periodName,
+    periodStart,
+    periodEnd,
     hasSelfReview, 
     hasEvaluatedManager, 
     hasEvaluatedAllSubordinates, 
@@ -42,12 +46,28 @@ const Welcome = () => {
     loading: loadingTaskStatus 
   } = useTaskStatus();
 
+  const periodNotice = buildPeriodNotice({
+    campaignActive,
+    periodInPreparation,
+    periodName,
+    startDate: periodStart,
+    endDate: periodEnd,
+  });
+  const showManagerTrack = Boolean(user?.has_subordinates);
+
   if (loading || loadingTaskStatus) {
     return <LoadingSpinner text="Загрузка инструкций..." />;
   }
 
   if (isOutOfScope) {
-    return <OutOfScopeNotice />;
+    return (
+      <div className="min-h-screen bg-surface-raised p-4 lg:p-6">
+        <div className="max-w-5xl mx-auto space-y-5">
+          <PeriodNotice notice={periodNotice} />
+          <OutOfScopeNotice embedded />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -89,6 +109,8 @@ const Welcome = () => {
             </div>
           </div>
         </div>
+
+        <PeriodNotice notice={periodNotice} />
 
         {/* Блок отслеживания задач.
             Задачи существуют только когда кампания идёт: период активен И
@@ -202,7 +224,7 @@ const Welcome = () => {
         </div>
 
         {/* Процесс оценки - для менеджеров с подчиненными */}
-        {hasSubordinates ? (
+        {showManagerTrack ? (
           <div className="card p-5">
             <div className="flex items-start gap-3 mb-5">
               <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -236,7 +258,7 @@ const Welcome = () => {
                       <div>
                         <p className="text-sm font-semibold text-warning-900 mb-1">Важно: Анонимность оценки вами своего менеджера</p>
                         <p className="text-sm text-warning-800">
-                          Оценка вашего руководителя остаётся <strong>анонимной</strong> для него: он не видит ваши баллы и комментарии. Кто что видит: руководитель видит самооценку своего подчинённого; полученные человеком оценки видят тот, кто его оценил, администратор и C-level; HR видит статусы выполнения, не баллы; сотрудник видит только свою самооценку — остальные результаты откроются отдельным решением.
+                          Оценка вашего менеджера остается <strong>анонимной</strong> - он не видит конкретные баллы и комментарии, чтобы избежать искажения оценок и обеспечить объективность процесса. Все данные видят только C-level менеджеры.
                         </p>
                       </div>
                     </div>
@@ -259,7 +281,7 @@ const Welcome = () => {
                     <div className="flex items-start gap-2">
                       <Shield className="w-4 h-4 text-purple-600 flex-shrink-0 mt-0.5" />
                       <p className="text-sm text-purple-800">
-                        Полученные оценки видят тот, кто оценил, администратор и C-level. HR видит статусы выполнения, не баллы. Сам руководитель эти оценки не видит.
+                        Оценки от подчиненных видят только C-level менеджеры для обеспечения конфиденциальности и объективности.
                       </p>
                     </div>
                   </div>
@@ -363,7 +385,7 @@ const Welcome = () => {
                       <div>
                         <p className="text-sm font-semibold text-warning-900 mb-1">Важно: Анонимность оценки вами своего менеджера</p>
                         <p className="text-sm text-warning-800">
-                          Оценка вашего руководителя остаётся <strong>анонимной</strong> для него: он не видит ваши баллы и комментарии. Кто что видит: руководитель видит самооценку своего подчинённого; полученные человеком оценки видят тот, кто его оценил, администратор и C-level; HR видит статусы выполнения, не баллы; сотрудник видит только свою самооценку — остальные результаты откроются отдельным решением.
+                          Оценка вашего менеджера остается <strong>анонимной</strong> - он не видит конкретные баллы и комментарии, чтобы избежать искажения оценок и обеспечить объективность процесса. Все данные видят только C-level менеджеры.
                         </p>
                       </div>
                     </div>
@@ -437,7 +459,7 @@ const Welcome = () => {
                 Например, участники проектов могут иметь специальные проектные критерии, а сотрудники 
                 определенных отделов - критерии, специфичные для их области деятельности.
               </p>
-              {hasSubordinates && (
+              {showManagerTrack && (
                 <div className="bg-brand-50 border border-brand-200 rounded-lg p-3">
                   <p className="text-sm font-semibold text-brand-900 mb-1">Качество управления и развитие команды</p>
                   <p className="text-sm text-brand-800">

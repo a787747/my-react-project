@@ -84,6 +84,13 @@ const CriterionItem = ({ criterion, showLevelDescriptions = true }) => {
 };
 
 const CriteriaOverview = ({ criteria, user }) => {
+  const upwardCriterionTitle = useMemo(() => {
+    const row = Array.isArray(criteria)
+      ? criteria.find((criterion) => Number(criterion.id) === 2)
+      : null;
+    return row?.title || 'Качество управления и развитие команды';
+  }, [criteria]);
+
   // Разделяем критерии по категориям
   const categorizedCriteria = useMemo(() => {
     if (!criteria || !Array.isArray(criteria) || criteria.length === 0) {
@@ -294,7 +301,7 @@ const CriteriaOverview = ({ criteria, user }) => {
         categorizedCriteria.management,
         Users,
         'Критерии качества управления',
-        'По этим критериям вас оценивают ваши подчиненные и руководство. Руководители (сотрудники, у которых есть прямые подчиненные) также будут оценены по критерию "Критерий для оценки руководителя". Оценка проводится каждым сотрудником отдела и непосредственным руководителем оцениваемого менеджера.'
+        `По этим критериям вас оценивают ваши подчиненные и руководство. Руководители (сотрудники, у которых есть прямые подчиненные) также будут оценены по критерию «${upwardCriterionTitle}». Оценка проводится каждым сотрудником отдела и непосредственным руководителем оцениваемого менеджера.`
       )}
 
       {/* Критерии для участников проектов (полевые работы) */}

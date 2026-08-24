@@ -23,6 +23,7 @@ import apiClient from '../api/client';
 import { API_ENDPOINTS } from '../config/api';
 import { ADMIN_ROLES } from '../config/constants';
 import logger from '../utils/logger';
+import { extractPeriodMeta } from '../utils/periodNotice';
 
 const TaskStatusContext = createContext(null);
 
@@ -38,6 +39,9 @@ export const TaskStatusProvider = ({ children }) => {
   const [isOutOfScope, setIsOutOfScope] = useState(false);
   const [campaignActive, setCampaignActive] = useState(false);
   const [periodInPreparation, setPeriodInPreparation] = useState(false);
+  const [periodName, setPeriodName] = useState(null);
+  const [periodStart, setPeriodStart] = useState(null);
+  const [periodEnd, setPeriodEnd] = useState(null);
   const [loading, setLoading] = useState(true);
   
   // C-level не нужна самооценка.
@@ -74,6 +78,10 @@ export const TaskStatusProvider = ({ children }) => {
         employeesPayload.period_in_preparation === true
         || employeesPayload[0]?.period_in_preparation === true
       );
+      const periodMeta = extractPeriodMeta(employeesPayload);
+      setPeriodName(periodMeta.periodName);
+      setPeriodStart(periodMeta.startDate);
+      setPeriodEnd(periodMeta.endDate);
       const actorOutOfScope = employeesPayload.actor_is_in_scope === false;
       setIsOutOfScope(actorOutOfScope);
       if (actorOutOfScope || !campaignRunning) {
@@ -137,6 +145,9 @@ export const TaskStatusProvider = ({ children }) => {
   const value = {
     campaignActive,
     periodInPreparation,
+    periodName,
+    periodStart,
+    periodEnd,
     hasSelfReview,
     hasEvaluatedManager,
     hasEvaluatedAllSubordinates,
@@ -164,6 +175,9 @@ export const useTaskStatus = () => {
     return {
       campaignActive: false,
       periodInPreparation: false,
+      periodName: null,
+      periodStart: null,
+      periodEnd: null,
       hasSelfReview: false,
       hasEvaluatedManager: false,
       hasEvaluatedAllSubordinates: false,

@@ -448,7 +448,7 @@ the same night in `docs/PRELAUNCH_FIXES_2026-08-2x.md`; re-verified against live
 `API: Check Self Review` honours `user_id` when it is the actor, a direct report of the actor, or any subject for `admin`/`c_level`; anything else falls back to the actor's own row (no 403, no leak). Per-criterion comments are the subordinate's own, not `general_comment` repeated. Reverses the pre-20-Aug behaviour that showed the manager their own self-review labelled as the subordinate's (BUG-024).
 
 ### D-0820-17 — Subject-visible results are sealed on the server until a separate release decision
-Not in the browser. `API: My Profile V5` attaches score fields only to self rows and computes profile stats from self-evaluations only; `API: Get Evaluation Details FIXED` answers 404 unless the caller is the evaluator, `admin`/`c_level`, or the subject of their own self-evaluation. HR is not privileged (D-0820-11). **When and how subjects see their own results is a later, separate decision** — no result-release mechanism was built (BUG-025).
+Not in the browser. `API: My Profile V5` attaches score fields only to self rows and computes profile stats from self-evaluations only; `API: Get Evaluation Details FIXED` answers 404 unless the caller is the evaluator, `admin`/`c_level`, or the subject of their own self-evaluation. HR is not privileged (D-0820-11). **When and how subjects see their own results is a later, separate decision** — no result-release mechanism was built (BUG-025). Scoped by D-0824-3: that later decision concerns manager → subordinate results only; upward content is never released to the evaluated manager.
 
 ### D-0820-18 — Manager dashboard status flags are real
 Completion flags (`has_self_review`, `has_evaluated_manager`, `evaluated_by_actor`) ride on the enriched `/api/employees` payload; the dashboard no longer calls the HR-only `hr/evaluation-status`, which 403'd for managers and made every subordinate look idle.
@@ -529,3 +529,17 @@ on live at 17:15Z (0.70/1.00/1.00/1.10/1.20/1.50/2.00/3.00/5.00/7.00) was also t
 0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00; the owner restores it himself. A
 read-only comparison of live weights, level coefficients and grade coefficients against
 the approved tables is a runbook step before «Запустить оценку» and before close.
+
+### D-0824-3 — Upward evaluation content is never shown to the evaluated manager (owner, 2026-08-24)
+**Decision (Alexander):** scores and comments a subordinate gives their manager (source
+subordinate → manager, criterion 2) are never visible to that manager — not now and not under
+any later results-release decision. Readers of upward content: the author, admin, c_level.
+HR sees completion status only. The Welcome wording is the owner's and is fixed verbatim:
+«Оценка вашего менеджера остается анонимной - он не видит конкретные баллы и комментарии,
+чтобы избежать искажения оценок и обеспечить объективность процесса. Все данные видят только
+C-level менеджеры.» and, on the manager track, «Оценки от подчиненных видят только C-level
+менеджеры для обеспечения конфиденциальности и объективности.»
+**Consequence:** BUG-036 row 2 is closed by decision once the server is verified to enforce it
+(no manager-role surface carries upward scores, comments or aggregates for any subject;
+subject-facing reads strip score and comment fields and evaluator identity on upward rows).
+Any future results-release decision (HANDOVER §6) concerns manager → subordinate results only.

@@ -14,4 +14,5 @@ export { default as Modal } from './Modal';
 export { default as PeriodBanner } from './PeriodBanner';
 export { default as OutOfScopeNotice } from './OutOfScopeNotice';
 export { default as CampaignNotStartedNotice } from './CampaignNotStartedNotice';
+export { default as PeriodNotice } from './PeriodNotice';
 

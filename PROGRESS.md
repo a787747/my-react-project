@@ -1023,3 +1023,17 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - Report: `docs/PRELAUNCH_COPY_BATCH_2026-08-2x.md`.
 - `npm test` **284 → 295**. bugs.md **16 open / 37 closed**.
 - Surfaced, not resolved: criterion-14 curve; submit/update capability-only guards; TeamView `setLoadingSelfReviews`; CriteriaOverview leftover fake title.
+
+## 2026-08-24 — Welcome period notice: owner visibility wording restored, D-0824-3, upward seal verified
+
+**What was done:**
+- Frontend-only. No workflow PUT, no DB write, no mail, no stand. Money screens/hooks not opened.
+- Period notice above the Welcome task area: three states from `GET /api/employees` (`campaign_active` / `period_in_preparation`). Title and scope render only when name+dates are present — they are not, on any employee-readable route. `GET /api/periods` is `admin`/`hr`/`c_level`. Out-of-scope people still see the notice plus `OutOfScopeNotice`.
+- Visibility wording restored byte-for-byte from `a86e45b` (parent of `c02377d`): both anonymity boxes and the manager-track purple box. `CriteriaOverview` leftover «Критерий для оценки руководителя» → live title of criterion 2.
+- D-0824-3 recorded. Upward-channel seal verified against live definitions + local tests (compared values in the report). BUG-036 row 2 closed by that decision.
+- Riders: `can_evaluate=false` is exactly 21 / 40 / 61 — capability is the write gate; FINALIZE HR leftover closed without code. Criterion 14 live levels still ≠ approved — HANDOVER note left, coefficients not written.
+
+**Results:**
+- Report: `docs/WELCOME_PERIOD_NOTICE_2026-08-2x.md`.
+- `npm test` **295 → 312**. bugs.md **16 open / 37 closed** (recounted).
+- Deployed release **`20260824T182054Z`**. Previous `20260824T175642Z` retained. Live still H1 draft, four data tables 0, `evaluation_started_at` NULL.

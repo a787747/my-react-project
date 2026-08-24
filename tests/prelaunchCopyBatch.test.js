@@ -82,14 +82,16 @@ test('SelfReviewStatusCard no longer offers the mid-period add-criteria control'
   assert.match(card, /if \(hasReview\) \{/);
 });
 
-test('Welcome visibility sentence maps to the HANDOVER §3 clauses', () => {
-  assert.doesNotMatch(welcome, /Все данные видят только C-level/);
-  assert.doesNotMatch(welcome, /Оценки от подчиненных видят только C-level/);
-  assert.match(welcome, /руководитель видит самооценку своего подчинённого/);
-  assert.match(welcome, /полученные человеком оценки видят тот, кто его оценил, администратор и C-level/);
-  assert.match(welcome, /HR видит статусы выполнения, не баллы/);
-  assert.match(welcome, /сотрудник видит только свою самооценку/);
-  assert.match(welcome, /остальные результаты откроются отдельным решением/);
+test('Welcome visibility sentence is the owner wording (D-0824-3)', () => {
+  assert.match(
+    welcome,
+    /Оценка вашего менеджера остается <strong>анонимной<\/strong> - он не видит конкретные баллы и комментарии, чтобы избежать искажения оценок и обеспечить объективность процесса\. Все данные видят только C-level менеджеры\./,
+  );
+  assert.match(
+    welcome,
+    /Оценки от подчиненных видят только C-level менеджеры для обеспечения конфиденциальности и объективности\./,
+  );
+  assert.doesNotMatch(welcome, /остальные результаты откроются отдельным решением/);
 });
 
 test('Welcome uses the real criterion title', () => {
