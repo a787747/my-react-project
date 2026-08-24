@@ -861,6 +861,17 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - New bugs filed: **BUG-042** (`useScoreCalculation` still substitutes an empty coefficient set on failure — the last member of the BUG-030 family; the calculator would render an unweighted breakdown with no error) and **BUG-043** (with no active period `/api/employees` names the annual **container** as the current period, because H1 and Annual 2026 share a start date and `id DESC` decides — so `actor_is_in_scope` is computed against the container's 89 inert rows instead of H1's 87; pre-existing, found by the live probe).
 - BUG-040 unchanged: ripgrep is still absent on the delivery laptop, so both frontend deploy gates were run by hand before the script was re-run under a `grep -rqE` shim preserving gate semantics.
 
+## 2026-08-22 — Gate: LIFECYCLE_COEFF verification (read-only)
+
+**What was done:**
+- Read-only gate on build `a6ef553` (`docs/LIFECYCLE_COEFF_2026-08-2x.md`). No workflow PUT/activate/deactivate, no DB write, no deploy, no mail. Live definitions compared node-for-node to tracked artifacts; dump presence checked locally.
+- Report: `docs/GATE_LIFECYCLE_COEFF_2026-08-2x.md`.
+
+**Results (copied from the gate):**
+- Seven of eight items **confirmed**; one sub-point of item 7 **refuted** — HANDOVER §10's report index omitted both new reports (**BUG-044** filed).
+- **BUG-029 closed with evidence** (422 table + static assertions + live `updatedAt`s). The parallel session's 0.1 floor survived nowhere at gate time (not committed, not live, not tracked); later re-decided as the D-0822-2 amendment of 2026-08-24.
+- Live campaign-inert: periods `closed/draft/draft`, all data tables 0, every `evaluation_started_at` NULL, Auth Guard `updatedAt=2026-08-18T16:34:30.674Z`.
+
 ## 2026-08-24 — Live reclassification: soft exclusion, additive path, BUG-041 runtime, BUG-043 (D-0822-3)
 
 **What was done:**
@@ -877,6 +888,16 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - Live: 12 workflows PUT (pre-deploy drift check: live was byte-identical to HEAD generators; activation preserved; node-for-node verified after each PUT; Auth Guard `2026-08-18T16:34:30.674Z` untouched throughout), frontend release `20260824T061101Z` serving, no schema change, campaign state untouched (periods closed/draft/draft, all data tables 0). Live probe: all green, state fingerprint byte-identical, probe sessions cleaned (8 → 8). Stale `API_ evaluations-matrix.json` export refreshed from live in passing (the BUG-028 file).
 - `npm test` 272/272 (was 263), build clean, eslint no new findings.
 - Report: `docs/RECLASS_2026-08-2x.md` (with a seven-item "Surfaced for decision" — score-correction writes still skip applicability; live hr id 52 carries `can_evaluate=true`; the flag/form duplicated business rule; additive concurrency footnote; §A.1 snapshot split; the BACKUP_FIX index gap; self-review staleness unchanged by boundary).
+
+## 2026-08-24 — Gate: RECLASS verification (read-only)
+
+**What was done:**
+- Read-only gate on build `39e34fd` (`docs/RECLASS_2026-08-2x.md`), 07:20–07:50 UTC. SELECT / GET / `readlink` / local `pg_restore` of the recorded dump. No live HTTP probe (would write `auth_sessions`).
+- Report: `docs/GATE_RECLASS_2026-08-2x.md`.
+
+**Results (copied from the gate):**
+- Every reachable build claim **confirmed** — money figures re-derived to the digit; 12 target workflows node-identical to HEAD generators; live campaign-inert and drift-free.
+- Three findings filed, none refuting a build claim: **BUG-045** (stale-export class is ten files wide; named BUG-028 instance current), **BUG-046** (middle-manager matrix missing the applicability clause), **BUG-047** (D-0822-3 full-re-submit sentence wrong). BUG-046/047 later closed by FINALIZE.
 
 ## 2026-08-24 — Finalization batch: corrections applicability, BUG-046/047, new-criterion path verified
 
@@ -897,6 +918,16 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - **Deploy defect found and fixed on the way:** the export-refresh guard refused `API_ Manager Subordinates Matrix.json` — `build_route_guard_deferred.py` still carried a **dead** `legacy_query` read of that export (leftover of the inline rewrite). Removed (generator output byte-unchanged); export then refreshed from verified live. Both PUTs had already landed and verified. Progresses BUG-045 (nine stale exports remain); new `scripts/check_live_drift.py` gives the full-corpus generator-vs-live comparison on demand.
 - **Live has TWO HR accounts with `can_evaluate=true`, not one:** Liya Dmitriyeva (52) **and Sona Rahmanova (80)**, both under Jemal Gulberdiyeva (47). The reclass report surfaced only id 52. The flag only enables ordinary participant writes (self/upward), not corrections or admin reads. For Alexander to confirm whether both should carry it.
 - The new criterion must exist before «Запустить оценку» (catalogue freezes at start); the `/admin/scoring` coefficient save stays legal until close (D-0822-2) — but until it happens every money surface silently values the criterion at weight 1.0 × coef 1.0. Create → save coefficients → verify is the required sequence.
+
+## 2026-08-24 — Gate: FINALIZE_PRELAUNCH verification (read-only)
+
+**What was done:**
+- Read-only gate on `bfca5e1` (`docs/FINALIZE_PRELAUNCH_2026-08-2x.md`), 09:07–09:35 UTC. SELECT over SSH, local `pg_restore` of the recorded dump, local generator runs, local `npm test`. No live HTTP probe.
+- Report: `docs/GATE_FINALIZE_2026-08-2x.md`.
+
+**Results (copied from the gate):**
+- Every reachable batch claim **confirmed** — four money figures re-derived to the digit; full-corpus drift zero (31 generator outputs byte-identical to live, 2 deliberately deleted absentees); live campaign-inert.
+- Two findings filed: **BUG-048** (FINALIZE §1 justification sentence; later closed by D-0824-1), **BUG-049** (migration 006 vs live `score_corrections` FKs; later closed by CRITERION9, residue **BUG-050**). BUG-045 narrowed to **nine** stale exports.
 
 ## 2026-08-24 — Criterion-9 batch: riders shipped; creation BLOCKED on the missing texts document
 
@@ -959,3 +990,20 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 **Results:**
 - Report: `docs/PRELAUNCH_FIX_BATCH_2026-08-2x.md` (named to avoid overwriting the accepted 20 Aug PRELAUNCH_FIXES report the brief's literal filename pointed at).
 - `npm test` **284/284** (+7: 3 buildSharedCriteriaGroups, 4 alignment source pins). Drift 30/0 before and after deploy. Live verified campaign-inert after everything (H1 draft, all data tables 0, 89 users). Stand torn down; epe_2026 the only epe DB left.
+
+## 2026-08-24 — Docs hygiene (re-measure after the 22–24 Aug sprint)
+
+**What was done:**
+- Documentation and git only. Re-measured live read-only (SELECT / GET / `readlink` / `openssl` / `crontab -l`) on 2026-08-24 17:14–17:16 UTC. No workflow PUT, no deploy, no DB write, no dump, no mail, no stand.
+- Rewrote drifted facts in `docs/HANDOVER.md` toward this session's measurements and the accepted 22–24 Aug reports. **§4 byte-locked** — md5 `0b2e854c22dc41f1d96e169b375b6350` before and after.
+- `DECISIONS.md`: D-0822-1/2/3 and D-0824-1 were already present (no duplicates); added **D-0824-2** verbatim (criterion 14 weight 1.50).
+- `PROGRESS.md`: added the three missing gate entries (`GATE_LIFECYCLE_COEFF`, `GATE_RECLASS`, `GATE_FINALIZE`) plus this session.
+- `bugs.md`: BUG-028 closed (named instance current per GATE_RECLASS + this session's 9-node export); statistics **20 open / 33 closed**, matching a status recount. Ledger BUG-001…053, no gaps.
+- `PROJECT_RULES.md`: both 24 Aug rules were already present; archive dump count 10 → 13 (measured).
+- `AGENTS.md`: methodology paragraph amended with the pending-draft sentence.
+- Report: `docs/DOCS_HYGIENE_2026-08-24.md`.
+
+**Results:**
+- Live: H1 id 2 `draft` / `is_active=false` / `evaluation_started_at` NULL on all three periods; four data tables 0; criterion 14 **weight 1.50**; `/tmp` dumps 0; `backup-epe-live.status` OK today; frontend `20260824T145133Z`; webhooks **42** (19 GET / 21 POST / 2 OPTIONS); Manage Periods **70 nodes / 8 routes**; Auth Guard `2026-08-18T16:34:30.674Z` unchanged.
+- `npm test` **284/284**. `npm audit` 15 (11 high / 3 moderate / 1 low). `check_live_drift.py` 30 identical / 0 changed / 2 absent. Stale top-level exports: **9** (+ 2 deleted-workflow files).
+- **Surfaced, not resolved:** criterion 14 live level curve is `0.70/1.00/1.00/1.10/1.20/1.50/2.00/3.00/5.00/7.00`, not the CRITERION9 / D-0824-2 approved `0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00`. Weight matches; levels do not.

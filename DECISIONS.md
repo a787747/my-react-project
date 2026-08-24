@@ -510,3 +510,15 @@ Approved by Alexander 2026-08-22, implemented 2026-08-24 (`docs/RECLASS_2026-08-
 - **Ordinary edit deletes only what the evaluator actively removed.** `POST /api/update-evaluation` never deletes rows for criteria merely excluded by the current classification; the destructive CTE stays gated on `updated_header` (BUG-041) and additionally skips classification-excluded rows.
 - **Write validation.** Submit, additive, update and self-review all answer 422 `CRITERIA_NOT_APPLICABLE` for a `project_participants` criterion aimed at a currently-general subject, instead of accepting any criterion id for any subject (RECON §3.3). **Extended 2026-08-24 (approved):** `POST api/admin/score-correction` enforces the same shared predicate with the same 422 — a correction lives inside the cell, so a correction for an inapplicable criterion is refused like any other write (`docs/FINALIZE_PRELAUNCH_2026-08-2x.md`).
 - The three scoring formulas are untouched: this decision changes **which cells exist**, never how they are combined. The self-review staleness of `work_category` (login-time snapshot, RECON §3.2.1) is a known limitation, out of scope — today's self set does not depend on classification.
+
+### D-0824-2 — Criterion 14 weight is 1.50 (owner, 2026-08-24)
+**Context:** PRELAUNCH_FIX_BATCH found criterion 14 («Ответственность сверх роли») at weight
+2.00 on live on 2026-08-24 (between 12:36Z and 14:32Z); the approved value was 1.50; the
+coefficients route has no server-side audit trail.
+**Decision (Alexander):** the 2.00 was his own front-end editability test through
+/admin/scoring — not an incident: no forensics, no password change. He reverted the weight to
+1.50 himself. The approved weight of criterion 14 is 1.50; the level curve
+0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00 is unchanged.
+**Consequence:** the methodology table (§4, pending approval) stays at 1.50. Architect's note:
+the coefficients route records no who/when/old→new for edits; an audit log for coefficient
+writes is listed in the September queue as a candidate, next to coefficient-table versioning.

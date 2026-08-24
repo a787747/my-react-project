@@ -1,18 +1,15 @@
 # EPE — Handover
 
-**As of:** 2026-08-21 (after docs hygiene; eight accepted briefs after the previous HANDOVER) · **Launch: PAUSED**
+**As of:** 2026-08-24 (docs hygiene; ten accepted 22–24 Aug briefs after the 21 Aug HANDOVER) · **Launch: PAUSED**
 **Alexander paused the H1 launch on 2026-08-21.** The 31 August start date, the 26 August invitation and every
 other date in this document are **his** to set or move — nothing in the system enforces them. H1 is still
 `draft`/`is_active=false`; no campaign date is coded anywhere. When he lifts the pause, §7 is the order of work.
 
-**Later the same day**, the backup brief (`docs/BACKUP_FIX_2026-08-2x.md`) closed BUG-032 and changed the
-facts in §2 Backups, §6 item 5, §7 close semantics and the September queue; those four places are updated and
-post-date the 08:40 UTC snapshot below.
-
-Every number in §§1–3 and §§5–10 was re-measured against the live system on 2026-08-21 08:21–08:40 UTC,
-read-only (SELECT / GET / `readlink` / `openssl`). **§4 is copied verbatim from the previous HANDOVER and was
-not edited.** Reports were used to locate claims, never as the source of a fact — see
-`docs/DOCS_HYGIENE_2026-08-21.md` for the live-vs-report differences this pass found.
+Every number in §§1–3 and §§5–10 was re-measured against the live system on 2026-08-24 17:14–17:16 UTC,
+read-only (SELECT / GET / `readlink` / `openssl` / `crontab -l`). **§4 is copied verbatim and was not
+edited** (md5 `0b2e854c22dc41f1d96e169b375b6350` before and after). Reports were used to locate claims,
+never as the source of a fact — see `docs/DOCS_HYGIENE_2026-08-24.md` for the live-vs-docs and
+docs-vs-docs differences this pass found.
 
 ---
 
@@ -30,24 +27,24 @@ Since 2026-08-21 periods form a **hierarchy**: a half-year period may hang under
 
 ## 2. Current state — infrastructure
 
-| Thing | State (live, 2026-08-21) |
+| Thing | State (live, 2026-08-24 17:14–17:16 UTC) |
 |---|---|
-| Host | `92.51.45.147`, Timeweb VPS, root via SSH key (password auth disabled, fail2ban on). Up 8 days |
+| Host | `92.51.45.147`, Timeweb VPS, root via SSH key (password auth disabled, fail2ban on). Up **11 days, 19 hours** (`uptime` 2026-08-24 17:14 UTC) |
 | Public origin | `https://epe.sedamedical.com` — Caddy (`epe-proxy-caddy-1`) serves portal + `/webhook/*` → n8n |
 | Certificate | Let's Encrypt (`YE1`), `notBefore` 2026-08-19, `notAfter` **2026-11-17** |
 | n8n | pinned by digest `sha256:0a65e6e5995c19e0cf7e83d6b08ffa6c1898e8a53ff1658e6e7b22e68576c673`, `restart=unless-stopped`, running, port 5678 DROP from `eth0` |
 | Live DB | `epe_2026`, schema `performance_db`, own credential `EPE 2026 Postgres` |
 | Archived DB | `postgres.performance_db` — 2025 data, **read-only forever**. This session by SELECT: **73 users, 234 evaluations, 644 scores, 3 corrections**. Fingerprint not re-hashed today (no dump taken); last computed `21d323b0…` in `docs/DRAFTS_UX_2026-08-2x.md` |
 | Databases on `postgres_n8n` | **`epe_2026` and `postgres` only** — every throwaway stand DB is gone |
-| Frontend | This host. Current release **`20260821T072859Z`**. 14 releases on disk (previous: `20260821T060049Z`, `20260820T165040Z`, `20260820T154749Z`, …). Deploy: `./scripts/deploy_epe_frontend.sh` |
-| Azure VM | `135.232.120.40`, untouched fallback, still serves the old build on :8080 |
+| Frontend | This host. Current release **`20260824T145133Z`**. **19** releases on disk (previous: `20260824T131920Z`, `20260824T061101Z`, `20260822T065024Z`, `20260822T063844Z`, `20260821T072859Z`, …). Public `index.html` `Last-Modified` Mon, 24 Aug 2026 14:51:39 GMT. Deploy: `./scripts/deploy_epe_frontend.sh` |
+| Azure VM | `135.232.120.40`, untouched fallback, still serves the old build on :8080. **Not re-probed this session** (last measured `docs/TLS_CUTOVER_2026-08-19.md`: TCP 3389 RDP open). September queue. |
 | Firewall | `DOCKER-USER` → `EPE-DOCKER-USER` (ufw does not filter Docker ports). 80/443 open; 5432/5431/8000/9000/2377/7946/4789 restricted to one allowlisted IP; 5678 DROP on `eth0`. **The allowlisted source is a single home IP (`188.137.254.191`) that changes — use the SSH tunnel, not the allowlist** |
 | Portainer | Reachable only via SSH tunnel `127.0.0.1:29000` |
-| Backups | **Two daily jobs since 2026-08-21.** 03:00 MSK `backup-performance-db.sh` → the 2025 archive (`postgres -n performance_db`), unchanged, 10 dumps. 03:20 MSK `backup-epe-live.sh` → **`epe_2026` in full** and the **n8n application schema** (`postgres -n public`: 58 workflows, 7 credentials, 8 settings), neither of which had any backup before that date. 14-day stem-scoped prune on both; failure = non-zero exit + `FAIL` in `backup.log` and in `backup-epe-live.status` (no MTA on the host, so that file is the alarm). Restore-proven the same day: 17/17 and 52/52 tables row-matched from a cron-produced dump. BUG-032 **closed**, `docs/BACKUP_FIX_2026-08-2x.md`. **Off-host copy still missing (BUG-014)** — one disk now holds live, n8n and every backup of both |
+| Backups | **Two daily jobs since 2026-08-21.** 03:00 MSK `backup-performance-db.sh` → the 2025 archive (`postgres -n performance_db`), **13** dumps on disk (`retained=13` in the 2026-08-24 00:00Z log). 03:20 MSK `backup-epe-live.sh` → **`epe_2026` in full** and the **n8n application schema** (`postgres -n public`: 58 workflows, 7 credentials, 8 settings). Today's live job: `backup-epe-live.status` = **`OK 2026-08-24T00:20:01Z`**; `epe_2026` 24 100 B retained=4; `n8n_app` 366 338 B retained=4. 14-day stem-scoped prune on both; failure = non-zero exit + `FAIL` in `backup.log` and in `backup-epe-live.status` (no MTA on the host, so that file is the alarm). Restore-proven 2026-08-21: 17/17 and 52/52 tables row-matched from a cron-produced dump. BUG-032 **closed**, `docs/BACKUP_FIX_2026-08-2x.md`. **Off-host copy still missing (BUG-014)** — one disk now holds live, n8n and every backup of both |
 
-Workflows: **58 total** = **33 active** + 3 inactive unarchived (`EPE: Auth Guard`, `API: Global CORS Handler`, `My workflow 10`) + **22 archived**. **41** registered webhooks (19 GET / 20 POST / 2 OPTIONS).
+Workflows: **58 total** = **33 active** + 3 inactive unarchived (`EPE: Auth Guard`, `API: Global CORS Handler`, `My workflow 10`) + **22 archived**. **42** registered webhooks (19 GET / 21 POST / 2 OPTIONS).
 
-Active set (live names, 2026-08-21 — identical to the 2026-08-20 set):
+Active set (live names, 2026-08-24 — identical to the 2026-08-20/21 set):
 
 ```text
 API: Admin Get Users Data
@@ -85,7 +82,7 @@ API: Verify Code
 API: Verify Invite
 ```
 
-The set has not changed since 20 Aug; the webhook count rose 37 → 41 because `API: Manage Periods` grew from 3 to 7 routes. CORS stays inactive. `Get Employee Self Review` and `Get Admin Data Fixed` are confirmed **absent** from `workflow_entity` (deleted; GET 404). H1 is still draft/inactive — nothing campaign-shaped can be written until it is activated.
+The set has not changed since 20 Aug; the webhook count rose 41 → **42** because `API: Manage Periods` grew from 7 to **8** routes (`POST api/periods/start-evaluation`, D-0822-1). CORS stays inactive. `Get Employee Self Review` and `Get Admin Data Fixed` are confirmed **absent** from `workflow_entity` (deleted; generators still emit them — BROWSER_WALKTHROUGH §9.4). H1 is still draft/inactive — nothing campaign-shaped can be written until it is activated. Unauthenticated `GET /webhook/api/periods` and `GET …/annual-rollup` → **401 `TOKEN_MISSING`**; `GET …/start-evaluation` → 404 (POST-only, expected).
 
 `My workflow 10` is an unnamed stray in the inactive-unarchived three. Archiving it would make the "3 inactive" baseline mean something; nobody has.
 
@@ -101,7 +98,7 @@ The set has not changed since 20 Aug; the webhook count rose 37 → 41 because `
 - **`c_level_only` criteria keep titles and descriptions for everyone; their `level_1_desc`…`level_10_desc` are stripped below `admin`/`c_level`.** `level_0_desc` is outside the stripped list and is empty on both live `c_level_only` rows (ids 1, 10), so nothing leaks through it today. Criteria wording itself was deliberately left unchanged (D-0820-19).
 - **Out-of-scope UX.** `/api/employees` returns `actor_is_in_scope`; `TaskStatusContext` drives `OutOfScopeNotice` on Welcome / SelfReview / ManagerEvaluation, and hides «Самооценка», «Оценить руководителя» and the task panel. `NOT_IN_SCOPE` on the submit routes stays as defence.
 - **`c_level_direct` is enabled** for H1. Writers: role `admin` or `c_level` **with `can_evaluate=true`** — live today that is Alexander (admin id=2), Bayram Urayev (c_level id=18, grade C1), Jemal Gulberdiyeva (c_level id=47, grade C2). Read-only C-level: Cem 21, Hemra 40, Mekan 61 (`can_evaluate=false`). Score-correction now also requires `can_evaluate` (D-0820-7), so the read-only trio get 403 `CAPABILITY_FORBIDDEN` there too. All five c_level accounts and the admin have `can_be_evaluated=false`: C-level evaluates downward and is never a subject.
-- **Periods are a hierarchy, and closing one freezes it.** `API: Manage Periods` (`M9ljMDdO1mIl8m1h`, `updatedAt=2026-08-21T07:28:10.039Z`, active, **61 nodes / 7 webhooks**) serves `GET api/periods`, `POST …/create`, `…/activate`, `…/rename`, `…/reparent`, `…/close`, and `GET …/annual-rollup`. All mutating routes are `admin`-only; the roll-up is `admin` + `c_level`. Reports: `docs/PERIODS_HIERARCHY_2026-08-2x.md`, verified in `docs/PERIODS_VERIFY_2026-08-2x.md`, hardened in `docs/POSTVERIFY_BATCH_2026-08-2x.md`.
+- **Periods are a hierarchy, and closing one freezes it.** `API: Manage Periods` (`M9ljMDdO1mIl8m1h`, `updatedAt=2026-08-24T06:10:13.683Z`, active, **70 nodes / 8 webhooks**) serves `GET api/periods`, `POST …/create`, `…/activate`, `…/rename`, `…/reparent`, `…/close`, `POST …/start-evaluation`, and `GET …/annual-rollup`. All mutating routes are `admin`-only; the roll-up is `admin` + `c_level`. Reports: `docs/PERIODS_HIERARCHY_2026-08-2x.md`, verified in `docs/PERIODS_VERIFY_2026-08-2x.md`, hardened in `docs/POSTVERIFY_BATCH_2026-08-2x.md`; start-evaluation in `docs/LIFECYCLE_COEFF_2026-08-2x.md`.
 - **A period has two gates, not one (2026-08-22, D-0822-1).** «Активировать» makes a leaf period the current one and nothing else — employees see no tasks, every submit route answers 409 `PERIOD_NOT_STARTED`, and the criteria catalogue and all coefficients stay editable. «Запустить оценку» (`POST /api/periods/start-evaluation`, admin-only, migration 014's `evaluation_started_at`) opens the campaign: tasks appear, submits are accepted, and the criteria catalogue freezes with 409 `EVALUATION_STARTED`. Irreversible at product level like activation and close — no route clears the mark, recovery is SQL. Refuses containers (422 `CONTAINER_NOT_STARTABLE`), annual periods (422 `ANNUAL_PERIOD_NOT_STARTABLE`), closed (422 `PERIOD_CLOSED`) and non-active periods (422 `PERIOD_NOT_ACTIVE`); a second call answers 200 `already_started` and writes nothing. `/admin/periods` shows three distinguishable states — «Неактивен» / «Активен · подготовка» / «Идёт оценка» — and the start control is admin-only. **"Campaign period" now means active AND started** on the submit routes, score-correction, and the whole task/status read surface (`/api/employees` flags, check-self-review, check-evaluated, get-my-manager); admin and reporting reads (matrix, analytics, all-evaluations, details-by-user, HR status) stay keyed on **active** alone and are unaffected by the new gate. Registration and authentication are untouched. Report: `docs/LIFECYCLE_COEFF_2026-08-2x.md`.
 - **Coefficients are admin-eyes-only and live until close (2026-08-22, D-0822-2).** `GET /api/score-coefficients` is now `admin`-only; `GET /api/criteria` strips `weight` for every non-admin role (the `c_level_only` level-text stripping is unchanged). The self-review no longer fetches coefficients and no longer sends `weighted_score` — the server computes it at submit with formula #2 and the subject's **real** grade coefficient, refusing with 422 `NO_GRADE_COEFFICIENT` rather than falling back to 1.0. The `ACTIVE_PERIOD_EXISTS` 409 is gone from both coefficient write paths; they validate instead (finite, > 0, levels 1..10 — BUG-029 closed). `/admin/scoring`, `/admin/score-calculator`, `/admin/final-scores` and `/admin/bonus-calculation` are admin-only at the route level, and `/admin/scoring` now fails loudly instead of rendering an empty grades table.
 - **Migration 014 — `evaluation_periods.evaluation_started_at` / `evaluation_started_by`** on live, both NULL on all three periods (nothing is retroactively started), with `chk_evaluation_periods_started_by_needs_started_at` and an FK on `evaluation_started_by`. Deliberately **not** tied to `status` by a CHECK: close leaves the mark set (a closed period was started — that is history) and the documented emergency stop sets an active period back to draft by SQL; a status-linked CHECK would break both.
@@ -119,7 +116,7 @@ The set has not changed since 20 Aug; the webhook count rose 37 → 41 because `
 - **`detail_type` is a real filter** (`all` / `self` / `received_from_manager` / `from_subordinates` / `gave_to_manager` / `gave_to_subordinates`; unknown → 422).
 - **Company-wide reporting audience = admin + c_level.** `ReportingRoute` on `/analytics`, `/admin/all-evaluations`, `/admin/evaluations-matrix`, `/admin/annual-rollup`. HR keeps `/hr/dashboard` and the employee table. Typed `/admin` (criteria) is still `AdminRoute` (BUG-013); its API is admin-only (403).
 - **Analytics** is period-bound. Company avg is still `AVG(calculated_score)` over **all sources mixed**.
-- **scrypt** (N=16384, r=8, p=1) in registration and login. No plaintext passwords anywhere. **87 of 89 users have `password_hash = NULL`; two are registered:** Alexander (id 2, admin) and Jemal Gulberdiyeva (id 47, c_level). `auth_sessions`: 6 rows, 2 distinct users, 1 unexpired. Everyone else registers via the shared invite.
+- **scrypt** (N=16384, r=8, p=1) in registration and login. No plaintext passwords anywhere. **87 of 89 users have `password_hash = NULL`; two are registered:** Alexander (id 2, admin) and Jemal Gulberdiyeva (id 47, c_level). Session rows exist for those two accounts; the count moves with ordinary login and is **not an invariant**. Everyone else registers via the shared invite.
 - **One-time password reset** with `token_version` invalidating prior JWTs. Fails closed unless `EPE_FRONTEND_URL` is HTTPS — configured.
 - **Login throttling**: 5 failures / 15 min → 15 min lock, generic 401, dummy scrypt for unknown emails. `GET /api/verify-invite` is 600 / 5 min / IP.
 - **Shared invite id=4** is reusable (`is_used` stays false), unexpired until **2026-09-18**. Register validator `[A-Za-z0-9_-]{16,128}`; the live token is 43-char base64url.
@@ -131,6 +128,8 @@ The set has not changed since 20 Aug; the webhook count rose 37 → 41 because `
   | 1 | Annual 2025 | `annual` | `closed` | false | — | 0 | 0 / 0 |
   | 2 | H1-2026 | `half_year` | `draft` | false | **5** | 0 | 89 / **87** |
   | 5 | Annual 2026 | `annual` | `draft` | false | — | **1** | 89 / 89 |
+
+  `evaluation_started_at` / `evaluation_started_by` are **NULL on all three** (re-read 2026-08-24). Nothing is started.
 
   Alexander performed the designated UX walk-through on 21 Aug: he created **Annual 2026** (2026-01-01 → 2026-12-31) and attached H1 to it. Annual 2026 is therefore a container — non-activatable, non-closable, both by `child_count` and by `period_type='annual'`. H1 remains a leaf and remains activatable. Its 89 participant rows are inert (`Build Create SQL` seeds participants for every new period and cannot know it will become a container). Two excluded from H1: Esenova and Balova, hired after 30 June. `evaluation_periods_id_seq` is at 5 with ids 3 and 4 absent — a rejected INSERT still consumes a `nextval`; there is no delete route. Unverified either way, and harmless.
   **Annual 2025 has zero participant rows**, so it can never obtain `period_results`; feeding it to close returns 409. An «Annual 2025» container would render «нет сохранённых результатов» for every person — which is exactly what that cell label was written for.
@@ -150,15 +149,17 @@ The set has not changed since 20 Aug; the webhook count rose 37 → 41 because `
   | 10 | Оценка C-Level и соответствие культуре | `all` | 1.60 | `c_level_only` |
   | 12 | Профессиональное развитие и обмен знаниями | `all` | 1.00 | self + `for_manager` |
   | 13 | Объем проектной работы и загрузка | `project_participants` | 1.80 | `for_manager` |
-  | 14 | Ответственность сверх роли | `all` | 1.50 → **2.00** (moved on live 2026-08-24 between 12:36Z and 14:32Z by an admin-side coefficient edit — Alexander's channel, legal until close per D-0822-2; surfaced in `PRELAUNCH_FIX_BATCH`) | `for_manager` |
+  | 14 | Ответственность сверх роли | `all` | **1.50** (D-0824-2) | `for_manager` |
+
+  Live `score_coefficients`: **90** rows, all positive, minimum **0.30**. Criterion 14 has ten levels; the live curve is **0.70/1.00/1.00/1.10/1.20/1.50/2.00/3.00/5.00/7.00**, which is **not** the CRITERION9 / D-0824-2 approved curve `0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00`. Weight matches the decision; the level curve does not — surfaced in `docs/DOCS_HYGIENE_2026-08-24.md`, not written back.
 
 - **`docs/CALCULATION_MAP.md`** — done 2026-08-19, read-only, extended 2026-08-21 with §A.1 (`rating_*` are archival per-source summaries of `evaluations.calculated_score`; `final_rating`/`bonus_index` are matrix quantities; the two **will not reconcile, by design**). Every number traced; all 234 archive evaluations recomputed (229 exact, 5 explained). See §4. Later briefs closed most of the period-filter holes named in §4 item 5; that item is preserved as written and is historical.
 
 ---
 > **Reading §4 below:** it is copied verbatim from the previous HANDOVER and deliberately not edited. Two
 > figures inside it are older than this document and are **not** corrected in place: the criteria-count
-> distribution ("35 × 3, 11 × 4, 38 × 5, 5 × 6") is the 2026-08-20 measurement — live today is **37 × 3,
-> 11 × 4, 36 × 5, 5 × 6** (§6.3), because Alexander is still editing the classification; and item 5's
+> distribution ("35 × 3, 11 × 4, 38 × 5, 5 × 6") is the 2026-08-20 measurement — live today is **37 × 4,
+> 11 × 5, 36 × 6, 5 × 7** (§6.3, including criterion 14), because Alexander is still editing the classification; and item 5's
 > nine unfiltered query families is a 2026-08-19 statement that later briefs largely closed (§3). The
 > three formulas themselves are current and are the point of the section.
 
@@ -237,14 +238,14 @@ Because criteria count drives bonus share, the project/general classification is
 8. **Which number was used for the December 2025 bonus** — the on-screen index, or the ratings? The DB cannot answer (the index was never stored). Decides whether formula #3 is the definition of "index" in D-0819-1. Needed before H1 results, not before launch.
 9. Confirm Amangozel = Enesha Bayramgeldiyeva (grade A) and Merdan Rasulov's carried S1.
 10. Whether employees see their 2025 score in the new portal (recommended: as a copied closed period, after the first cycle lands).
-11. **The catalogue freeze — decided 2026-08-22 (D-0822-1 / D-0822-2), and the earlier premise here was wrong.** This item used to say the freeze was enforced for classification and coefficients "but **not** for weights". Measured against live on 2026-08-22 (`docs/RECON_RECLASS_COEFF_2026-08-2x.md` §2.4), there was no unfrozen write path to any weight: all three producers — `API: Save Score Coefficients`, `API: Manage Criteria Admin V7`, `API: Update Admin Data` — sat behind the same `ACTIVE_PERIOD_EXISTS` 409, which fired on **activation**, the earliest possible moment and the widest possible freeze. What is now decided splits that single switch in two: the **criteria catalogue** freezes when the evaluation **starts** (not when the period is activated), so draft and the preparation window are both editable; **weights, level coefficients and grade coefficients** are editable **until close** with the 409 removed entirely and per-value validation in its place (finite, > 0, levels 1..10 — this is what closed BUG-029); **classification** is unchanged, still frozen by the first submission in the active period. The real residue of BUG-010 was never editability: it is that everything stays **live-joined until close**, so an edit made before activation or after close re-renders history. That half of BUG-010 is still open, and `period_results` is what bounds it — closed periods no longer re-join these tables. Report: `docs/LIFECYCLE_COEFF_2026-08-2x.md`.
+11. **The catalogue freeze — decided 2026-08-22 (D-0822-1 / D-0822-2), and the earlier premise here was wrong.** This item used to say the freeze was enforced for classification and coefficients "but **not** for weights". Measured against live on 2026-08-22 (`docs/RECON_RECLASS_COEFF_2026-08-2x.md` §2.4), there was no unfrozen write path to any weight: all three producers — `API: Save Score Coefficients`, `API: Manage Criteria Admin V7`, `API: Update Admin Data` — sat behind the same `ACTIVE_PERIOD_EXISTS` 409, which fired on **activation**, the earliest possible moment and the widest possible freeze. What is now decided splits that single switch in two: the **criteria catalogue** freezes when the evaluation **starts** (not when the period is activated), so draft and the preparation window are both editable; **weights, level coefficients and grade coefficients** are editable **until close** with the 409 removed entirely and per-value validation in its place (weights finite and ≥ 0.1 since the 2026-08-24 D-0822-2 amendment; level and grade coefficients finite and > 0; levels 1..10 — this is what closed BUG-029); **classification** stays editable during a running campaign (D-0822-3, 2026-08-24) — the first-submission `CLASSIFICATION_FROZEN` 409 is gone, replaced by server-side applicability. The real residue of BUG-010 was never editability: it is that everything stays **live-joined until close**, so an edit made before activation or after close re-renders history. That half of BUG-010 is still open, and `period_results` is what bounds it — closed periods no longer re-join these tables. Report: `docs/LIFECYCLE_COEFF_2026-08-2x.md`.
 12. **How the frozen index gets spent in September.** Once H1 closes there is no active period, so Итоговые баллы, Калькуляция бонусов and the matrix all render empty, and `bonus_index` is visible only on Годовые итоги — which has no budget, point-value or payout field (BUG-033). Either a period selector or reading `period_results` on the money screens. Needed in September, not in August.
 
 ---
 
 ## 7. Next work, in order
 
-Done 19–21 Aug, all accepted with reports: `CALCULATION_MAP.md` · `ROUTE_GUARD_H1` · `LAUNCH_PREP` · `MAIL_AND_RUNBOOK` · `THROTTLE_RAISE` · `SHARED_INVITE` · `DRESS_REHEARSAL` · `COSMETIC_PRELAUNCH` · `ROUTE_GUARD_DEFERRED` · `CLEVEL_DIRECT_ENABLE` · `MATRIX_CALIBRATION_FIX` · `REPORTING_SURFACE` · `DRAFTS_UX` · `DOCS_HYGIENE_2026-08-2x` · `USER_FACING_COPY` · `PRELAUNCH_FIXES` · `PREFLIGHT_H1` · `ADMIN_USERS_SORT` · `TENDER_CATEGORY` · `PERIODS_HIERARCHY` · `PERIODS_VERIFY` · `POSTVERIFY_BATCH`. Pre-flight verdict: H1 can be activated — **yes**, no blockers.
+Done 19–24 Aug, all accepted with reports: `CALCULATION_MAP.md` · `ROUTE_GUARD_H1` · `LAUNCH_PREP` · `MAIL_AND_RUNBOOK` · `THROTTLE_RAISE` · `SHARED_INVITE` · `DRESS_REHEARSAL` · `COSMETIC_PRELAUNCH` · `ROUTE_GUARD_DEFERRED` · `CLEVEL_DIRECT_ENABLE` · `MATRIX_CALIBRATION_FIX` · `REPORTING_SURFACE` · `DRAFTS_UX` · `DOCS_HYGIENE_2026-08-2x` · `USER_FACING_COPY` · `PRELAUNCH_FIXES` · `PREFLIGHT_H1` · `ADMIN_USERS_SORT` · `TENDER_CATEGORY` · `PERIODS_HIERARCHY` · `PERIODS_VERIFY` · `POSTVERIFY_BATCH` · `BACKUP_FIX` · `DOCS_HYGIENE_2026-08-21` · `RECON_RECLASS_COEFF` · `LIFECYCLE_COEFF` · `GATE_LIFECYCLE_COEFF` · `RECLASS` · `GATE_RECLASS` · `FINALIZE_PRELAUNCH` · `GATE_FINALIZE` · `CRITERION9` · `BROWSER_WALKTHROUGH` · `PRELAUNCH_FIX_BATCH`. Pre-flight verdict: H1 can be activated — **yes**, no blockers. Launch stays **paused**.
 
 **While paused:** nothing needs a brief. If the pause runs long, the only thing that decays is the certificate (17 Nov) and the invite token (18 Sep).
 
@@ -258,11 +259,13 @@ Done 19–21 Aug, all accepted with reports: `CALCULATION_MAP.md` · `ROUTE_GUAR
 
 | Item | Source | Row |
 |---|---|---|
-| Off-host copy of the dumps (the live DB is in the daily job since 21 Aug — BUG-032 closed) | this hygiene pass | BUG-014 |
+| Off-host copy of the dumps (the live DB is in the daily job since 21 Aug — BUG-032 closed) | 21 Aug hygiene / BACKUP_FIX | BUG-014 |
 | A screen that can spend the frozen `bonus_index` after close (period selector, or read `period_results`) | PERIODS_VERIFY M3 | BUG-033 |
-| Catalogue freeze / per-period versioning of weights, coefficients, classification | PERIODS_VERIFY M5 | BUG-010 |
-| `Number.isFinite(w) && w >= 0` on both sides of the weight and grade-coefficient defaults | PERIODS_VERIFY §1 | BUG-029 |
-| Refresh the stale top-level `API_ evaluations-matrix.json` export (4 nodes vs live's 9) | PERIODS_HIERARCHY | BUG-028 |
+| Catalogue freeze / per-period **versioning** of weights, coefficients, classification (coefficient-table versioning) | PERIODS_VERIFY M5 / D-0824-2 | BUG-010 |
+| Audit log for coefficient writes (who / when / old→new) — the coefficients route has none | D-0824-2 | candidate, no row |
+| `useScoreCalculation` still substitutes an empty coefficient set on failure | LIFECYCLE_COEFF | BUG-042 |
+| Nine stale top-level `n8n_workflows/` exports (named BUG-028 instance is current) | GATE_RECLASS / GATE_FINALIZE | BUG-045 |
+| Migration chain cannot rebuild live `score_corrections` (`period_id` in no migration) | CRITERION9 | BUG-050 |
 | `AdminUsers` status circles never load (`setLoadingStatuses` has no state) | ADMIN_USERS_SORT §6 | BUG-034 |
 | `errorHandler.js` overwrites 401/403/429 server messages, so `CAPABILITY_FORBIDDEN` reads as the generic «Доступ запрещен» | PRELAUNCH_FIXES | BUG-035 |
 | §4.8 copy-vs-behaviour rows 2, 3, 7, 8, 9, 10 — including «Оценить новые критерии», which always 409s | USER_FACING_COPY / PRELAUNCH_FIXES | BUG-036 |
@@ -272,10 +275,16 @@ Done 19–21 Aug, all accepted with reports: `CALCULATION_MAP.md` · `ROUTE_GUAR
 | `deploy_epe_frontend.sh` needs `rg` on PATH or it fails closed | POSTVERIFY_BATCH | BUG-040 |
 | Employee-route period filters on `my-profile` and `evaluation-history` | REPORTING_SURFACE | BUG-009 |
 | `/team` calls an admin-only API; typed `/admin` still `AdminRoute` for HR; login-time foreign-draft sweep | earlier briefs | BUG-012, BUG-013, BUG-011 |
-| 15 npm advisories (11 high) | `npm audit` | BUG-016 |
+| 15 npm advisories (11 high, 3 moderate, 1 low) — re-measured 2026-08-24 | `npm audit` | BUG-016 |
 | BUG-008 invite audit (only matters with a second admin) | LAUNCH_PREP | BUG-008 |
 | Stale Keychain admin password | DRESS_REHEARSAL | BUG-015 |
+| Azure VM `135.232.120.40` RDP :3389 still public | TLS_CUTOVER 2026-08-19; **not re-probed** 24 Aug | triaged, no row |
+| Legacy domains `bk.sedamedical.com` (measured 19 Aug) / `assessment.sedamedical.com` (**unverified** this session — name is not in the repo) | TLS_CUTOVER; architect queue | triaged, no row |
 | Archive the stray `My workflow 10` so the "3 inactive" baseline means something | PERIODS_VERIFY | triaged, no row |
+| Which figure paid the December 2025 bonus (on-screen index vs ratings) | §6.8 | — |
+| Results-visibility release — when subjects see their own scores | D-0820-17 / BUG-025 | — |
+| Whether 2025 scores display in the new portal | §6.10 | — |
+| HR / manager methodology consultation before H2 | architect queue 2026-08-24 | — |
 | Phase 3 rewrite off n8n in the H2 window | AGENTS.md | — |
 
 ---
@@ -339,8 +348,8 @@ When you do start fresh, point it at `AGENTS.md`, this file, and the specific re
 
 Reports, in order: `AUTHENTICATION_CORE_2026-08-18.md` · `TLS_CUTOVER_2026-08-19.md` · `CALCULATION_MAP.md` (read §4 of this file first) · `ROUTE_GUARD_H1_2026-08-19.md` · `LAUNCH_PREP_2026-08-19.md` · `MAIL_AND_RUNBOOK_2026-08-19.md` · `THROTTLE_RAISE_2026-08-20.md` · `SHARED_INVITE_2026-08-20.md` · `DRESS_REHEARSAL_2026-08-2x.md` · `COSMETIC_PRELAUNCH_2026-08-2x.md` · `ROUTE_GUARD_DEFERRED_2026-08-2x.md` · `CLEVEL_DIRECT_ENABLE_2026-08-2x.md` · `MATRIX_CALIBRATION_FIX_2026-08-2x.md` · `REPORTING_SURFACE_2026-08-2x.md` · `DRAFTS_UX_2026-08-2x.md` · `DOCS_HYGIENE_2026-08-2x.md` · `USER_FACING_COPY_2026-08-2x.md` · `PRELAUNCH_FIXES_2026-08-2x.md` · `PREFLIGHT_H1_2026-08-2x.md` · `ADMIN_USERS_SORT_2026-08-2x.md` · `TENDER_CATEGORY_2026-08-2x.md` · `PERIODS_HIERARCHY_2026-08-2x.md` · `PERIODS_VERIFY_2026-08-2x.md` · `POSTVERIFY_BATCH_2026-08-2x.md` · `BACKUP_FIX_2026-08-2x.md` · `DOCS_HYGIENE_2026-08-21.md` · `RECON_RECLASS_COEFF_2026-08-2x.md` · `LIFECYCLE_COEFF_2026-08-2x.md` · `GATE_LIFECYCLE_COEFF_2026-08-2x.md` · `RECLASS_2026-08-2x.md` (closes BUG-044) · `GATE_RECLASS_2026-08-2x.md` (files BUG-045/046/047) · `FINALIZE_PRELAUNCH_2026-08-2x.md` (corrections applicability, BUG-046/047 closed, new-criterion path verified) · `GATE_FINALIZE_2026-08-2x.md` (gate on the finalization batch; files BUG-048/049) · `CRITERION9_2026-08-2x.md` (BUG-048 closed by D-0824-1, BUG-049 closed, BUG-050 filed; the ninth criterion — id 14 «Ответственность сверх роли» — created and proven on live the same day, once the texts document arrived). · `BROWSER_WALKTHROUGH_2026-08-2x.md` (the campaign UI walked end-to-end in a real browser on a stand — the last «not browser-driven» debt retired; BUG-052 fixed and deployed, BUG-051/053 filed). · `PRELAUNCH_FIX_BATCH_2026-08-2x.md` (BUG-051 matrix alignment fixed+deployed with browser proof and money reconciled to the digit; BUG-053 `/tmp` dumps cleaned with md5-verified local copies; refresh check answered — no bug; the criterion-14 weight found moved 1.5→2.0 on live by an admin edit, surfaced).
 
-Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**21 open / 32 closed**, reconciled 2026-08-24 by the prelaunch fix batch — BUG-051 and BUG-053 closed with evidence). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…014`.
+Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**20 open / 33 closed**, counted 2026-08-24 by this hygiene pass — BUG-028 closed: named instance current; class is BUG-045). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…014`.
 
-**`docs/EVALUATION_METHODOLOGY.md` does not exist.** `AGENTS.md` calls it the business contract Alexander owns — role groups, criteria, weights, scale, aggregation, calibration — and says code conforms to it, never the reverse. There is no such file anywhere in the repo, and there never has been. The catalogue in §3 and the formulas in §4 are the de facto contract. Writing the real one is Alexander's call, not an executor's; until then a "divergence from the methodology" cannot be checked against anything.
+**`docs/EVALUATION_METHODOLOGY.md` does not exist.** `AGENTS.md` calls it the business contract Alexander owns — role groups, criteria, weights, scale, aggregation, calibration — and says code conforms to it, never the reverse. There is no such file anywhere in the repo, and there never has been. A draft v1.0 exists outside the repository (chat-side architect, 2026-08-24) and is pending the owner's approval of four wording points; on approval it is committed verbatim as docs/EVALUATION_METHODOLOGY.md with a DECISIONS.md row. Until then the de facto contract remains HANDOVER §3–§4. Do not create the file.
 
 A new Cursor session gets: `AGENTS.md`, this file, and the one report relevant to its brief. Nothing else.

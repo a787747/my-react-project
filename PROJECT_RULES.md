@@ -79,10 +79,11 @@ local account, outside the backup regime, never pruned. Therefore:
 
 Two cron jobs on `92.51.45.147`, both writing gzipped `pg_dump -Fc` files into `/root/backups/epe/daily`
 with `chmod 600` and a **14-day** window. `0 3 * * * backup-performance-db.sh` dumps the read-only 2025
-archive (`postgres`, schema `performance_db`) — pre-existing, do not edit. `20 3 * * * backup-epe-live.sh`
+archive (`postgres`, schema `performance_db`) — pre-existing, do not edit; **13** dated dumps on
+disk as of 2026-08-24 (`retained=13` in that day's log). `20 3 * * * backup-epe-live.sh`
 (added 2026-08-21 for BUG-032) dumps the **live** `epe_2026` in full and the **n8n application schema**
 (`postgres`, schema `public`: 58 workflows, credentials, settings, webhook registrations) — before that
-date neither had any backup at all. Pruning is keyed on the filename stem, so neither job can ever delete
+date neither had any backup at all. Live stems on 2026-08-24: **4** `epe_2026` + **4** `n8n_app`. Pruning is keyed on the filename stem, so neither job can ever delete
 the other's files. Failure leaves a non-zero exit, a `FAIL` line in `/root/backups/epe/backup.log` and
 `FAIL` in `/root/backups/epe/backup-epe-live.status`; there is no MTA on the host, so that status file is
 the alarm — `cat /root/backups/epe/backup-epe-live.status` must read `OK` with today's date. **To restore:**

@@ -83,7 +83,7 @@ macOS arm64 (M3 Pro), Docker Desktop, several unrelated projects on the same mac
 
 `PLAN.md` is still the Phase-0 revival plan (HTTP :8080, closed ports) and is historical — do not plan from it.
 
-**`docs/EVALUATION_METHODOLOGY.md` does not exist.** It is described here as the business contract Alexander owns — role groups, criteria, weights, scale, aggregation, calibration, with code conforming to it and never the reverse — but no such file has ever been in the repo. Until he writes one, the de facto contract is the criteria catalogue and the three formulas in `docs/HANDOVER.md` §3–§4, and "a divergence from the methodology" cannot be checked against anything. Do not fabricate the file; say it is missing.
+**`docs/EVALUATION_METHODOLOGY.md` does not exist.** It is described here as the business contract Alexander owns — role groups, criteria, weights, scale, aggregation, calibration, with code conforming to it and never the reverse — but no such file has ever been in the repo. A draft v1.0 exists outside the repository (chat-side architect, 2026-08-24) and is pending the owner's approval of four wording points; on approval it is committed verbatim as docs/EVALUATION_METHODOLOGY.md with a DECISIONS.md row. Until then the de facto contract remains HANDOVER §3–§4. Do not create the file.
 
 Read `REVIEW_CHECKLIST.md` (repo root — not `docs/`) before any review work. Update `PROGRESS.md` before the session ends. If a named file does not exist, say so plainly rather than inventing it.
 

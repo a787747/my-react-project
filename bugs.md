@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 21 |
+| 🔴 Open | 20 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 32 |
+| 🟢 Closed | 33 |
 
 ---
 
@@ -376,12 +376,13 @@
 ---
 
 ### BUG-028: Stale top-level workflow export (evaluations-matrix)
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 🟢 Low
 - Location: `n8n_workflows/API_ evaluations-matrix.json`
-- Description: The top-level export is the pre-guard, pre-period-binding 4-node workflow. Live runs the generated version (`scripts/build_route_guard_deferred.py` → `route_guard_deferred/evaluations-matrix.json`). Anything importing or trusting the top-level file gets an unguarded, all-periods-mixed matrix — it cost the 2026-08-21 throwaway stand one debug cycle.
+- Description: The top-level export was the pre-guard, pre-period-binding 4-node workflow. Live runs the generated version (`scripts/build_route_guard_deferred.py` → `route_guard_deferred/evaluations-matrix.json`). Anything importing or trusting the stale file got an unguarded, all-periods-mixed matrix — it cost the 2026-08-21 throwaway stand one debug cycle.
 - Why it matters: A future session or stand that seeds from the stale export silently reintroduces an unauthenticated period-mixing matrix.
 - How to fix: Refresh top-level exports from live after each PUT (deploy_periods_hierarchy.py already does this for Manage Periods), or drop top-level duplicates of generator-owned workflows keeping only the id-bearing metadata.
+- Fix (2026-08-24): the named instance was refreshed from live by the reclass deploy (`docs/RECLASS_2026-08-2x.md`). `docs/GATE_RECLASS_2026-08-2x.md` §8: "The named BUG-028 instance itself is now current." Hygiene 2026-08-24: top-level `API_ evaluations-matrix.json` has **9** nodes and is **not** in the stale-export set. The wider class remains [BUG-045] (nine other top-level exports still stale).
 
 ### BUG-045: The stale-export class is ten files wide, not one
 
