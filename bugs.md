@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 20 |
+| 🔴 Open | 22 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 27 |
 
@@ -371,6 +371,26 @@
 - How to fix: one-line edit of the parenthetical to "(a full re-submit answers the same 409 `CRITERIA_ALREADY_SCORED`; `DUPLICATE_EVALUATION` remains only on the concurrent-create race)".
 - Source: verification gate `docs/GATE_RECLASS_2026-08-2x.md` §7, deployed text vs register text.
 - Fix (2026-08-24): the D-0822-3 parenthetical now reads exactly the deployed truth — full re-submit → 409 `CRITERIA_ALREADY_SCORED`; `DUPLICATE_EVALUATION` only on the concurrent-create race in `Format Response` — matching the deployed `Build Insert SQL`, `docs/RECLASS_2026-08-2x.md` §1.2 and the gate's runtime record (`reclass_proof.json` → g_flow). The same D-0822-3 bullet was extended in the same edit to record the approved corrections-applicability decision this batch deployed. Report: `docs/FINALIZE_PRELAUNCH_2026-08-2x.md`.
+
+### BUG-048: FINALIZE §1 mis-describes the submit path's check order; the pre-period 422 is a paused-state classification disclosure submit does not make
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low (report-accuracy; the deployed corrections behaviour itself is exactly as claimed and approved — only one of the three justification sentences is wrong, and the disclosure it waves away is real but marginal)
+- Location: `docs/FINALIZE_PRELAUNCH_2026-08-2x.md` §1 "Ordering decision, surfaced", the sentence "the deployed submit path already answers applicability before its relation checks, so this leaks nothing submit does not".
+- Description: the deployed `API: Submit Evaluation` → `Build Insert SQL` answers `SCOPE_MISMATCH` 403 (one lookup bundling the actor–subject relation and active-period scope), `PERIOD_NOT_STARTED` 409 and `CANNOT_EVALUATE` 403 **before** its applicability 422 — read from live `workflow_entity` 2026-08-24 (byte-identical to the generator). Submit therefore never reveals applicability while the launch is paused (it answers `SCOPE_MISMATCH` first), whereas the corrections route now answers 422 `CRITERIA_NOT_APPLICABLE` before its period gate — so any role-gated writer (admin / c_level / any manager) can distinguish a subject's current project/general classification for **any** subject id by probing criterion 8, on paused live and mid-campaign pre-ownership.
+- Why it matters: DECISIONS/report accuracy is the §6.11 wrong-premise class — a future session citing the sentence would believe the ordering introduces no new information surface. The disclosure itself is minor (classification is visible to admin/c_level on every matrix, and to a manager for their own span), but it is real, was traded deliberately for live provability, and should be recorded as a cost, not denied.
+- How to fix: correct the §1 sentence (and mirror the nuance in the D-0822-3 extension note): the refusal is non-mutating and keeps the rule provable on paused live — those two reasons stand — at the cost of a marginal classification probe that submit does not offer. Alternatively reorder the check behind the period gate and accept byte-identity-only deploy verification; that trade-off is Alexander's to re-make, not an executor's.
+- Source: verification gate `docs/GATE_FINALIZE_2026-08-2x.md` §2, deployed submit order vs report text.
+
+### BUG-049: Migration 006 does not reproduce live's `score_corrections` constraints (criteria FK typo'd to `users`, CASCADE vs live NO ACTION); `schema.sql` predates the table
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low (no live impact — stands restore from live dumps; wrong only for a from-migrations rebuild)
+- Location: `migrations/006_add_hierarchical_corrections.sql` (`score_corrections_criteria_id_fkey FOREIGN KEY (criteria_id) REFERENCES performance_db.users(id) ON DELETE CASCADE` — criteria FK pointing at **users**, and `ON DELETE CASCADE` on subject/evaluator/criteria); `schema.sql` (no `score_corrections` table at all).
+- Description: live `epe_2026` (pg_constraint, read 2026-08-24) has `score_corrections_criteria_fkey FOREIGN KEY (criteria_id) REFERENCES performance_db.criteria(id)` and plain `NO ACTION` on all of subject/evaluator/criteria/period FKs. The migration as written would create a criteria FK that only accepts criterion ids that happen to be user ids, and CASCADE deletes that would silently destroy correction history when a user or criterion is removed. Live was evidently built/repaired by another path; the repo's DDL record does not say so anywhere.
+- Why it matters: the repo is the memory (§9 HANDOVER). The H2 rewrite, or any stand built from `schema.sql` + `migrations/001…014` instead of a live dump, inherits materially different — and data-destroying — constraints, and the gate that catches it would blame the wrong layer. Live's `NO ACTION` FKs are also what makes the Manage Criteria hard-delete safe (FK-blocked once data references a criterion) — a from-migrations rebuild loses that protection.
+- How to fix: a reconcile migration (or a corrective note in 006) stating the live constraint set verbatim, plus a regenerated `schema.sql` snapshot at rewrite time; cheapest correct fix is a new migration `015_reconcile_score_corrections_constraints.sql` that drops-if-exists the typo'd FK and recreates the live set idempotently.
+- Source: verification gate `docs/GATE_FINALIZE_2026-08-2x.md` §6 (FK check behind the criterion-delete adversarial question).
 
 ## ✅ Closed
 
