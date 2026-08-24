@@ -162,7 +162,7 @@ const ScoreDetailModal = ({
       setIsEditing(false);
     } catch (error) {
       logger.error('Ошибка сохранения корректировки:', error);
-      alert('Ошибка при сохранении корректировки');
+      alert(error?.message || 'Ошибка при сохранении корректировки');
     } finally {
       setSubmitting(false);
     }

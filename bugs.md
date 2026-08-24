@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 21 |
+| 🔴 Open | 23 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 29 |
+| 🟢 Closed | 30 |
 
 ---
 
@@ -120,6 +120,16 @@
 
 ---
 
+### BUG-051: Admin evaluations-matrix rows skip non-applicable project cells, misaligning every later column against the header
+
+- Status: 🔴 OPEN
+- Severity: ⚠️ High
+- Location: `src/components/admin/EvaluationsMatrixTable.jsx` — header derives its criterion columns from `employees[0].criteria`, each body row maps its OWN `groupCriteria(emp.criteria)`.
+- Description: the header renders all catalogue criteria as columns (walkthrough stand: name + 9 criterion columns, order 3,4,12,14,8,13,2,1,10, no colspans). A body row for a subject without project criteria emits `<td>`s only for its own criteria — 8 cells instead of 10 — so every cell after the general group shifts two columns left: the «Как руководитель» N/A renders under the «Взаимодействие и надежность в проекте» header, and any C-level scores land under «Объем проектной работы…» / «Качество управления…». Rows for project subjects (10 cells) align; general rows do not. DOM evidence in `docs/BROWSER_WALKTHROUGH_2026-08-2x.md` §I (browser walkthrough, 2026-08-24): header row 2 = 10 `th`; WT Employee G row = 8 `td`, WT Employee N/P rows = 10 `td`.
+- Why it matters: most of the company is non-project, so most rows of the admin matrix are misaligned. A C-level score for a general employee displays in a project column; an admin reading the matrix (or comparing against the final-scores screen, which uses a shared column list and is NOT affected) attributes numbers to the wrong criteria. This is the screen calibration decisions are read from.
+- How to fix: render each row against the header's criterion list, emitting a placeholder cell («—») when the criterion is not applicable to that subject — the same shared-`criteriaList` approach `useFinalScoresMatrix.js` already uses. Behavioral change to a reporting surface → its own brief, not the walkthrough's latitude.
+- Source: browser walkthrough 2026-08-24 (`docs/BROWSER_WALKTHROUGH_2026-08-2x.md`).
+
 ## 📌 Medium
 
 ### BUG-009: Employee profile and history still have no period filter
@@ -214,6 +224,26 @@
 - Source: verification gate `docs/GATE_RECLASS_2026-08-2x.md` §8 (adversarial sweep of every corrections-reading surface in the generated corpus). The build's proofs could not see it: the stand exercised the admin matrix and close only.
 - Fix (2026-08-24): exactly the named one clause — `AND (c.target_audience <> 'project_participants' OR u.is_project_participant = true)` in the `CROSS JOIN` row source of `MANAGER_MATRIX_INNER_SQL` (`scripts/build_route_guard_deferred.py`), same text and same position as the admin matrix and the close dataset. Static test added (`tests/routeGuardDeferred.test.js`, incl. the row-source-not-sub-select regex). Deployed to live `EyvFZJGDxQNL20tC` (`updatedAt=2026-08-24T08:33:51.330Z`, node-identical to the generator, activation preserved, Auth Guard untouched).
 - Verification (2026-08-24, throwaway stand `epe_final_20260824_0828`; compared values in `backups/2026-08-24-finalize/finalize_proof.json` → `bug046`): middle manager 1310 over span {1303, 1304, 1308, 1309}; project subject 1304 evaluated on the full set with a `c_level` correction on criterion 8 and a `mid_level` correction on criterion 13. Emitted cells for 1304: **[2, 3, 4, 8, 12, 13, 14] → project→general switch → [2, 3, 4, 12, 14]** (cells 8/13 gone, no emitted cell carries either correction; the admin matrix emits the same set) **→ switch back → [2, 3, 4, 8, 12, 13, 14]** with both correction values (6/6) returning unchanged. Database rows through all three states: score rows `[3, 4, 8, 12, 13, 14]` and both correction rows intact. Live post-deploy probe: `GET api/manager-subordinates-matrix` → 200 empty no-period state (`backups/2026-08-24-finalize/live_finalize_probe.json`). Report: `docs/FINALIZE_PRELAUNCH_2026-08-2x.md`.
+
+### BUG-052: Score-correction refusals surfaced as a hardcoded alert, discarding the server's readable reason
+
+- Status: 🟢 CLOSED
+- Severity: 📌 Medium
+- Location: `src/hooks/useEvaluationsMatrix.js` `submitScoreCorrection` catch; `src/components/admin/ScoreDetailModal.jsx` `handleSubmitCorrection` catch.
+- Description: a 422 `CRITERIA_NOT_APPLICABLE` (server message: «Критерий 8 — проектный, а сотрудник сейчас не участник проекта») or any 409 from `api/admin/score-correction` reached the admin as the literal `alert('Ошибка при сохранении корректировки')` — the hook returned a hardcoded string and the modal alerted its own literal, so no server reason could ever surface on either correction route. Readable Russian, but indistinguishable from a network failure.
+- Why it matters: the applicability refusal is a *decision* (corrections applicability, FINALIZE batch) — an admin who cannot see «критерий не применим» retries or files the refusal as an outage.
+- Fix (2026-08-24, browser walkthrough): the hook returns `error.userMessage || …` (the apiClient already maps 409/422 to the server message), the modal alerts `error?.message || …`. The mid-level path (`ManagerSubordinatesMatrix.jsx`) already threaded the message and is unchanged. Deployed to live release `20260824T131920Z`.
+- Verification: stale-modal 422 reproduced in a real browser before and after — alert text went from the hardcoded literal to the verbatim server reason; `tests/correctionErrorSurface.test.js` pins all three code paths; suite 277/277. See `docs/BROWSER_WALKTHROUGH_2026-08-2x.md` §J.
+
+### BUG-053: World-readable dumps of live `epe_2026` accumulate in VPS `/tmp` outside the backup regime
+
+- Status: 🔴 OPEN
+- Severity: 📌 Medium
+- Location: `root@92.51.45.147:/tmp` — `epe_2026_before.dump` (0644, 19 Aug), `epe_2026_pre013_20260821_0549.dump` (0644), four `epe_2026_pre014_20260822_*.dump` (0644), `epe_2026_pre_mig014_20260822T063731Z.dump` (0644); only `epe_2026_after.dump` is 0600.
+- Description: pre-migration safety dumps from the 19–22 Aug briefs were left in `/tmp` with default 0644 permissions. The backup regime (`/root/backups/epe`, chmod 600, 14-day pruning) does not cover them; they are full copies of production personal data readable by any local account and never pruned. The walkthrough stand's own dump was removed at teardown (this brief), but these predate it and were not this session's to delete.
+- Why it matters: PROJECT_RULES calls a stray live copy «a second copy of production personal data outside the backup regime». `/tmp` is the most exposed directory on the host and survives until reboot cleanup, which this VPS may never perform.
+- How to fix: decide: delete them (migrations 013/014 are long verified, and dated dumps of the same days exist under `backups/` locally), or move under `/root/backups/epe` with 0600. One command either way; needs Alexander's or the next executor's confirmation because they are other sessions' rollback artifacts.
+- Source: browser-walkthrough teardown sweep 2026-08-24.
 
 ## 📝 Low
 

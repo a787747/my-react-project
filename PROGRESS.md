@@ -932,3 +932,17 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 
 **Notes / Gotchas:**
 - The coefficient save remains legal until close (D-0822-2), but the criterion had to exist before «Запустить оценку» — it now does, well before any campaign. Nothing remains to do for criterion 9 except normal campaign operation.
+
+## 2026-08-24 — Browser-driven walkthrough of the campaign UI (prelaunch debt retired)
+
+**What was done:**
+- Built a throwaway stand (`epe_walk_*`, `epe-walk-n8n` on :25679) with the FULL generated workflow surface (28 active) and fixture actors that log in through the real `auth/login` form (scrypt hashes in the seed).
+- Walked every campaign flow in a real Chromium: employee (zero tasks → prep window → tasks after «Запустить оценку» → self-review 3/4/12 → submit), manager (per-subject criteria sets: 14 everyone / 8-13 project / 2 manager subjects; submit; reclassification → «Дооценить (2)» naming 8/13 → additive modal → flag closes), upward (criterion 2 only), admin (two gates + all period states, /admin/scoring 9 criteria + weight round-trip, matrix + final scores with the criterion-14 column and money to the digit, corrections applicable/inapplicable, catalogue freeze), error surfaces (409 already-scored via a genuine stale tab, 422 applicability, period-not-started, freeze 409 — all human Russian, no raw JSON).
+- Network evidence for the D-0822-2 claim: self-review payload captured verbatim — no `weighted_score`, no `score-coefficients` fetch anywhere in the employee tab's log.
+- Fixed under latitude and deployed (release `20260824T131920Z`): correction refusals now surface the server's reason instead of a hardcoded alert (BUG-052 closed; `tests/correctionErrorSurface.test.js`).
+- Filed BUG-051 (admin matrix header/body misalignment for non-project rows, High) and BUG-053 (world-readable live dumps in VPS /tmp, Medium). bugs.md 23 open / 30 closed; HANDOVER §10 reconciled.
+- Stand torn down; live verified untouched (H1-2026 still draft, 0 fixture users, 0 evaluations today).
+
+**Results:**
+- Report: `docs/BROWSER_WALKTHROUGH_2026-08-2x.md` (checklist + verbatim evidence + Surfaced-for-decision).
+- `npm test` **277/277**.

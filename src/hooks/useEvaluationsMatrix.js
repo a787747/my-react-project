@@ -221,7 +221,7 @@ export const useEvaluationsMatrix = (periodId = null) => {
       return { success: true };
     } catch (error) {
       logger.error('Ошибка сохранения корректировки:', error);
-      return { success: false, error: 'Ошибка при сохранении корректировки' };
+      return { success: false, error: error.userMessage || 'Ошибка при сохранении корректировки' };
     }
   }, [fetchData]);
 
