@@ -309,6 +309,13 @@ LEFT JOIN performance_db.evaluation_period_participants epp
 CROSS JOIN performance_db.criteria c
 WHERE u.role != 'admin'
   AND c.is_active = true
+  -- Applicability, classification dimension only (D-0822-3): a cell for a
+  -- project_participants criterion is emitted only for a CURRENT project
+  -- participant. Score rows for an excluded cell stay in the database and
+  -- stop counting; switching the person back re-emits them unchanged. The
+  -- correction sub-selects live inside the cell, so an excluded criterion
+  -- takes its corrections with it.
+  AND (c.target_audience <> 'project_participants' OR u.is_project_participant = true)
 GROUP BY u.id, u.full_name, u.job_title, u.manager_id, u.has_subordinates,
          u.role, u.can_be_evaluated, epp.is_in_scope,
          d.name, g.code, g.description, u.is_project_participant
@@ -1946,6 +1953,9 @@ return {{
           FROM performance_db.evaluation_periods p
           WHERE p.is_active = true AND p.status = 'active'
             AND p.evaluation_started_at IS NOT NULL
+            AND p.period_type <> 'annual'
+            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                            WHERE child.parent_period_id = p.id)
           LIMIT 1
         ) AS period_id
       FROM performance_db.users s

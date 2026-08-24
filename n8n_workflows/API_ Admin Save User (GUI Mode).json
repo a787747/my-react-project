@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-19T08:40:16.830Z",
+  "updatedAt": "2026-08-24T06:10:10.861Z",
   "createdAt": "2025-12-06T17:01:24.336Z",
   "id": "JCjzhRJtIDW0z8mI",
   "name": "API: Admin Save User (GUI Mode)",
@@ -53,7 +53,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Actor identity comes from guard — body admin_id is ignored for authorization.\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request;\n// H1: only general and project allowed\nconst VALID_WORK_CATEGORIES = ['general', 'project'];\nconst VALID_ROLES = ['admin', 'c_level', 'manager', 'employee', 'hr'];\n\nconst workCategory = String(body.work_category || 'general').trim();\nif (!VALID_WORK_CATEGORIES.includes(workCategory)) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'INVALID_WORK_CATEGORY',\n        message: `work_category must be one of: ${VALID_WORK_CATEGORIES.join(', ')} (H1 restriction)`,\n      },\n    },\n  };\n}\nconst role = String(body.role || 'employee').trim();\nif (!VALID_ROLES.includes(role)) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_ROLE', message: `role must be one of: ${VALID_ROLES.join(', ')}` },\n    },\n  };\n}\nconst fullName = String(body.full_name || '').trim();\nconst email = String(body.email || '').trim().toLowerCase();\nconst jobTitle = String(body.job_title || '').trim();\n\nif (!fullName || fullName.length > 150) {\n  return {\n    json: { http_status: 422, body: { success: false, error: 'INVALID_NAME', message: 'full_name is required (max 150 chars)' } },\n  };\n}\nif (!email || email.length > 150) {\n  return {\n    json: { http_status: 422, body: { success: false, error: 'INVALID_EMAIL', message: 'email is required (max 150 chars)' } },\n  };\n}\n\nconst cleanId = (v) => {\n  if (v === '' || v == null || v === 'null') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst userId = cleanId(body.id);\nconst departmentId = cleanId(body.department_id);\nconst gradeId = cleanId(body.grade_id);\nconst managerId = cleanId(body.manager_id);\nconst isNew = userId === null;\nconst isProjectParticipant = workCategory === 'project';\n\nconst safeFullName = fullName.replace(/'/g, \"''\");\nconst safeEmail = email.replace(/'/g, \"''\");\nconst safeJobTitle = jobTitle.replace(/'/g, \"''\");\n\nconst departmentSql = departmentId !== null ? String(departmentId) : 'NULL';\nconst gradeSql = gradeId !== null ? String(gradeId) : 'NULL';\nconst managerSql = managerId !== null ? String(managerId) : 'NULL';\nconst jobTitleSql = safeJobTitle ? `'${safeJobTitle}'` : 'NULL';\n\n// Classification is globally frozen once any evaluation exists in the active period.\n// Only needed when updating an existing user (is_new=false).\nconst classCheckSql = userId !== null\n  ? `SELECT u.work_category AS old_category,\n       EXISTS(\n         SELECT 1 FROM performance_db.evaluations e\n         JOIN performance_db.evaluation_periods p\n           ON p.id = e.period_id AND p.is_active = true AND p.status = 'active'\n       ) AS period_has_any_evaluation\n     FROM performance_db.users u WHERE u.id = ${userId} LIMIT 1`\n  : `SELECT NULL::text AS old_category, false AS period_has_any_evaluation`;\n\nreturn {\n  json: {\n    ok: true,\n    is_new: isNew,\n    user_id: userId,\n    work_category: workCategory,\n    is_project_participant: isProjectParticipant,\n    full_name: safeFullName,\n    email: safeEmail,\n    role,\n    job_title_sql: jobTitleSql,\n    department_sql: departmentSql,\n    grade_sql: gradeSql,\n    manager_sql: managerSql,\n    sql: classCheckSql,\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Actor identity comes from guard — body admin_id is ignored for authorization.\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request;\n// H1: only general and project allowed\nconst VALID_WORK_CATEGORIES = ['general', 'project'];\nconst VALID_ROLES = ['admin', 'c_level', 'manager', 'employee', 'hr'];\n\nconst workCategory = String(body.work_category || 'general').trim();\nif (!VALID_WORK_CATEGORIES.includes(workCategory)) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'INVALID_WORK_CATEGORY',\n        message: `Категория работы должна быть одной из: ${VALID_WORK_CATEGORIES.join(', ')}`,\n      },\n    },\n  };\n}\nconst role = String(body.role || 'employee').trim();\nif (!VALID_ROLES.includes(role)) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_ROLE', message: `Роль должна быть одной из: ${VALID_ROLES.join(', ')}` },\n    },\n  };\n}\nconst fullName = String(body.full_name || '').trim();\nconst email = String(body.email || '').trim().toLowerCase();\nconst jobTitle = String(body.job_title || '').trim();\n\nif (!fullName || fullName.length > 150) {\n  return {\n    json: { http_status: 422, body: { success: false, error: 'INVALID_NAME', message: 'Укажите имя сотрудника длиной не более 150 символов' } },\n  };\n}\nif (!email || email.length > 150) {\n  return {\n    json: { http_status: 422, body: { success: false, error: 'INVALID_EMAIL', message: 'Укажите email длиной не более 150 символов' } },\n  };\n}\n\nconst cleanId = (v) => {\n  if (v === '' || v == null || v === 'null') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst userId = cleanId(body.id);\nconst departmentId = cleanId(body.department_id);\nconst gradeId = cleanId(body.grade_id);\nconst managerId = cleanId(body.manager_id);\nconst isNew = userId === null;\nconst isProjectParticipant = workCategory === 'project';\n\nconst safeFullName = fullName.replace(/'/g, \"''\");\nconst safeEmail = email.replace(/'/g, \"''\");\nconst safeJobTitle = jobTitle.replace(/'/g, \"''\");\n\nconst departmentSql = departmentId !== null ? String(departmentId) : 'NULL';\nconst gradeSql = gradeId !== null ? String(gradeId) : 'NULL';\nconst managerSql = managerId !== null ? String(managerId) : 'NULL';\nconst jobTitleSql = safeJobTitle ? `'${safeJobTitle}'` : 'NULL';\n\n// Classification (project/general) stays editable during a running campaign\n// (D-0822-3). The classification freeze 409 is gone: a switch never destroys\n// evaluation data — score rows for no-longer-applicable criteria stay in the\n// database and stop counting; the matrix, the close dataset and the write\n// validation all read the CURRENT value of is_project_participant.\nreturn {\n  json: {\n    ok: true,\n    is_new: isNew,\n    user_id: userId,\n    work_category: workCategory,\n    is_project_participant: isProjectParticipant,\n    full_name: safeFullName,\n    email: safeEmail,\n    role,\n    job_title_sql: jobTitleSql,\n    department_sql: departmentSql,\n    grade_sql: gradeSql,\n    manager_sql: managerSql,\n  },\n};"
       },
       "id": "saveuser-validate",
       "name": "Validate User Data",
@@ -66,29 +66,7 @@
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::text AS old_category, false AS has_active_evaluations' }}",
-        "options": {}
-      },
-      "id": "saveuser-check",
-      "name": "Check Classification",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        60,
-        0
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "VNbfkY8IKbEzn88B",
-          "name": "EPE 2026 Postgres"
-        }
-      },
-      "alwaysOutputData": true
-    },
-    {
-      "parameters": {
-        "jsCode": "const prev = $('Validate User Data').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.all().map(item => item.json).find(() => true);\n\n// Classification is globally frozen once any evaluation exists in the active period.\n// Reject if: updating existing user AND category is changing AND active period has any evaluations.\nif (!prev.is_new && check && check.old_category && check.old_category !== prev.work_category) {\n  if (check.period_has_any_evaluation) {\n    return {\n      json: {\n        http_status: 409,\n        body: {\n          success: false,\n          error: 'CLASSIFICATION_FROZEN',\n          message: 'Cannot change work_category: classification is frozen for the active period once any evaluation has been submitted',\n        },\n      },\n    };\n  }\n}\n\nconst userId = prev.user_id;\nconst isNew = prev.is_new;\nconst isProjectParticipant = prev.is_project_participant;\n\nlet sql;\nif (isNew) {\n  sql = `\nINSERT INTO performance_db.users\n  (full_name, email, role, job_title, work_category, is_project_participant,\n   department_id, grade_id, manager_id, created_at)\nVALUES\n  ('${prev.full_name}', '${prev.email}', '${prev.role}', ${prev.job_title_sql},\n   '${prev.work_category}', ${isProjectParticipant},\n   ${prev.department_sql}, ${prev.grade_sql}, ${prev.manager_sql}, now())\nRETURNING id, full_name, email, role, work_category, is_project_participant,\n          job_title, manager_id, department_id, grade_id, has_subordinates\n  `;\n} else {\n  sql = `\nUPDATE performance_db.users\nSET full_name = '${prev.full_name}',\n    email = '${prev.email}',\n    role = '${prev.role}',\n    job_title = ${prev.job_title_sql},\n    work_category = '${prev.work_category}',\n    is_project_participant = ${isProjectParticipant},\n    department_id = ${prev.department_sql},\n    grade_id = ${prev.grade_sql},\n    manager_id = ${prev.manager_sql}\nWHERE id = ${userId}\nRETURNING id, full_name, email, role, work_category, is_project_participant,\n          job_title, manager_id, department_id, grade_id, has_subordinates\n  `;\n}\n\nreturn { json: { ok: true, sql } };"
+        "jsCode": "const prev = $('Validate User Data').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\n\nconst userId = prev.user_id;\nconst isNew = prev.is_new;\nconst isProjectParticipant = prev.is_project_participant;\n\nlet sql;\nif (isNew) {\n  sql = `\nINSERT INTO performance_db.users\n  (full_name, email, role, job_title, work_category, is_project_participant,\n   department_id, grade_id, manager_id, created_at)\nVALUES\n  ('${prev.full_name}', '${prev.email}', '${prev.role}', ${prev.job_title_sql},\n   '${prev.work_category}', ${isProjectParticipant},\n   ${prev.department_sql}, ${prev.grade_sql}, ${prev.manager_sql}, now())\nRETURNING id, full_name, email, role, work_category, is_project_participant,\n          job_title, manager_id, department_id, grade_id, has_subordinates\n  `;\n} else {\n  sql = `\nUPDATE performance_db.users\nSET full_name = '${prev.full_name}',\n    email = '${prev.email}',\n    role = '${prev.role}',\n    job_title = ${prev.job_title_sql},\n    work_category = '${prev.work_category}',\n    is_project_participant = ${isProjectParticipant},\n    department_id = ${prev.department_sql},\n    grade_id = ${prev.grade_sql},\n    manager_id = ${prev.manager_sql}\nWHERE id = ${userId}\nRETURNING id, full_name, email, role, work_category, is_project_participant,\n          job_title, manager_id, department_id, grade_id, has_subordinates\n  `;\n}\n\nreturn { json: { ok: true, sql } };"
       },
       "id": "saveuser-build",
       "name": "Build User Upsert",
@@ -190,17 +168,6 @@
       "main": [
         [
           {
-            "node": "Check Classification",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Classification": {
-      "main": [
-        [
-          {
             "node": "Build User Upsert",
             "type": "main",
             "index": 0
@@ -255,8 +222,8 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "dffbf9f1-f9af-488f-b8d0-6632481bde9f",
-  "versionCounter": 29,
+  "versionId": "1479db9a-b0b4-4125-95e5-567af0fec2f8",
+  "versionCounter": 33,
   "triggerCount": 1,
   "shared": [
     {
@@ -280,7 +247,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "updatedAt": "2026-08-24T06:09:44.077Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -307,7 +274,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-19",
+              "lastActiveAt": "2026-08-24",
               "isPending": false
             }
           }

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-22T06:38:11.238Z",
+  "updatedAt": "2026-08-24T06:10:16.601Z",
   "createdAt": "2025-12-15T07:16:48.020Z",
   "id": "rSZcm0HDMUHLYk8W",
   "name": "API: Score Correction",
@@ -53,7 +53,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst actorId = Number(guard.identity.id);\nconst role = String(guard.identity.role || '');\nconst subjectId = parseInt(body.subject_id, 10);\nconst criteriaId = parseInt(body.criteria_id, 10);\nconst correctionScore = parseInt(body.correction_score, 10);\nif (!Number.isFinite(subjectId) || !Number.isFinite(criteriaId) || !Number.isFinite(correctionScore)) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'INVALID_BODY',\n        message: 'Укажите сотрудника, критерий и корректирующую оценку',\n      },\n    },\n  };\n}\nif (correctionScore < 1 || correctionScore > 10) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'GRADE_OUT_OF_RANGE',\n        message: 'Корректирующая оценка должна быть от 1 до 10',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    role,\n    subject_id: subjectId,\n    criteria_id: criteriaId,\n    correction_score: correctionScore,\n    sql: `\n      SELECT\n        s.id AS subject_id,\n        s.manager_id AS subject_manager_id,\n        sm.manager_id AS skip_level_id,\n        (\n          SELECT p.id\n          FROM performance_db.evaluation_periods p\n          WHERE p.is_active = true AND p.status = 'active'\n            AND p.evaluation_started_at IS NOT NULL\n          LIMIT 1\n        ) AS period_id\n      FROM performance_db.users s\n      LEFT JOIN performance_db.users sm ON sm.id = s.manager_id\n      WHERE s.id = ${subjectId}\n    `,\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst actorId = Number(guard.identity.id);\nconst role = String(guard.identity.role || '');\nconst subjectId = parseInt(body.subject_id, 10);\nconst criteriaId = parseInt(body.criteria_id, 10);\nconst correctionScore = parseInt(body.correction_score, 10);\nif (!Number.isFinite(subjectId) || !Number.isFinite(criteriaId) || !Number.isFinite(correctionScore)) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'INVALID_BODY',\n        message: 'Укажите сотрудника, критерий и корректирующую оценку',\n      },\n    },\n  };\n}\nif (correctionScore < 1 || correctionScore > 10) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'GRADE_OUT_OF_RANGE',\n        message: 'Корректирующая оценка должна быть от 1 до 10',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    role,\n    subject_id: subjectId,\n    criteria_id: criteriaId,\n    correction_score: correctionScore,\n    sql: `\n      SELECT\n        s.id AS subject_id,\n        s.manager_id AS subject_manager_id,\n        sm.manager_id AS skip_level_id,\n        (\n          SELECT p.id\n          FROM performance_db.evaluation_periods p\n          WHERE p.is_active = true AND p.status = 'active'\n            AND p.evaluation_started_at IS NOT NULL\n            AND p.period_type <> 'annual'\n            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child\n                            WHERE child.parent_period_id = p.id)\n          LIMIT 1\n        ) AS period_id\n      FROM performance_db.users s\n      LEFT JOIN performance_db.users sm ON sm.id = s.manager_id\n      WHERE s.id = ${subjectId}\n    `,\n  },\n};"
       },
       "id": "sc-validate",
       "name": "Validate Input",
@@ -253,8 +253,8 @@
   "staticData": null,
   "meta": null,
   "pinData": {},
-  "versionId": "b5166170-61e5-4321-91be-bea802b3f281",
-  "versionCounter": 40,
+  "versionId": "ab99c3f2-6e8c-447e-b3c7-db19c96738a7",
+  "versionCounter": 42,
   "triggerCount": 1,
   "shared": [
     {
@@ -278,7 +278,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-22T06:37:17.199Z",
+              "updatedAt": "2026-08-24T06:09:44.077Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -305,7 +305,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-22",
+              "lastActiveAt": "2026-08-24",
               "isPending": false
             }
           }

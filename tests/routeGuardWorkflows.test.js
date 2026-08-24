@@ -851,15 +851,19 @@ test("save-score-coefficients has no period freeze at all", () => {
 });
 
 // BUG-029: a zero weight or a zero coefficient is read back as 1.0 by every
-// default-guarded consumer. The write path rejects them instead. The rule is
-// "finite and > 0" (D-0822-2) — a floor above zero would forbid legitimate
-// small weights, which is a business constraint nobody has decided.
-test("save-score-coefficients rejects zero and non-finite weights and coefficients", () => {
+// default-guarded consumer. The write path rejects them instead. The weight
+// floor is 0.1 (D-0822-2 as amended, approved 2026-08-22), mirroring the
+// client input min="0.1"; level coefficients stay on the plain > 0 rule.
+test("save-score-coefficients enforces the 0.1 weight floor and rejects zero coefficients", () => {
   const js = allJsCode(load("save-score-coefficients.json"));
-  assert.ok(js.includes("weight <= 0"),
-    "save-score-coefficients: zero and negative weights must be rejected");
-  assert.equal(js.includes("MIN_WEIGHT"), false,
-    "save-score-coefficients: the rule is > 0, not an undecided numeric floor");
+  assert.ok(js.includes("MIN_WEIGHT = 0.1"),
+    "save-score-coefficients: the decided floor is the MIN_WEIGHT constant 0.1");
+  assert.ok(js.includes("weight < MIN_WEIGHT"),
+    "save-score-coefficients: weights below the floor must be rejected");
+  assert.equal(js.includes("weight <= 0"), false,
+    "save-score-coefficients: the old bare > 0 rule was replaced by the floor");
+  assert.ok(js.includes("is_active"),
+    "save-score-coefficients: the rejection message must point at is_active as the way to disable a criterion");
   assert.ok(js.includes("coef <= 0"), "save-score-coefficients: zero coefficient must be rejected");
   assert.ok(js.includes("Number.isFinite(weight)"));
   assert.ok(js.includes("Number.isFinite(coef)"));
@@ -1386,31 +1390,23 @@ test("migration 012 constraint creation is idempotent (guarded by IF NOT EXISTS)
   );
 });
 
-// ── 21. Classification freeze is global ───────────────────────────────────────
+// ── 21. Classification is editable during a running campaign (D-0822-3) ──────
 
-test("save-user classification freeze checks ANY evaluation in active period (global freeze)", () => {
+test("save-user has no classification freeze — the 409 and its probe are gone", () => {
   const wf = load("save-user.json");
   const js = allJsCode(wf);
-  assert.ok(
-    js.includes("period_has_any_evaluation") || js.includes("CLASSIFICATION_FROZEN"),
-    "save-user: classification check must use global any-evaluation-in-period flag"
-  );
-  // Must NOT scope the check to a specific user's evaluations
-  assert.ok(
-    !js.includes("e.subject_id = ${userId}") && !js.includes("e.evaluator_id = ${userId}"),
-    "save-user: classification freeze must check globally, not per-user evaluations"
-  );
-});
-
-test("save-user allows other field edits when work_category is unchanged", () => {
-  const wf = load("save-user.json");
-  const js = allJsCode(wf);
-  // The check is conditional on category change
-  assert.ok(
-    js.includes("old_category !== prev.work_category") ||
-    js.includes("old_category !== prev"),
-    "save-user: classification check must only trigger when work_category is changing"
-  );
+  assert.equal(js.includes("CLASSIFICATION_FROZEN"), false,
+    "save-user: D-0822-3 removed the classification 409");
+  assert.equal(js.includes("period_has_any_evaluation"), false,
+    "save-user: the global any-evaluation probe must be gone with the freeze");
+  assert.equal(js.includes("old_category"), false,
+    "save-user: nothing may branch on the previous category any more");
+  const names = allNodes(wf).map((n) => n.name);
+  assert.equal(names.includes("Check Classification"), false,
+    "save-user: the freeze probe node must be removed, not merely bypassed");
+  // work_category itself is still validated and still drives is_project_participant.
+  assert.ok(js.includes("INVALID_WORK_CATEGORY"));
+  assert.ok(js.includes("workCategory === 'project'"));
 });
 
 // ── 22. update-evaluation CTE mutation reassertion ────────────────────────────
@@ -1663,4 +1659,80 @@ test("settings object contains only the expected keys (no extra persistence flag
       );
     }
   }
+});
+
+// ── 25. Reclassification (D-0822-3): applicability, additive path, soft exclusion ──
+
+test("every write path rejects a project criterion for a currently-general subject", () => {
+  for (const filename of ["submit-evaluation.json", "update-evaluation.json", "self-review-submit.json"]) {
+    const js = allJsCode(load(filename));
+    assert.ok(js.includes("CRITERIA_NOT_APPLICABLE"),
+      `${filename}: the classification-dimension applicability 422 must exist`);
+    assert.ok(js.includes("target_audience = 'project_participants'"),
+      `${filename}: the predicate is target_audience='project_participants' vs the CURRENT participant flag`);
+    assert.ok(js.includes("is_project_participant"),
+      `${filename}: the subject's current classification must be read from the database`);
+  }
+});
+
+test("submit-evaluation carries the additive path instead of a blanket duplicate 409", () => {
+  const js = allJsCode(load("submit-evaluation.json"));
+  assert.ok(js.includes("existing_evaluation_id"),
+    "submit: the scope check must surface the existing evaluation, not merely a boolean duplicate flag");
+  assert.ok(js.includes("existing_criteria_ids"),
+    "submit: the already-scored criteria set is what separates additive from duplicate");
+  assert.ok(js.includes("mode: 'additive'"),
+    "submit: an existing evaluation with missing criteria takes the additive branch");
+  assert.ok(js.includes("CRITERIA_ALREADY_SCORED"),
+    "submit: any overlap with already-scored criteria is refused explicitly by name");
+  assert.ok(js.includes("DUPLICATE_EVALUATION"),
+    "submit: the concurrent-create race path keeps its explicit 409");
+  assert.ok(js.includes("ADDITIVE_CONFLICT"),
+    "submit: a raced additive maps zero DML rows to an explicit 409, never a silent success");
+});
+
+test("the additive statement gates every branch on target_eval and recomputes the score server-side", () => {
+  const js = allJsCode(load("submit-evaluation.json"));
+  assert.ok(js.includes("FROM target_eval te"),
+    "additive: the INSERT must select from the gated target, not the raw evaluation id");
+  assert.ok(js.includes("WHERE e.id IN (SELECT id FROM target_eval)"),
+    "additive: the recompute UPDATE must share the same gate (the BUG-041 rule)");
+  assert.ok(js.includes("FOR UPDATE OF e"),
+    "additive: concurrent additives serialize on the evaluation row");
+  // the recompute counts pre-existing applicable rows UNION the new values —
+  // a client-sent total is never read
+  assert.ok(js.includes("UNION ALL"),
+    "additive: calculated_score = AVG over surviving counting rows plus the new rows");
+  assert.equal(js.includes("body.final_score"), false,
+    "additive: the client-sent total must never be read");
+});
+
+test("update-evaluation deletes only actively-removed applicable criteria — classification exclusion is soft", () => {
+  const js = allJsCode(load("update-evaluation.json"));
+  // BUG-041 gate stays
+  assert.ok(js.includes("AND EXISTS (SELECT 1 FROM updated_header)"),
+    "update: the destructive CTE stays gated on updated_header (BUG-041)");
+  // the DELETE must skip rows excluded by the CURRENT classification
+  assert.ok(/removed_scores AS \([\s\S]*?NOT EXISTS \([\s\S]*?target_audience = 'project_participants'[\s\S]*?is_project_participant = false[\s\S]*?RETURNING/.test(js),
+    "update: rows for project criteria of a currently-general subject must survive an ordinary edit");
+});
+
+test("campaign-surface period resolutions accept leaf periods only (BUG-043)", () => {
+  for (const filename of ["submit-evaluation.json", "self-review-submit.json",
+                          "check-self-review.json", "check-evaluated.json", "get-my-manager.json"]) {
+    const js = allJsCode(load(filename));
+    assert.ok(js.includes("period_type <> 'annual'"),
+      `${filename}: an annual period can never be the campaign period`);
+    assert.ok(js.includes("parent_period_id"),
+      `${filename}: a container (period with children) can never be the campaign period`);
+  }
+});
+
+test("the close dataset emits project-criterion cells only for current project participants", () => {
+  const js = allJsCode(load("manage-periods.json"));
+  assert.ok(js.includes("cd.target_audience <> 'project_participants'")
+    && js.includes("u.is_project_participant = true"),
+    "close dataset: same emission predicate as the matrix, so period_results inherit it");
+  assert.ok(js.includes("c.target_audience") && js.includes("criteria_data"),
+    "close dataset: criteria_data must carry target_audience for the filter");
 });

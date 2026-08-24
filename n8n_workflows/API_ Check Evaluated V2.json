@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-22T06:38:06.006Z",
+  "updatedAt": "2026-08-24T06:10:08.120Z",
   "createdAt": "2025-12-07T09:10:19.750Z",
   "id": "msl2T1flMo1Hn7uj",
   "name": "API: Check Evaluated V2",
@@ -53,7 +53,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT\n        e.subject_id,\n        e.id AS latest_evaluation_id,\n        e.calculated_score AS last_score,\n        e.updated_at\n      FROM performance_db.evaluations e\n      JOIN performance_db.evaluation_periods ep\n        ON ep.id = e.period_id AND ep.is_active = true AND ep.status = 'active'\n           AND ep.evaluation_started_at IS NOT NULL\n      WHERE e.evaluator_id = ${actorId}\n        AND e.is_self_evaluation = false\n      ORDER BY e.updated_at DESC\n    `,\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT\n        e.subject_id,\n        e.id AS latest_evaluation_id,\n        e.calculated_score AS last_score,\n        e.updated_at\n      FROM performance_db.evaluations e\n      JOIN performance_db.evaluation_periods ep\n        ON ep.id = e.period_id AND ep.is_active = true AND ep.status = 'active'\n           AND ep.evaluation_started_at IS NOT NULL\n           AND ep.period_type <> 'annual'\n           AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child\n                           WHERE child.parent_period_id = ep.id)\n      WHERE e.evaluator_id = ${actorId}\n        AND e.is_self_evaluation = false\n      ORDER BY e.updated_at DESC\n    `,\n  },\n};"
       },
       "id": "chkeval-build",
       "name": "Build Evaluated Query",
@@ -198,8 +198,8 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "f458762e-6417-46b7-b946-f23e819e60fa",
-  "versionCounter": 23,
+  "versionId": "3cd055b7-43b4-41d6-a974-07b31abc7685",
+  "versionCounter": 25,
   "triggerCount": 1,
   "shared": [
     {
@@ -223,7 +223,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-22T06:37:17.199Z",
+              "updatedAt": "2026-08-24T06:09:44.077Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -250,7 +250,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-22",
+              "lastActiveAt": "2026-08-24",
               "isPending": false
             }
           }

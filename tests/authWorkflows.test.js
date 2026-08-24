@@ -141,6 +141,50 @@ test('protected-employees lists only in-scope subordinates of the active period'
   );
 });
 
+test('employees current period is the active LEAF or nothing — no draft fallback (BUG-043)', () => {
+  const wf = load('protected-employees.json');
+  const sql = codeNodeByName(wf, 'Build Identity-Bound Query').parameters.jsCode;
+  assert.ok(
+    !sql.includes("status = 'draft'"),
+    'the draft fallback named the annual container as the current period; it must be gone',
+  );
+  assert.ok(
+    sql.includes("period_type <> 'annual'") && sql.includes('parent_period_id'),
+    'current_period must exclude annual periods and containers explicitly',
+  );
+  assert.ok(
+    !sql.includes('ORDER BY') || !sql.includes('id DESC'),
+    'nothing may fall back to "newest by id" period selection any more',
+  );
+});
+
+test('employees evaluated_by_actor is per-criterion and names the missing criteria (D-0822-3)', () => {
+  const wf = load('protected-employees.json');
+  const sql = codeNodeByName(wf, 'Build Identity-Bound Query').parameters.jsCode;
+  // an evaluation exists AND covers every currently-applicable manager-path criterion
+  assert.ok(
+    sql.includes('evaluated_by_actor') && sql.includes('c.c_level_only = false'),
+    'the flag must check coverage over the manager-path criterion set',
+  );
+  assert.ok(
+    sql.includes("c.target_audience <> 'project_participants' OR users.is_project_participant = true"),
+    'project criteria apply only to current project participants',
+  );
+  assert.ok(
+    sql.includes("c.target_audience <> 'managers_only' OR users.has_subordinates = true"),
+    'managers_only criteria mirror the form: subjects with subordinates only',
+  );
+  assert.ok(
+    sql.includes('missing_criteria_ids'),
+    'the row must name the criteria the additive path still needs',
+  );
+  // the other two flags stay row-existence — their sets do not depend on classification
+  const selfBlock = sql.slice(sql.indexOf('AS has_self_review') - 400, sql.indexOf('AS has_self_review'));
+  assert.ok(!selfBlock.includes('criteria'), 'has_self_review stays row-existence');
+  const upwardBlock = sql.slice(sql.indexOf('AS has_evaluated_manager') - 400, sql.indexOf('AS has_evaluated_manager'));
+  assert.ok(!upwardBlock.includes('criteria'), 'has_evaluated_manager stays row-existence');
+});
+
 // ── 6. Every Postgres node carries a non-empty credential ID ─────────────────
 
 test('every postgres node in auth_core workflows has a credential ID', () => {

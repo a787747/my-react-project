@@ -1,4 +1,4 @@
-# EPE — project rules (ports, naming, diagnosis)
+# EPE — project rules (ports, naming, diagnosis, sessions)
 
 This file did not exist. `AGENTS.md` pointed at it for a reserved port range that was never written down. These are the **live facts** from `infra/caddy-compose.yml`, `infra/n8n-stack.yml`, and `~/.ssh/config` Host `epe-vps-tunnel`, verified 2026-08-20 and re-checked 2026-08-21 (ports and firewall chain unchanged; the throwaway-stand and local-tooling sections were added then, and the backups section after the BUG-032 fix). There is no separate reserved-range document.
 
@@ -85,6 +85,20 @@ restoring the n8n schema under a different key gives unusable credentials.
 `scripts/deploy_epe_frontend.sh` calls `rg` in both of its safety gates. Ripgrep is **not** installed on
 the delivery laptop, so the deploy fails closed until it is (BUG-040). Run the two gates by hand — legacy
 `:5678` absent, `/webhook` base present — before any shim.
+
+## Sessions (rule added 2026-08-24, after the 2026-08-22 parallel-session incident)
+
+During the D-0822-1/2 build a second agent session edited the same working tree inside the deploy
+window, and one of its uncommitted edits (an undecided 0.1 weight floor) reached live before being
+caught and reverted (`docs/LIFECYCLE_COEFF_2026-08-2x.md` §5.1, `docs/GATE_LIFECYCLE_COEFF_2026-08-2x.md`
+item 1). Nothing in the repo detects two agents on one tree. Therefore:
+
+- **One working directory, one session.** At most one agent session works in this checkout at a time.
+- **Any side session is declared to the architect before it starts** — what it will touch and why —
+  so overlapping edits are a decision, never a surprise.
+- **Every session ends with `git commit` + `git push`, or an explicit `git stash`** (named, and
+  reported in the session's summary). A working tree left silently dirty is what turned a parallel
+  session into a live incident.
 
 ## Hard constraints (repeat)
 

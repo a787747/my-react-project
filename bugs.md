@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 21 |
+| 🔴 Open | 19 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 23 |
+| 🟢 Closed | 25 |
 
 ---
 
@@ -106,9 +106,17 @@
 - How to fix: gate the DELETE on the same CTE the other two branches use — `DELETE … WHERE evaluation_id IN (SELECT id FROM updated_header) AND criteria_id NOT IN (SELECT crit_id FROM score_rows)`. That makes all three branches share one gate, and a failed re-assertion changes zero rows everywhere. Worth deciding at the same time whether a narrower submitted set should delete at all — see the reclassification recon, which found the same DELETE is the only mechanism that can remove criteria after a classification switch, and is destructive by construction.
 - H1 impact: none today — `evaluation_scores` has 0 rows and no period is active (measured 2026-08-22). Fix before H1 is activated; the exposure begins with the first evaluation and peaks during September calibration, when closing a period and editing evaluations happen in the same window.
 - Fix (2026-08-22): `removed_scores` now carries `AND EXISTS (SELECT 1 FROM updated_header)`, so all three CTE branches share one gate and a failed re-assertion changes zero rows everywhere. Closed inside the lifecycle brief rather than filed for later because that brief rewrites the same `WHERE` clause: the inline re-assertion became "period is active AND started" instead of "period is not closed", which would otherwise have **widened** the destructive race by one more trigger. Fixing it was the alternative to knowingly making it worse (D-0820-21 — defects found on the way are fixed immediately).
-- Verification: `tests/routeGuardWorkflows.test.js` asserts both the widened inline re-assertion (`p.status = 'active'`, `p.is_active = true`, `p.evaluation_started_at IS NOT NULL`) and the `AND EXISTS (SELECT 1 FROM updated_header)` gate. The race itself was **not** reproduced — triggering it needs a concurrent write inside a sub-second window, and the fix is a static property of the SQL rather than a timing behaviour; this is a code-level close, not a runtime one. What was exercised end-to-end on the 2026-08-22 stand is the ordinary path: `POST api/update-evaluation` returned 200 while the period was active and started (`lifecycle_proof.json` → `started.update_evaluation_status`).
-- Residual: whether a narrower submitted set should delete score rows **at all** is untouched and still open — see [BUG-036] row 7 and `docs/RECON_RECLASS_COEFF_2026-08-2x.md` §7.2. This fix makes the DELETE consistent with the other two branches; it does not make it non-destructive.
-- Source: `docs/RECON_RECLASS_COEFF_2026-08-2x.md` §7.2 and §8, from the live workflow definition. Closed in `docs/LIFECYCLE_COEFF_2026-08-2x.md`.
+- Verification: `tests/routeGuardWorkflows.test.js` asserts both the widened inline re-assertion (`p.status = 'active'`, `p.is_active = true`, `p.evaluation_started_at IS NOT NULL`) and the `AND EXISTS (SELECT 1 FROM updated_header)` gate. The race itself was **not** reproduced at that point — this was a code-level close, not a runtime one.
+- **Runtime repro (2026-08-24, throwaway stand `epe_reclass_20260824_0602`; compared values in `backups/2026-08-24-reclass/reclass_proof.json` → `bug041`).** The exact race the RECON described — "the period was closed in the window between Execute Ownership Check and Execute Update" — executed deterministically at statement level against a closed period, where the header re-assertion matches zero rows:
+
+  | run | statement source | header rows returned | score rows before | score rows after |
+  |---|---|---|---|---|
+  | pre-fix | RECON §7.2 verbatim (old `!= 'closed'` re-assertion, ungated DELETE) | 0 (the 403 path) | `{3, 4, 12}` | **`{3}` — rows 4 and 12 destroyed** |
+  | post-fix | byte-sourced from the deployed `Build Update SQL` template | 0 (the 403 path) | `{3, 4, 12}` (restored) | **`{3, 4, 12}` — zero rows deleted** |
+
+  The HTTP route itself was also exercised post-close: `POST api/update-evaluation` → 403 `PERIOD_CLOSED` with the row set unchanged. The DELETE still works when the header matches (the in-campaign narrowing edit deleted actively-removed rows on the same stand), so the gate refuses the race without deadening the branch.
+- Residual: whether a narrower submitted set should delete score rows **at all** was answered by D-0822-3 on 2026-08-24: deletion is reserved for criteria the evaluator **actively removed from the currently-applicable set**; rows excluded by the current classification survive an ordinary edit (proven on the same stand — a general subject's project-criteria rows survived a 200 edit). See `docs/RECLASS_2026-08-2x.md`.
+- Source: `docs/RECON_RECLASS_COEFF_2026-08-2x.md` §7.2 and §8, from the live workflow definition. Closed in `docs/LIFECYCLE_COEFF_2026-08-2x.md`; runtime-proven in `docs/RECLASS_2026-08-2x.md`.
 
 ---
 
@@ -290,24 +298,24 @@
 
 ### BUG-043: with no active period, `/api/employees` reports the annual container as the current period
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📝 Low (no wrong number; a scope flag computed against the wrong period's participant list while nothing is running)
 - Location: LIVE `API: Get Employees (Smart Role Based)` (`bKB4Sb46yWoq1tSV`) → `Build Identity-Bound Query`, the `current_period` CTE: `WHERE (is_active = true AND status = 'active') OR status = 'draft' ORDER BY CASE WHEN … THEN 0 ELSE 1 END, start_date DESC NULLS LAST, id DESC LIMIT 1`.
 - Description: when nothing is active the CTE falls back to the newest **draft** period by `start_date DESC, id DESC`. H1-2026 and Annual 2026 both start `2026-01-01`, so `id DESC` decides and the **container** (id 5) wins. Measured live on 2026-08-22 after the lifecycle deploy: every role's `GET /api/employees` returned `current_period_id = 5`, not 2. `actor_is_in_scope` is therefore computed against Annual 2026's 89 inert participant rows instead of H1's 87.
 - Why it matters: today it makes the out-of-scope notice too generous — Esenova and Balova are out of scope for H1 but in scope for the container, so before activation they are not shown the notice. It is presentation only while no period is active, and it disappears the moment H1 is activated (an active period sorts first). It also means "the current period" on that route can name a period that can never run a campaign.
-- How to fix: exclude containers and annual periods from the fallback — `AND period_type <> 'annual' AND NOT EXISTS (SELECT 1 FROM evaluation_periods c WHERE c.parent_period_id = evaluation_periods.id)` — so the fallback can only name a leaf. One clause in one CTE.
-- H1 impact: none on any number. Worth fixing before the invitation goes out, because that is exactly the window when people log in and nothing is active yet.
-- Source: the live role×route probe of `docs/LIFECYCLE_COEFF_2026-08-2x.md` (`backups/2026-08-22-lifecycle-coeff/live_role_route_probe.json`). Pre-existing — the CTE's ORDER BY was not changed by that brief.
+- Fix (2026-08-24): the fix went further than excluding containers from the fallback — **the draft fallback is removed entirely**. The current period is the single **active leaf** period (`is_active AND status='active' AND period_type <> 'annual' AND` no children) or explicitly **none**: `current_period_id` null, `actor_is_in_scope` null, no preparation flag. Scope therefore exists from activation (including the preparation window), never from a draft or a container. The same leaf predicate was added to every campaign-surface period resolution — submit-evaluation, self-review-submit, check-self-review, check-evaluated, get-my-manager, score-correction — so an annual period or a container can never be "the campaign period" anywhere, even if one were force-activated by SQL. Reporting reads stay keyed on active alone, unchanged.
+- Verification (2026-08-24): **live**, post-deploy (`backups/2026-08-24-reclass/live_reclass_probe.json`): all six probe roles' `GET /api/employees` returned `current_period_id = null`, `actor_is_in_scope = null`, `period_in_preparation = false` — container id 5 nowhere. **Stand** (`reclass_proof.json` → `bug043_draft` / `preparation`): draft state → none for every role; after activation → `current_period_id = 2` (the H1 leaf) with `period_in_preparation = true` and real scope; after close → none again. Static: `tests/authWorkflows.test.js` asserts the fallback is gone and the leaf predicate present; `tests/routeGuardWorkflows.test.js` / `tests/routeGuardDeferred.test.js` assert the leaf clause on every campaign-surface resolution.
+- Client note: `TaskStatusContext` treats only `actor_is_in_scope === false` as out-of-scope, so the null answer shows no notice before activation — same visible behaviour as before, now for the right reason. Esenova and Balova get the notice the moment H1 is activated, which is the window that matters.
+- Source: the live role×route probe of `docs/LIFECYCLE_COEFF_2026-08-2x.md` (`backups/2026-08-22-lifecycle-coeff/live_role_route_probe.json`). Pre-existing — the CTE's ORDER BY was not changed by that brief. Closed in `docs/RECLASS_2026-08-2x.md`.
 
 ### BUG-044: HANDOVER §10 report index omits the two newest reports
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED
 - Severity: 📝 Low (documentation integrity, not behaviour)
 - Location: `docs/HANDOVER.md` §10 "Where things are", the "Reports, in order:" list (line 339).
-- Description: the a6ef553 build wrote two reports — `docs/LIFECYCLE_COEFF_2026-08-2x.md` and (in the preceding f9758d3) `docs/RECON_RECLASS_COEFF_2026-08-2x.md` — and both files exist on disk. The build updated §10's footer counts (`bugs.md` **20 open / 23 closed**, `migrations/001…014`) and added the two reports' names in §3 and §6.11, but did **not** add either to the canonical §10 report list, which still ends at `DOCS_HYGIENE_2026-08-21.md`.
+- Description: the a6ef553 build wrote two reports — `docs/LIFECYCLE_COEFF_2026-08-2x.md` and (in the preceding f9758d3) `docs/RECON_RECLASS_COEFF_2026-08-2x.md` — and both files exist on disk. The build updated §10's footer counts (`bugs.md` **20 open / 23 closed**, `migrations/001…014`) and added the two reports' names in §3 and §6.11, but did **not** add either to the canonical §10 report list, which still ended at `DOCS_HYGIENE_2026-08-21.md`.
 - Why it matters: §9 makes the report index load-bearing — a fresh Cursor session is pointed at `AGENTS.md`, HANDOVER and "the one report relevant to its brief". A reader who scans §10 to find the lifecycle-gate or reclassification-recon report will not find it listed, and "the repo is the memory" (§9) depends on that index being complete.
-- How to fix: append `` · `RECON_RECLASS_COEFF_2026-08-2x.md` · `LIFECYCLE_COEFF_2026-08-2x.md` `` to the §10 "Reports, in order" list. One line. Left unfixed here because this verification gate is read-only toward the system and edits nothing but its own report and this file.
-- H1 impact: none — no code, no live behaviour. Fix at the next docs-hygiene pass or the next HANDOVER rewrite.
+- Fix (2026-08-24): §10's "Reports, in order" list now carries `RECON_RECLASS_COEFF_2026-08-2x.md` · `LIFECYCLE_COEFF_2026-08-2x.md` · `GATE_LIFECYCLE_COEFF_2026-08-2x.md` · `RECLASS_2026-08-2x.md` — all four reports written since the list last moved — and the §10 bug counters are reconciled to the post-close tally (19 open / 25 closed). Done in the reclassification build (`docs/RECLASS_2026-08-2x.md`), the first brief after the gate that was allowed to touch HANDOVER.
 - Source: verification gate `docs/GATE_LIFECYCLE_COEFF_2026-08-2x.md` item 7, comparing §10 against the two report files on disk and the git diff of a6ef553.
 
 ### BUG-040: `deploy_epe_frontend.sh` requires `rg` on PATH and fails closed without it

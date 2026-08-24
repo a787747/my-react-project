@@ -168,10 +168,12 @@ test("admin and reporting reads stay keyed on active, not on started", () => {
   }
 });
 
-test("the classification freeze is unchanged — first submission, not the start gate", () => {
+test("the classification freeze is GONE — classification stays editable during a campaign (D-0822-3)", () => {
   const js = allJs(loadH1("save-user.json"));
-  assert.ok(js.includes("CLASSIFICATION_FROZEN"));
-  assert.ok(js.includes("period_has_any_evaluation"));
+  assert.equal(js.includes("CLASSIFICATION_FROZEN"), false,
+    "save-user: the classification 409 was removed by D-0822-3");
+  assert.equal(js.includes("period_has_any_evaluation"), false,
+    "save-user: the global any-evaluation freeze probe must be gone with it");
 });
 
 // ── 4. Coefficient privacy ───────────────────────────────────────────────────

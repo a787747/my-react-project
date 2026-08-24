@@ -1368,14 +1368,18 @@ return {
     ...guard,
     sql: `
       WITH current_period AS (
+        -- BUG-043: the current period is the single active LEAF period, or
+        -- nothing. The old fallback to the newest draft named the annual
+        -- container (id 5) because H1 and Annual 2026 share a start date and
+        -- the highest id decided. With no active leaf the answer is
+        -- explicitly "none" — a container or a draft is never "the current
+        -- period".
         SELECT id, status, is_active, evaluation_started_at
-        FROM performance_db.evaluation_periods
-        WHERE (is_active = true AND status = 'active')
-           OR status = 'draft'
-        ORDER BY
-          CASE WHEN is_active = true AND status = 'active' THEN 0 ELSE 1 END,
-          start_date DESC NULLS LAST,
-          id DESC
+        FROM performance_db.evaluation_periods cp
+        WHERE cp.is_active = true AND cp.status = 'active'
+          AND cp.period_type <> 'annual'
+          AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                          WHERE child.parent_period_id = cp.id)
         LIMIT 1
       ),
       -- The campaign period is active AND started (D-0822-1). During the
@@ -1422,14 +1426,71 @@ return {
               AND upward_eval.evaluation_source = 'subordinate'
               AND upward_eval.period_id = ap.id
           ) AS has_evaluated_manager,
-          EXISTS (
+          -- Manager-path flag is PER-CRITERION (D-0822-3): an evaluation
+          -- exists AND covers every currently-applicable manager-path
+          -- criterion. The applicable set mirrors the manager form exactly:
+          -- active, not c_level_only, project criteria only for a current
+          -- project participant, managers_only only for a subject with
+          -- subordinates. Reclassifying general->project reopens the task.
+          (
+            EXISTS (
+              SELECT 1
+              FROM performance_db.evaluations actor_eval
+              WHERE actor_eval.evaluator_id = ${actorId}
+                AND actor_eval.subject_id = users.id
+                AND actor_eval.is_self_evaluation = false
+                AND actor_eval.period_id = ap.id
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM performance_db.criteria c
+              WHERE c.is_active = true
+                AND c.c_level_only = false
+                AND (c.target_audience <> 'project_participants' OR users.is_project_participant = true)
+                AND (c.target_audience <> 'managers_only' OR users.has_subordinates = true)
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM performance_db.evaluations cov
+                  JOIN performance_db.evaluation_scores cov_s ON cov_s.evaluation_id = cov.id
+                  WHERE cov.evaluator_id = ${actorId}
+                    AND cov.subject_id = users.id
+                    AND cov.is_self_evaluation = false
+                    AND cov.period_id = ap.id
+                    AND cov_s.criteria_id = c.id
+                )
+            )
+          ) AS evaluated_by_actor,
+          -- The criteria the additive path still needs from this actor:
+          -- applicable (same set as above) and not yet scored on any of the
+          -- actor's evaluations of this subject in the period. Only
+          -- meaningful when an evaluation exists — [] otherwise.
+          CASE WHEN EXISTS (
             SELECT 1
-            FROM performance_db.evaluations actor_eval
-            WHERE actor_eval.evaluator_id = ${actorId}
-              AND actor_eval.subject_id = users.id
-              AND actor_eval.is_self_evaluation = false
-              AND actor_eval.period_id = ap.id
-          ) AS evaluated_by_actor
+            FROM performance_db.evaluations me
+            WHERE me.evaluator_id = ${actorId}
+              AND me.subject_id = users.id
+              AND me.is_self_evaluation = false
+              AND me.period_id = ap.id
+          )
+          THEN COALESCE((
+            SELECT json_agg(c.id ORDER BY c.id)
+            FROM performance_db.criteria c
+            WHERE c.is_active = true
+              AND c.c_level_only = false
+              AND (c.target_audience <> 'project_participants' OR users.is_project_participant = true)
+              AND (c.target_audience <> 'managers_only' OR users.has_subordinates = true)
+              AND NOT EXISTS (
+                SELECT 1
+                FROM performance_db.evaluations cov
+                JOIN performance_db.evaluation_scores cov_s ON cov_s.evaluation_id = cov.id
+                WHERE cov.evaluator_id = ${actorId}
+                  AND cov.subject_id = users.id
+                  AND cov.is_self_evaluation = false
+                  AND cov.period_id = ap.id
+                  AND cov_s.criteria_id = c.id
+              )
+          ), '[]'::json)
+          ELSE '[]'::json END AS missing_criteria_ids
         FROM performance_db.users users
         LEFT JOIN performance_db.departments departments
           ON users.department_id = departments.id
@@ -1492,6 +1553,11 @@ const canSeeGradeCoefficient = ['admin', 'c_level'].includes(String(guard.identi
 employees = employees.map(employee => {
   const safeEmployee = { ...employee };
   if (!canSeeGradeCoefficient) delete safeEmployee.grade_coefficient;
+  let missing = safeEmployee.missing_criteria_ids;
+  if (typeof missing === 'string') {
+    try { missing = JSON.parse(missing); } catch { missing = []; }
+  }
+  safeEmployee.missing_criteria_ids = Array.isArray(missing) ? missing.map(Number) : [];
   return safeEmployee;
 });
 // campaign_active now means "active AND started" (D-0822-1). An active period

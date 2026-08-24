@@ -289,11 +289,17 @@ test('protected-employees: SQL does not expose calculated_score or weighted_scor
     'employee rows must not include weighted_score');
 });
 
-test('protected-employees: period selection includes draft periods for actor_is_in_scope', () => {
+// Rewritten 2026-08-24 (BUG-043): the draft fallback made the annual CONTAINER
+// the "current period" (H1 and Annual 2026 share a start date; the highest id
+// won), so actor_is_in_scope was computed against the container's inert
+// participant list. Scope now exists from ACTIVATION (active leaf period,
+// including the preparation window); before activation there is no current
+// period and actor_is_in_scope is explicitly null.
+test('protected-employees: current period is the active leaf; scope is null before activation', () => {
   const js = jsOf(load(AUTH, 'protected-employees.json'), 'Build Identity-Bound Query');
-  assert.ok(
-    js.includes("status = 'draft'"),
-    "current_period CTE must include draft periods so actor_is_in_scope is visible before activation"
+  assert.equal(
+    js.includes("status = 'draft'"), false,
+    'current_period CTE must not fall back to draft periods (BUG-043)'
   );
   assert.ok(
     js.includes('actor_is_in_scope') || js.includes('actor_scope'),

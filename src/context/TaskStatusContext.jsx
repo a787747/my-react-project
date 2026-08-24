@@ -112,28 +112,14 @@ export const TaskStatusProvider = ({ children }) => {
       setHasSubordinates(hasCampaignSubs);
 
       // Campaign task status uses in-scope subordinates only, not the org-tree flag.
+      // evaluated_by_actor is per-criterion since D-0822-3: an evaluation that
+      // no longer covers every currently-applicable criterion (after a
+      // project/general switch) reopens the task here and on the dashboard.
       if (!campaignRunning || subordinates.length === 0) {
         setHasEvaluatedAllSubordinates(true);
       } else {
-        try {
-          const evaluatedRes = await apiClient.get(API_ENDPOINTS.CHECK_EVALUATED, {
-            params: { evaluator_id: user.id }
-          });
-          
-          if (evaluatedRes.data?.details && Array.isArray(evaluatedRes.data.details)) {
-            const evaluatedMap = {};
-            evaluatedRes.data.details.forEach(item => {
-              evaluatedMap[item.subject_id] = true;
-            });
-            
-            const allEvaluated = subordinates.every(sub => evaluatedMap[sub.id]);
-            setHasEvaluatedAllSubordinates(allEvaluated);
-          } else {
-            setHasEvaluatedAllSubordinates(false);
-          }
-        } catch {
-          setHasEvaluatedAllSubordinates(false);
-        }
+        const allEvaluated = subordinates.every(sub => sub.evaluated_by_actor === true);
+        setHasEvaluatedAllSubordinates(allEvaluated);
       }
 
     } catch (error) {

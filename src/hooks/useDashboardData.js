@@ -17,7 +17,7 @@
  * - setEvaluatedDetails: обновить статусы
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import apiClient from '../api/client';
 import { API_ENDPOINTS } from '../config/api';
 import logger from '../utils/logger';
@@ -30,12 +30,11 @@ export const useDashboardData = (user) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
+  const fetchData = useCallback(async ({ silent = false } = {}) => {
       if (!user) return;
-      
+
       try {
-        setLoading(true);
+        if (!silent) setLoading(true);
         setError(null);
         
         // Completion flags come from the actor-scoped employees route.
@@ -85,12 +84,13 @@ export const useDashboardData = (user) => {
         const errorMessage = err.userMessage || err.message || 'Ошибка загрузки данных';
         setError(errorMessage);
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    };
-    
-    fetchData();
   }, [user]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   return {
     employees,
@@ -99,6 +99,10 @@ export const useDashboardData = (user) => {
     campaignActive,
     loading,
     error,
-    setEvaluatedDetails
+    setEvaluatedDetails,
+    // Silent refetch after a submit/additive write: the per-criterion
+    // evaluated_by_actor flag and missing_criteria_ids live on the employees
+    // rows, so the rows themselves must be refreshed, not only evaluatedDetails.
+    refetch: () => fetchData({ silent: true })
   };
 };

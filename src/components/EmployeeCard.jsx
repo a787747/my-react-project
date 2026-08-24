@@ -24,11 +24,12 @@
  */
 
 import React, { memo } from 'react';
-import { Briefcase, Award, ChevronRight, Star, CheckCircle, Edit, UserCheck, XCircle, ClipboardList } from 'lucide-react';
+import { Briefcase, Award, ChevronRight, Star, CheckCircle, Edit, UserCheck, XCircle, ClipboardList, PlusCircle } from 'lucide-react';
 
-const EmployeeCard = memo(({ employee, isEvaluated, lastScore, hasSelfReview, hasEvaluatedManager, criteriaCounts, showCLevel, onEvaluate, onEdit }) => {
+const EmployeeCard = memo(({ employee, isEvaluated, needsAdditional, missingCriteriaTitles, lastScore, hasSelfReview, hasEvaluatedManager, criteriaCounts, showCLevel, onEvaluate, onEdit, onEvaluateMissing }) => {
   const displayName = employee.full_name || 'Неизвестный сотрудник';
   const initial = displayName.charAt(0).toUpperCase();
+  const missingTitles = Array.isArray(missingCriteriaTitles) ? missingCriteriaTitles : [];
   
   return (
     <article 
@@ -93,7 +94,7 @@ const EmployeeCard = memo(({ employee, isEvaluated, lastScore, hasSelfReview, ha
           {/* Оценен вами */}
           {isEvaluated && (
             <div className="flex flex-col items-end gap-1 mt-1">
-              <span 
+              <span
                 className="badge bg-purple-100 text-purple-700 flex items-center gap-1"
                 role="status"
                 aria-label="Сотрудник оценен вами"
@@ -107,6 +108,19 @@ const EmployeeCard = memo(({ employee, isEvaluated, lastScore, hasSelfReview, ha
                 </span>
               )}
             </div>
+          )}
+
+          {/* Оценка есть, но добавились применимые критерии (смена категории) */}
+          {needsAdditional && (
+            <span
+              className="badge bg-amber-100 text-amber-700 flex items-center gap-1 mt-1"
+              role="status"
+              aria-label={`Добавились критерии: ${missingTitles.join(', ')}`}
+              title={missingTitles.join(', ')}
+            >
+              <PlusCircle className="w-3 h-3" aria-hidden="true" />
+              <span>Новые критерии: {missingTitles.length}</span>
+            </span>
           )}
         </div>
       </header>
@@ -176,24 +190,36 @@ const EmployeeCard = memo(({ employee, isEvaluated, lastScore, hasSelfReview, ha
         )}
       </div>
 
-      {/* Кнопка действия */}
-      <button 
-        onClick={() => isEvaluated ? onEdit(employee) : onEvaluate(employee)}
+      {/* Кнопка действия: оценить / дооценить недостающие / редактировать */}
+      <button
+        onClick={() => {
+          if (needsAdditional) return onEvaluateMissing(employee);
+          return isEvaluated ? onEdit(employee) : onEvaluate(employee);
+        }}
         className={`
-          w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl 
+          w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl
           font-semibold text-sm transition-all duration-200
           focus-visible:ring-2 focus-visible:ring-offset-2 active:scale-[0.98]
-          ${isEvaluated 
-            ? 'bg-success-600 hover:bg-success-700 text-white shadow-success focus-visible:ring-success-500' 
-            : 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand focus-visible:ring-brand-500'
+          ${needsAdditional
+            ? 'bg-amber-500 hover:bg-amber-600 text-white focus-visible:ring-amber-500'
+            : isEvaluated
+              ? 'bg-success-600 hover:bg-success-700 text-white shadow-success focus-visible:ring-success-500'
+              : 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand focus-visible:ring-brand-500'
           }
         `}
-        aria-label={isEvaluated 
-          ? `Редактировать оценку для ${displayName}` 
-          : `Оценить сотрудника ${displayName}`
+        aria-label={needsAdditional
+          ? `Дооценить новые критерии для ${displayName}`
+          : isEvaluated
+            ? `Редактировать оценку для ${displayName}`
+            : `Оценить сотрудника ${displayName}`
         }
       >
-        {isEvaluated ? (
+        {needsAdditional ? (
+          <>
+            <PlusCircle className="w-4 h-4" aria-hidden="true" />
+            <span>Дооценить ({missingTitles.length})</span>
+          </>
+        ) : isEvaluated ? (
           <>
             <Edit className="w-4 h-4" aria-hidden="true" />
             <span>Редактировать</span>

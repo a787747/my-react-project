@@ -31,16 +31,21 @@ import {
 import CriterionSlider from './CriterionSlider';
 import logger from '../utils/logger';
 
-const EvaluationModal = ({ 
-  isOpen, 
-  employee, 
-  criteria, 
-  isEditMode, 
+const EvaluationModal = ({
+  isOpen,
+  employee,
+  criteria,
+  isEditMode,
+  additiveCriteriaIds = null,
   evaluatedDetails,
   user,
   onClose,
-  onSuccess 
+  onSuccess
 }) => {
+  // Дооценка (additive): оценка уже существует, показываем ТОЛЬКО недостающие
+  // применимые критерии; сервер добавит их к существующей оценке и сам
+  // пересчитает итоговый балл по всем засчитываемым строкам (D-0822-3).
+  const isAdditiveMode = Array.isArray(additiveCriteriaIds);
   // Состояния формы
   const [evaluations, setEvaluations] = useState({});
   const [comments, setComments] = useState({});
@@ -66,10 +71,12 @@ const EvaluationModal = ({
   );
 
   // Фильтруем критерии для данного сотрудника (мемоизация для оптимизации)
-  const filteredCriteria = useMemo(
-    () => filterCriteriaByEmployee(criteria, employee, user?.role),
-    [criteria, employee, user?.role]
-  );
+  const filteredCriteria = useMemo(() => {
+    const applicable = filterCriteriaByEmployee(criteria, employee, user?.role);
+    if (!isAdditiveMode) return applicable;
+    const missing = additiveCriteriaIds.map(Number);
+    return applicable.filter(c => missing.includes(Number(c.id)));
+  }, [criteria, employee, user?.role, isAdditiveMode, additiveCriteriaIds]);
   
   // Группируем критерии (мемоизация для оптимизации)
   const groupedCriteria = useMemo(
@@ -160,7 +167,9 @@ const EvaluationModal = ({
     const abortController = new AbortController();
     const signal = abortController.signal;
 
-    const savedDraft = !isEditMode
+    // Черновики только для новой полной оценки: в режиме дооценки старый
+    // черновик может содержать уже оценённые критерии и приведёт к 409.
+    const savedDraft = !isEditMode && !isAdditiveMode
       ? loadEvaluationDraft(draftStorageKey)
       : null;
 
@@ -252,6 +261,8 @@ const EvaluationModal = ({
     isOpen,
     employee,
     isEditMode,
+    isAdditiveMode,
+    additiveCriteriaIds,
     evaluatedDetails,
     user?.role,
     draftStorageKey
@@ -264,7 +275,7 @@ const EvaluationModal = ({
         ...prev,
         [criterionId]: parseInt(value)
       };
-      if (!isEditMode) {
+      if (!isEditMode && !isAdditiveMode) {
         saveEvaluationDraft(draftStorageKey, nextEvaluations, comments);
       }
       return nextEvaluations;
@@ -278,7 +289,7 @@ const EvaluationModal = ({
         ...prev,
         [criterionId]: comment
       };
-      if (!isEditMode) {
+      if (!isEditMode && !isAdditiveMode) {
         saveEvaluationDraft(draftStorageKey, evaluations, nextComments);
       }
       return nextComments;
@@ -333,24 +344,57 @@ const EvaluationModal = ({
 
     try {
       setSubmitting(true);
-      // Простое среднее арифметическое (без весов и коэффициентов)
-      const finalScore = calculateFinalScore(evaluations, 1.0);
-      
+      // Отправляем ТОЛЬКО видимые (применимые сейчас) критерии. В режиме
+      // редактирования состояние может содержать оценки по критериям,
+      // исключённым текущей классификацией (проектные у general): их строки
+      // сервер сохраняет как есть, а в payload им не место — сервер ответит
+      // 422 CRITERIA_NOT_APPLICABLE.
+      const visibleIds = new Set(visibleCriteria.map(c => Number(c.id)));
+      const submittedGrades = {};
+      const submittedComments = {};
+      Object.entries(evaluations).forEach(([cId, value]) => {
+        if (visibleIds.has(Number(cId)) && value !== undefined && value !== null) {
+          submittedGrades[cId] = value;
+        }
+      });
+      Object.entries(comments).forEach(([cId, value]) => {
+        if (visibleIds.has(Number(cId)) && value) {
+          submittedComments[cId] = value;
+        }
+      });
+      // Простое среднее арифметическое (без весов и коэффициентов) — для
+      // экрана; сервер считает итог сам и клиентское число не читает.
+      const finalScore = calculateFinalScore(submittedGrades, 1.0);
+
       const payload = {
         evaluator_id: user.id,
         subject_id: employee.id,
         final_score: parseFloat(finalScore),
-        grades: evaluations,
-        comments: comments
+        grades: submittedGrades,
+        comments: submittedComments
       };
 
       if (isEditMode && evaluatedDetails[employee.id]?.latest_evaluation_id) {
         // Обновление существующей оценки
-        await apiClient.post(API_ENDPOINTS.UPDATE_EVALUATION, {
+        const response = await apiClient.post(API_ENDPOINTS.UPDATE_EVALUATION, {
           ...payload,
           evaluation_id: evaluatedDetails[employee.id].latest_evaluation_id
         });
-        setSubmitResult({ success: true, message: 'Оценка обновлена!', score: finalScore });
+        const serverScore = response.data?.final_score;
+        setSubmitResult({
+          success: true,
+          message: 'Оценка обновлена!',
+          score: Number.isFinite(serverScore) ? serverScore.toFixed(2) : finalScore
+        });
+      } else if (isAdditiveMode) {
+        // Дооценка: добавляем недостающие критерии к существующей оценке.
+        const response = await apiClient.post(API_ENDPOINTS.SUBMIT_EVALUATION, payload);
+        const serverScore = response.data?.final_score;
+        setSubmitResult({
+          success: true,
+          message: 'Новые критерии оценены!',
+          score: Number.isFinite(serverScore) ? serverScore.toFixed(2) : finalScore
+        });
       } else {
         // Создание новой оценки
         await apiClient.post(API_ENDPOINTS.SUBMIT_EVALUATION, payload);
@@ -569,7 +613,7 @@ const EvaluationModal = ({
                       Сохранение...
                     </>
                   ) : allCriteriaEvaluated ? (
-                    isEditMode ? 'Обновить оценку' : 'Сохранить оценку'
+                    isEditMode ? 'Обновить оценку' : isAdditiveMode ? 'Оценить новые критерии' : 'Сохранить оценку'
                   ) : (
                     `Оцените все критерии (${unevaluatedCriteria.length})`
                   )}
@@ -633,12 +677,19 @@ const EvaluationModal = ({
                   })}
                 </div>
                 
-                {/* Итоговый балл */}
+                {/* Итоговый балл (по отправляемым — видимым — критериям) */}
                 <div className="mt-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium text-indigo-800">Итоговый балл:</span>
                     <span className="text-2xl font-bold text-indigo-600">
-                      {calculateFinalScore(evaluations, 1.0)}
+                      {calculateFinalScore(
+                        Object.fromEntries(
+                          visibleCriteria
+                            .filter(c => evaluations[c.id] !== undefined && evaluations[c.id] !== null)
+                            .map(c => [c.id, evaluations[c.id]])
+                        ),
+                        1.0
+                      )}
                     </span>
                   </div>
                 </div>

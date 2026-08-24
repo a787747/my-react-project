@@ -275,9 +275,12 @@ return {
              AND e.evaluator_id = ${actorId}
              AND e.evaluation_source = 'subordinate'
              AND e.period_id IN (
-               SELECT id FROM performance_db.evaluation_periods
-               WHERE is_active = true AND status = 'active'
-                 AND evaluation_started_at IS NOT NULL
+               SELECT cp.id FROM performance_db.evaluation_periods cp
+               WHERE cp.is_active = true AND cp.status = 'active'
+                 AND cp.evaluation_started_at IS NOT NULL
+                 AND cp.period_type <> 'annual'
+                 AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                                 WHERE child.parent_period_id = cp.id)
              )
            LIMIT 1),
           false
@@ -287,6 +290,9 @@ return {
          JOIN performance_db.evaluation_periods ep
            ON ep.id = e.period_id AND ep.is_active = true AND ep.status = 'active'
               AND ep.evaluation_started_at IS NOT NULL
+              AND ep.period_type <> 'annual'
+              AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                              WHERE child.parent_period_id = ep.id)
          WHERE e.subject_id = m.id AND e.evaluator_id = ${actorId}
          ORDER BY e.updated_at DESC LIMIT 1
         ) AS last_evaluation_score,
@@ -565,6 +571,9 @@ return {
       JOIN performance_db.evaluation_periods ep
         ON ep.id = e.period_id AND ep.is_active = true AND ep.status = 'active'
            AND ep.evaluation_started_at IS NOT NULL
+           AND ep.period_type <> 'annual'
+           AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                           WHERE child.parent_period_id = ep.id)
       WHERE e.evaluator_id = ${actorId}
         AND e.is_self_evaluation = false
       ORDER BY e.updated_at DESC
@@ -691,6 +700,9 @@ return {
       JOIN performance_db.evaluation_periods p
         ON p.id = e.period_id AND p.is_active = true AND p.status = 'active'
            AND p.evaluation_started_at IS NOT NULL
+           AND p.period_type <> 'annual'
+           AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                           WHERE child.parent_period_id = p.id)
       LEFT JOIN performance_db.evaluation_scores es ON es.evaluation_id = e.id
       WHERE e.is_self_evaluation = true
       GROUP BY e.id, e.calculated_score, e.general_comment, e.updated_at
@@ -864,15 +876,31 @@ return {
         (p.evaluation_started_at IS NOT NULL) AS period_started,
         subj.id AS subject_id,
         subj.role AS subject_role,
+        subj.is_project_participant AS subject_is_project,
         actor.can_evaluate,
-        EXISTS(
-          SELECT 1 FROM performance_db.evaluations dup
+        (SELECT dup.id
+           FROM performance_db.evaluations dup
           WHERE dup.subject_id = ${rawSubjectId}
             AND dup.evaluator_id = ${actorId}
             AND dup.evaluation_source = '${safeSource}'
             AND dup.period_id = p.id
             AND dup.is_self_evaluation = false
-        ) AS is_duplicate
+          LIMIT 1) AS existing_evaluation_id,
+        COALESCE((
+          SELECT json_agg(DISTINCT es.criteria_id)
+          FROM performance_db.evaluations dup2
+          JOIN performance_db.evaluation_scores es ON es.evaluation_id = dup2.id
+          WHERE dup2.subject_id = ${rawSubjectId}
+            AND dup2.evaluator_id = ${actorId}
+            AND dup2.evaluation_source = '${safeSource}'
+            AND dup2.period_id = p.id
+            AND dup2.is_self_evaluation = false
+        ), '[]'::json) AS existing_criteria_ids,
+        COALESCE((
+          SELECT json_agg(c.id)
+          FROM performance_db.criteria c
+          WHERE c.target_audience = 'project_participants'
+        ), '[]'::json) AS project_criteria_ids
       FROM performance_db.evaluation_periods p
       JOIN performance_db.evaluation_period_participants ep_actor
         ON ep_actor.period_id = p.id AND ep_actor.user_id = ${actorId} AND ep_actor.is_in_scope = true
@@ -881,6 +909,9 @@ return {
       JOIN performance_db.users subj ON subj.id = ${rawSubjectId}
       JOIN performance_db.users actor ON actor.id = ${actorId}
       WHERE p.is_active = true AND p.status = 'active'
+        AND p.period_type <> 'annual'
+        AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                        WHERE child.parent_period_id = p.id)
         AND ${rawSubjectId} != ${actorId}
         ${relationFilter}
     `,
@@ -930,18 +961,6 @@ if (!validation.can_evaluate) {
     },
   };
 }
-if (validation.is_duplicate) {
-  return {
-    json: {
-      http_status: 409,
-      body: {
-        success: false,
-        error: 'DUPLICATE_EVALUATION',
-        message: 'Такая оценка уже отправлена в текущем периоде',
-      },
-    },
-  };
-}
 
 const guard = $('Run Auth Guard').first().json;
 const body = guard.request.body || guard.request;
@@ -975,6 +994,36 @@ for (const [cId, sv] of gradeEntries) {
   }
 }
 
+// ── Applicability, classification dimension only (D-0822-3) ─────────────────
+// A project_participants criterion applies to a subject iff the subject is
+// CURRENTLY a project participant. Other audiences keep today's semantics.
+const parseIdList = (raw) => {
+  let value = raw;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { value = []; }
+  }
+  return Array.isArray(value) ? value.map(Number) : [];
+};
+const projectCriteriaIds = parseIdList(validation.project_criteria_ids);
+const existingCriteriaIds = parseIdList(validation.existing_criteria_ids);
+const subjectIsProject = validation.subject_is_project === true || validation.subject_is_project === 't';
+const submittedIds = gradeEntries.map(([cId]) => parseInt(cId, 10));
+if (!subjectIsProject) {
+  const notApplicable = submittedIds.filter(id => projectCriteriaIds.includes(id));
+  if (notApplicable.length) {
+    return {
+      json: {
+        http_status: 422,
+        body: {
+          success: false,
+          error: 'CRITERIA_NOT_APPLICABLE',
+          message: `Критерии ${notApplicable.join(', ')} — проектные, а сотрудник сейчас не участник проекта`,
+        },
+      },
+    };
+  }
+}
+
 const scoreRows = gradeEntries.map(([cId, sv], idx) => {
   const criteriaId = parseInt(cId, 10);
   const scoreValue = parseInt(sv, 10);
@@ -986,9 +1035,102 @@ const scoreRows = gradeEntries.map(([cId, sv], idx) => {
   return `(${criteriaId}, ${scoreValue}, ${commentLit})`;
 });
 
+// ── Additive path (D-0822-3, retires the BUG-036 409 dead end on this path) ──
+// An existing evaluation no longer makes every further submit a 409. Scores
+// for criteria the evaluation does not cover yet are ADDED to it; criteria it
+// already covers are refused explicitly (edit is the way to change a score).
+const existingEvaluationId = validation.existing_evaluation_id
+  ? Number(validation.existing_evaluation_id)
+  : null;
+if (existingEvaluationId) {
+  const alreadyScored = submittedIds.filter(id => existingCriteriaIds.includes(id));
+  if (alreadyScored.length) {
+    // Any overlap — including a full re-submit — is refused by name: these
+    // criteria exist, and changing an existing score is what edit is for.
+    // (DUPLICATE_EVALUATION remains only on the concurrent-create race path
+    // in Format Response.)
+    return {
+      json: {
+        http_status: 409,
+        body: {
+          success: false,
+          error: 'CRITERIA_ALREADY_SCORED',
+          message: `Критерии ${alreadyScored.join(', ')} уже оценены — дооценка принимает только недостающие критерии; для изменения оценок используйте редактирование`,
+        },
+      },
+    };
+  }
+  // calculated_score is recomputed HERE from the full surviving row set that
+  // counts under the subject's CURRENT classification — never taken from the
+  // client. The overlap and campaign preconditions are re-asserted inline in
+  // target_eval, so a lost race adds nothing and recomputes nothing (the
+  // BUG-041 rule: every data-modifying branch shares one gate).
+  return {
+    json: {
+      ok: true,
+      mode: 'additive',
+      sql: `
+WITH score_rows(crit_id, score_val, cmt) AS (
+  VALUES ${scoreRows.join(', ')}
+),
+target_eval AS (
+  SELECT e.id
+  FROM performance_db.evaluations e
+  JOIN performance_db.evaluation_periods p ON p.id = e.period_id
+  WHERE e.id = ${existingEvaluationId}
+    AND e.evaluator_id = ${actorId}
+    AND e.is_self_evaluation = false
+    AND p.status = 'active'
+    AND p.is_active = true
+    AND p.evaluation_started_at IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM performance_db.evaluation_scores es
+      JOIN score_rows sr ON sr.crit_id = es.criteria_id
+      WHERE es.evaluation_id = e.id
+    )
+  FOR UPDATE OF e
+),
+added_scores AS (
+  INSERT INTO performance_db.evaluation_scores (evaluation_id, criteria_id, score_value, comment)
+  SELECT te.id, sr.crit_id, sr.score_val, sr.cmt
+  FROM target_eval te
+  CROSS JOIN score_rows sr
+  RETURNING criteria_id
+),
+recomputed AS (
+  UPDATE performance_db.evaluations e
+  SET calculated_score = (
+        SELECT AVG(v.val)
+        FROM (
+          SELECT es.score_value::numeric AS val
+          FROM performance_db.evaluation_scores es
+          JOIN performance_db.criteria c ON c.id = es.criteria_id
+          WHERE es.evaluation_id = e.id
+            AND (c.target_audience <> 'project_participants'
+                 OR EXISTS (SELECT 1 FROM performance_db.users s
+                            WHERE s.id = e.subject_id AND s.is_project_participant = true))
+          UNION ALL
+          SELECT sr.score_val::numeric FROM score_rows sr
+        ) v
+      ),
+      updated_at = now()
+  WHERE e.id IN (SELECT id FROM target_eval)
+  RETURNING e.id, e.calculated_score
+)
+SELECT r.id AS evaluation_id,
+       r.calculated_score AS final_score,
+       (SELECT count(*)::integer FROM added_scores) AS scores_added
+FROM recomputed r
+      `,
+    },
+  };
+}
+
 return {
   json: {
     ok: true,
+    mode: 'insert',
     sql: `
 WITH score_rows(crit_id, score_val, cmt) AS (
   VALUES ${scoreRows.join(', ')}
@@ -1022,6 +1164,36 @@ if (prev.http_status) {
   return { json: prev };
 }
 const rows = $input.all().map(item => item.json).filter(item => item.evaluation_id !== undefined);
+if (prev.mode === 'additive') {
+  if (!rows.length) {
+    // target_eval matched zero rows: a criterion got scored, the ownership
+    // changed, or the campaign stopped inside the race window. Nothing was
+    // inserted and nothing was recomputed.
+    return {
+      json: {
+        http_status: 409,
+        body: {
+          success: false,
+          error: 'ADDITIVE_CONFLICT',
+          message: 'Дооценка не выполнена: критерии уже оценены или период больше не идёт',
+        },
+      },
+    };
+  }
+  const r = rows[0];
+  return {
+    json: {
+      http_status: 200,
+      body: {
+        success: true,
+        message: 'Evaluation extended',
+        evaluation_id: r.evaluation_id,
+        final_score: parseFloat(r.final_score),
+        scores_added: r.scores_added,
+      },
+    },
+  };
+}
 if (!rows.length) {
   // ON CONFLICT DO NOTHING returned 0 rows — race-condition duplicate
   return {
@@ -1122,9 +1294,16 @@ return {
         e.period_id,
         p.status AS period_status,
         p.is_active AS period_is_active,
-        (p.evaluation_started_at IS NOT NULL) AS period_started
+        (p.evaluation_started_at IS NOT NULL) AS period_started,
+        subj.is_project_participant AS subject_is_project,
+        COALESCE((
+          SELECT json_agg(c.id)
+          FROM performance_db.criteria c
+          WHERE c.target_audience = 'project_participants'
+        ), '[]'::json) AS project_criteria_ids
       FROM performance_db.evaluations e
       JOIN performance_db.evaluation_periods p ON p.id = e.period_id
+      JOIN performance_db.users subj ON subj.id = e.subject_id
       WHERE e.id = ${rawEvalId}
         AND e.evaluator_id = ${actorId}
         AND e.is_self_evaluation = false
@@ -1203,6 +1382,34 @@ for (const [cId, sv] of gradeEntries) {
   }
 }
 
+// ── Applicability, classification dimension only (D-0822-3) ─────────────────
+const parseIdList = (raw) => {
+  let value = raw;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { value = []; }
+  }
+  return Array.isArray(value) ? value.map(Number) : [];
+};
+const projectCriteriaIds = parseIdList(check.project_criteria_ids);
+const subjectIsProject = check.subject_is_project === true || check.subject_is_project === 't';
+if (!subjectIsProject) {
+  const notApplicable = gradeEntries
+    .map(([cId]) => parseInt(cId, 10))
+    .filter(id => projectCriteriaIds.includes(id));
+  if (notApplicable.length) {
+    return {
+      json: {
+        http_status: 422,
+        body: {
+          success: false,
+          error: 'CRITERIA_NOT_APPLICABLE',
+          message: `Критерии ${notApplicable.join(', ')} — проектные, а сотрудник сейчас не участник проекта`,
+        },
+      },
+    };
+  }
+}
+
 const scoreRows = gradeEntries.map(([cId, sv], idx) => {
   const criteriaId = parseInt(cId, 10);
   const scoreValue = parseInt(sv, 10);
@@ -1221,6 +1428,12 @@ const scoreRows = gradeEntries.map(([cId, sv], idx) => {
 // removed_scores is gated on updated_header: a data-modifying WITH clause runs to
 // completion whatever the outer query reads, so an ungated DELETE would still wipe
 // score rows on the very race the reassertion exists to refuse (BUG-041).
+// Classification exclusion is SOFT (D-0822-3): a row whose criterion is
+// project_participants while the subject is currently general is NOT part of
+// the presented set the evaluator edited, so its absence from score_rows is
+// not a removal — the row is kept (it stops counting elsewhere and comes back
+// if the classification is switched back). Deletion is reserved for criteria
+// the evaluator actively removed from the currently-applicable set.
 return {
   json: {
     ok: true,
@@ -1255,11 +1468,20 @@ upserted_scores AS (
   RETURNING criteria_id
 ),
 removed_scores AS (
-  DELETE FROM performance_db.evaluation_scores
-  WHERE evaluation_id = ${evalId}
-    AND criteria_id NOT IN (SELECT crit_id FROM score_rows)
+  DELETE FROM performance_db.evaluation_scores es
+  WHERE es.evaluation_id = ${evalId}
+    AND es.criteria_id NOT IN (SELECT crit_id FROM score_rows)
     AND EXISTS (SELECT 1 FROM updated_header)
-  RETURNING criteria_id
+    AND NOT EXISTS (
+      SELECT 1
+      FROM performance_db.criteria c
+      JOIN performance_db.evaluations e2 ON e2.id = ${evalId}
+      JOIN performance_db.users subj ON subj.id = e2.subject_id
+      WHERE c.id = es.criteria_id
+        AND c.target_audience = 'project_participants'
+        AND subj.is_project_participant = false
+    )
+  RETURNING es.criteria_id
 )
 SELECT
   uh.id AS evaluation_id,
@@ -1435,6 +1657,14 @@ return {
            FROM performance_db.users u
            LEFT JOIN performance_db.grades g ON g.id = u.grade_id
           WHERE u.id = ${actorId}) AS grade_coefficient,
+        (SELECT u.is_project_participant
+           FROM performance_db.users u
+          WHERE u.id = ${actorId}) AS subject_is_project,
+        COALESCE((
+          SELECT json_agg(c.id)
+          FROM performance_db.criteria c
+          WHERE c.target_audience = 'project_participants'
+        ), '[]'::json) AS project_criteria_ids,
         COALESCE((
           SELECT json_agg(json_build_object(
             'id', c.id,
@@ -1452,6 +1682,9 @@ return {
       JOIN performance_db.evaluation_period_participants epp
         ON epp.period_id = p.id AND epp.user_id = ${actorId} AND epp.is_in_scope = true
       WHERE p.is_active = true AND p.status = 'active'
+        AND p.period_type <> 'annual'
+        AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                        WHERE child.parent_period_id = p.id)
       LIMIT 1
     `,
   },
@@ -1523,6 +1756,37 @@ for (const [cId, sv] of gradeEntries) {
   }
   if (!Number.isFinite(scoreValue) || scoreValue < 1 || scoreValue > 10) {
     return { json: { http_status: 422, body: { success: false, error: 'GRADE_OUT_OF_RANGE', message: `Оценка по критерию ${cId} должна быть целым числом от 1 до 10` } } };
+  }
+}
+
+// ── Applicability, classification dimension only (D-0822-3) ─────────────────
+// The self-review subject is the actor. Today no project_participants
+// criterion carries selfassesment, so this rejects nothing the form offers —
+// it is the same single predicate every write path now enforces.
+const parseIdList = (raw) => {
+  let value = raw;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { value = []; }
+  }
+  return Array.isArray(value) ? value.map(Number) : [];
+};
+const projectCriteriaIds = parseIdList(check.project_criteria_ids);
+const actorIsProject = check.subject_is_project === true || check.subject_is_project === 't';
+if (!actorIsProject) {
+  const notApplicable = gradeEntries
+    .map(([cId]) => parseInt(cId, 10))
+    .filter(id => projectCriteriaIds.includes(id));
+  if (notApplicable.length) {
+    return {
+      json: {
+        http_status: 422,
+        body: {
+          success: false,
+          error: 'CRITERIA_NOT_APPLICABLE',
+          message: `Критерии ${notApplicable.join(', ')} — проектные, а вы сейчас не участник проекта`,
+        },
+      },
+    };
   }
 }
 
@@ -2278,18 +2542,20 @@ for (const crit of criteria) {
   // consumer reads it back through `parseFloat(weight) || 1.0`, so the criterion
   // silently counts with weight 1.0 — the opposite of what the admin asked for,
   // in the money number, and frozen into period_results at close (BUG-029).
-  // The rule is "finite and > 0" (D-0822-2), not a floor: any positive weight is
-  // a legitimate business value, and only 0 is the misread one.
+  // The floor is 0.1 (D-0822-2 as amended 2026-08-22): approved by Alexander,
+  // mirroring the client input min="0.1" (CoefficientRow.jsx / AdminScoring.jsx),
+  // so the server and the form refuse the same values.
+  const MIN_WEIGHT = 0.1;
   const weight = parseFloat(crit.weight);
-  if (!Number.isFinite(weight) || weight <= 0) {
+  if (!Number.isFinite(weight) || weight < MIN_WEIGHT) {
     return {
       json: {
         http_status: 422,
         body: {
           success: false,
           error: 'INVALID_WEIGHT',
-          message: `Вес критерия ${criteriaId} должен быть конечным числом больше нуля. ` +
-            `Чтобы критерий не влиял на бонус, отключите его (is_active), а не обнуляйте вес: ` +
+          message: `Вес критерия ${criteriaId} должен быть числом не меньше 0.1. ` +
+            `Чтобы критерий не влиял на бонус, отключите его (is_active), а не занижайте вес: ` +
             `вес 0 читается как 1.0 и критерий всё равно попадёт в расчёт`,
         },
       },
@@ -2826,18 +3092,11 @@ const gradeSql = gradeId !== null ? String(gradeId) : 'NULL';
 const managerSql = managerId !== null ? String(managerId) : 'NULL';
 const jobTitleSql = safeJobTitle ? `'${safeJobTitle}'` : 'NULL';
 
-// Classification is globally frozen once any evaluation exists in the active period.
-// Only needed when updating an existing user (is_new=false).
-const classCheckSql = userId !== null
-  ? `SELECT u.work_category AS old_category,
-       EXISTS(
-         SELECT 1 FROM performance_db.evaluations e
-         JOIN performance_db.evaluation_periods p
-           ON p.id = e.period_id AND p.is_active = true AND p.status = 'active'
-       ) AS period_has_any_evaluation
-     FROM performance_db.users u WHERE u.id = ${userId} LIMIT 1`
-  : `SELECT NULL::text AS old_category, false AS period_has_any_evaluation`;
-
+// Classification (project/general) stays editable during a running campaign
+// (D-0822-3). The classification freeze 409 is gone: a switch never destroys
+// evaluation data — score rows for no-longer-applicable criteria stay in the
+// database and stop counting; the matrix, the close dataset and the write
+// validation all read the CURRENT value of is_project_participant.
 return {
   json: {
     ok: true,
@@ -2852,7 +3111,6 @@ return {
     department_sql: departmentSql,
     grade_sql: gradeSql,
     manager_sql: managerSql,
-    sql: classCheckSql,
   },
 };
 """.strip()
@@ -2861,24 +3119,6 @@ SAVE_USER_BUILD_UPSERT = """
 const prev = $('Validate User Data').first().json;
 if (prev.http_status) {
   return { json: prev };
-}
-const check = $input.all().map(item => item.json).find(() => true);
-
-// Classification is globally frozen once any evaluation exists in the active period.
-// Reject if: updating existing user AND category is changing AND active period has any evaluations.
-if (!prev.is_new && check && check.old_category && check.old_category !== prev.work_category) {
-  if (check.period_has_any_evaluation) {
-    return {
-      json: {
-        http_status: 409,
-        body: {
-          success: false,
-          error: 'CLASSIFICATION_FROZEN',
-          message: 'Нельзя изменить категорию работы после первой отправленной оценки активного периода',
-        },
-      },
-    };
-  }
 }
 
 const userId = prev.user_id;
@@ -2950,13 +3190,6 @@ def build_save_user(credential_id: str, guard_workflow_id: str) -> dict[str, Any
         run_guard_node("saveuser-run-guard", "Run Auth Guard", [-450, 0], guard_workflow_id),
         node("saveuser-validate", "Validate User Data", "n8n-nodes-base.code",
              [-200, 0], {"jsCode": SAVE_USER_VALIDATE}),
-        node("saveuser-check", "Check Classification", "n8n-nodes-base.postgres",
-             [60, 0],
-             {"operation": "executeQuery",
-              "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::text AS old_category, false AS has_active_evaluations' }}",
-              "options": {}},
-             type_version=2.6,
-             credentials=postgres_credentials(credential_id), always_output=True),
         node("saveuser-build", "Build User Upsert", "n8n-nodes-base.code",
              [320, 0], {"jsCode": SAVE_USER_BUILD_UPSERT}),
         node("saveuser-execute", "Execute User Upsert", "n8n-nodes-base.postgres",
@@ -2974,8 +3207,7 @@ def build_save_user(credential_id: str, guard_workflow_id: str) -> dict[str, Any
         "Webhook": connect("Prepare Guard Input"),
         "Prepare Guard Input": connect("Run Auth Guard"),
         "Run Auth Guard": connect("Validate User Data"),
-        "Validate User Data": connect("Check Classification"),
-        "Check Classification": connect("Build User Upsert"),
+        "Validate User Data": connect("Build User Upsert"),
         "Build User Upsert": connect("Execute User Upsert"),
         "Execute User Upsert": connect("Format Response"),
         "Format Response": connect("Respond"),
@@ -3974,7 +4206,7 @@ return {
 # so the persisted final cell is the matrix cell by construction (D-0820-12).
 PERIODS_CLOSE_DATASET_SQL = """
 WITH criteria_data AS (
-  SELECT c.id, c.weight, c.c_level_only,
+  SELECT c.id, c.weight, c.c_level_only, c.target_audience,
     COALESCE(
       (SELECT json_object_agg(sc.score_level, sc.coefficient)
        FROM performance_db.score_coefficients sc WHERE sc.criteria_id = c.id),
@@ -4056,7 +4288,14 @@ SELECT
         LIMIT 1
       )
     ) ORDER BY cd.id)
-   FROM criteria_data cd) AS criteria
+   FROM criteria_data cd
+   -- Applicability, classification dimension only (D-0822-3): a cell for a
+   -- project_participants criterion exists only for a CURRENT project
+   -- participant — the same predicate as Build Matrix Query, so the frozen
+   -- period_results inherit exactly what the matrix shows. Excluded cells
+   -- take their correction sub-selects with them.
+   WHERE cd.target_audience <> 'project_participants'
+      OR u.is_project_participant = true) AS criteria
 FROM performance_db.evaluation_period_participants epp
 JOIN performance_db.users u ON u.id = epp.user_id
 LEFT JOIN performance_db.grades g ON u.grade_id = g.id

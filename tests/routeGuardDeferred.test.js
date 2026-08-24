@@ -361,3 +361,24 @@ test("reporting reads stay keyed on the active period only", () => {
       `${file}: reporting must not key on the start gate`);
   }
 });
+
+// ── Reclassification (D-0822-3) and leaf-only period resolution (BUG-043) ────
+
+test("the matrix emits project-criterion cells only for current project participants", () => {
+  const js = allJsCode(load("evaluations-matrix.json"));
+  assert.ok(
+    js.includes("c.target_audience <> 'project_participants' OR u.is_project_participant = true"),
+    "matrix: a cell for a project criterion exists only for a current project participant"
+  );
+  // the emission filter must sit in the row-source WHERE, next to is_active
+  assert.ok(
+    /CROSS JOIN performance_db\.criteria c[\s\S]*?c\.is_active = true[\s\S]*?project_participants/.test(js),
+    "matrix: the filter belongs to the CROSS JOIN row source, not to a sub-select"
+  );
+});
+
+test("score-correction binds to an active started LEAF period only", () => {
+  const js = allJsCode(load("score-correction.json"));
+  assert.ok(js.includes("period_type <> 'annual'") && js.includes("parent_period_id"),
+    "score-correction: a container or annual period can never be the campaign period");
+});
