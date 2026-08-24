@@ -915,3 +915,20 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 
 **Notes / Gotchas:**
 - **For Alexander / the architect:** re-send the criterion document (or paste the texts verbatim into a JSON per the report §1); then `python3 scripts/create_criterion9_live.py --texts <file>.json` runs the whole approved sequence with proofs, and the two deferred HANDOVER updates (8→9 criteria, 80→90 rows, catalogue table) follow in the same session.
+
+## 2026-08-24 — Criterion 9 «Ответственность сверх роли» CREATED AND PROVEN ON LIVE (id 14)
+
+**What was done:**
+- The texts document arrived (pasted verbatim in chat by Alexander); saved untouched as `docs/briefs/criterion9_texts.json` (12 keys validated) and `scripts/create_criterion9_live.py` ran green: **`failures: []`**, proof at `backups/2026-08-24-criterion9/criterion9_live_proof.json`.
+- Two pre-run fixes, neither touching the sequence: dump plausibility floor 100 KB → 50 KB (this DB legitimately dumps at ~79 KB `-Fc` with 0 evaluations — verified against the reclass/finalize known-good dumps and a local `pg_restore --list`: 161 TOC entries, 17 table-data sections), and the repo's standard `_tls_context()` (certifi fallback, from `probe_live_reclass.py`) adopted. Both aborted attempts stopped **before any live write** (dump gate; TLS handshake) — clean state re-verified between attempts (8 criteria, 0 probe sessions).
+
+**Results (compared values):**
+- Dump first: `epe_2026_20260824_164442.dump` (79,427 bytes). Creation via `POST manage-criteria {action:'save'}` → **id 14** (same as the stand); every stored text **char-for-char equal** to the document; flags all / self off / manager on / c_level off; weight landed at the **1.00 default** with **0** seeded rows; scoring GET rendered the unseeded criterion (all-1.0 fill); `POST api/score-coefficients` then stored weight **1.50** and levels **0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00** — exactly **10 rows**, SQL and GET agreeing to the digit.
+- Catalogue reads: admin sees weight 1.50; a live manager (marked read-only session) sees the criterion with correct flags/audience and **no weight** — admin-only stripping confirmed on live.
+- Round-trip (level 5, same save route): 0.50 → 0.55 → re-read **0.55** → restore → re-read **0.50**.
+- Everything else byte-identical: other 8 criteria / their 80 coefficient rows / grades compared **raw** before/after, md5 `b0bd0f55…` — the same fingerprint the finalize batch recorded. Totals after: **9 active criteria / 90 coefficient rows**. Periods byte-identical (launch stays paused; no activation, no mail, no workflow PUT, Auth Guard untouched). Probe sessions deleted (`DELETE 2`), session count restored.
+- Docs: HANDOVER §5 → 9 rows / 90 rows + table row for id 14; both per-person distributions **recomputed from live** (48 general / 41 project unchanged): **37 × 4, 11 × 5, 36 × 6, 5 × 7** — exactly the +1-for-everyone shift; §10 report-list note updated to "created". Report `docs/CRITERION9_2026-08-2x.md` §6 execution record; Surfaced-for-decision now empty (the blocker resolved).
+- `npm test` **274/274**.
+
+**Notes / Gotchas:**
+- The coefficient save remains legal until close (D-0822-2), but the criterion had to exist before «Запустить оценку» — it now does, well before any campaign. Nothing remains to do for criterion 9 except normal campaign operation.

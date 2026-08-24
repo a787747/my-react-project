@@ -1,18 +1,24 @@
-# Criterion 9 «Ответственность сверх роли» — riders shipped, creation BLOCKED on the missing texts document (2026-08-24)
+# Criterion 9 «Ответственность сверх роли» — created and proven on live (id 14); riders shipped (2026-08-24)
 
 Brief: create the ninth criterion on live through Alexander's own path (manage-criteria save →
 score-coefficients save), audience all / self off / manager on / c_level off, weight 1.50, level
 coefficients 0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00, texts VERBATIM from the attached
 document; plus riders (BUG-048, BUG-049, HANDOVER reconcile).
 
-**Outcome in one line: the riders are done and pushed; the criterion itself was NOT created,
-because the attached document with the approved texts never reached this machine — and the brief
-forbids any rewording, so no texts were invented. Everything else is staged so the creation is one
-command once the document arrives.**
+**Outcome in one line: criterion id 14 is live with the approved texts (char-for-char), weight
+1.50 and all ten coefficients to the digit, created through the same two admin routes the UI
+calls, launch still paused; the other 8 criteria / 80 coefficient rows / grades are byte-identical
+before and after; the riders (BUG-048 closed by D-0824-1, BUG-049 closed, BUG-050 filed, HANDOVER
+reconciled) shipped in the same batch. Execution record: §6.**
+
+The batch ran in two pushes: the riders first, while the texts document was missing (§1 records
+that blocker and the search — it was real for half the session); then the document's texts arrived
+verbatim in chat, were saved as `docs/briefs/criterion9_texts.json`, and the staged executor ran
+green on live.
 
 ---
 
-## 1. The blocker: the attached document is not on this machine
+## 1. The blocker (resolved the same day): the attached document was not on this machine
 
 The brief says title, description and the ten level texts come from the attached document,
 VERBATIM. That document is nowhere the executor can reach:
@@ -60,11 +66,16 @@ script's first gate and will be taken by the run that actually creates the crite
   default-weight leftover); probe sessions are marked jtis deleted in `finally`;
 - writes `backups/2026-08-24-criterion9/criterion9_live_proof.json`.
 
-Run, once the document is saved (any path works):
-
-    python3 scripts/create_criterion9_live.py --texts docs/briefs/criterion9_texts.json
-
-After a green run, finish the two deferred doc updates listed in §4.
+Resolution: Alexander re-sent the texts verbatim in chat; they were saved untouched as
+`docs/briefs/criterion9_texts.json` (12 keys, validated) and the executor ran green — see §6.
+Two pre-run fixes on the way, neither touching the sequence: the dump plausibility floor was
+lowered from 100 KB to 50 KB (this DB legitimately dumps at ~79 KB in `-Fc` with 0 evaluations —
+verified against the reclass/finalize batches' known-good dumps and a local `pg_restore --list`:
+161 TOC entries, 17 table-data sections), and the repo's standard `_tls_context()` helper (certifi
+→ `/etc/ssl/cert.pem`, from `probe_live_reclass.py`) was adopted because this machine's Python
+does not see the system CA store. The first two attempts stopped **before any live write** (dump
+gate; TLS handshake) and left no residue — probe-session count and criteria count re-verified
+clean between attempts.
 
 ---
 
@@ -110,23 +121,55 @@ without re-filing that remainder would have hidden it.
   status-marker recount.
 - §10 report list completed: `GATE_FINALIZE_2026-08-2x.md` was missing entirely; it and this
   report are appended.
-- **Deferred until the criterion actually exists** (updating them now would record a false state):
-  - HANDOVER §5 "Criteria catalogue: 8 active rows … 80 `score_coefficients` rows" → 9 / 90;
-  - HANDOVER §3 catalogue table (new row) and the per-person criteria-count distributions
-    (an 'all'-audience criterion adds one to every count).
+- ~~Deferred until the criterion actually exists~~ — **done after the green run (§6)**:
+  - HANDOVER §5 "Criteria catalogue" → **9 active rows / 90 `score_coefficients` rows**, and the
+    catalogue table gained `| 14 | Ответственность сверх роли | all | 1.50 | for_manager |`;
+  - both per-person criteria-count distributions **recomputed from live** (not hand-shifted):
+    classification unchanged at 48 general / 41 project, counts now
+    **37 people × 4, 11 × 5, 36 × 6, 5 × 7** — exactly the +1-for-everyone an 'all'-audience
+    `for_manager` criterion predicts over the previous 37×3 / 11×4 / 36×5 / 5×6.
 
 ## 5. Suite
 
-`npm test`: see PROGRESS entry for the count (target 272+; was 274/274 before this batch — no
-code paths under test were touched, only a migration file, docs, and a new standalone script).
+`npm test` **274/274** (target 272+), unchanged before and after the batch — no code paths under
+test were touched (a migration file, docs, one standalone script, one texts JSON).
+
+---
+
+## 6. Execution record — criterion 14 on live (2026-08-24, proof `backups/2026-08-24-criterion9/criterion9_live_proof.json`)
+
+Run: `python3 scripts/create_criterion9_live.py --texts docs/briefs/criterion9_texts.json` —
+**all checks passed, `failures: []`**. Compared values, per the brief's items:
+
+- **Dump first**: `epe_2026_20260824_164442.dump` taken before any write (79,427 bytes,
+  the known-good size for this DB; local `pg_restore --list` validated the format on the
+  identical previous attempt's dump).
+- **Creation (brief item 1)**: `POST manage-criteria {action:'save'}` → **id 14** (same id the
+  stand got). Every stored text — title, description, all ten level texts — **char-for-char equal
+  to `criterion9_texts.json`**; flags exactly all / self off / manager on / c_level off / active;
+  weight landed at the **1.00 DB default** with **0** seeded coefficient rows (the editor cannot
+  set a weight — FINALIZE §3 confirmed on live). `GET api/score-coefficients` rendered the
+  unseeded criterion with the all-1.0 server-side fill. Then `POST api/score-coefficients` with
+  weight 1.50 + the ten approved values.
+- **Stored values (brief item 2)**: exactly **10** coefficient rows for id 14; stored weight
+  **1.50** (not the default); levels 1..10 = **0.20 / 0.25 / 0.30 / 0.35 / 0.50 / 0.70 / 1.00 /
+  2.00 / 3.60 / 6.00** to the digit, both in SQL and in the admin GET. `GET api/criteria` as
+  admin: criterion present with weight 1.50; as a live manager (marked read-only session,
+  user id 1): criterion visible with the correct flags and audience, **`weight` absent** —
+  admin-only stripping confirmed on live.
+- **Front-editability round-trip (brief item 3)**, level 5 via the same save route, four recorded
+  values: approved **0.50** → saved **0.55** → re-read **0.55** → restored → re-read **0.50**.
+- **Everything else unchanged (brief item 4)**: the raw aggregates over the other 8 criteria's
+  weights, their 80 coefficient rows and all grades are **byte-identical** before/after (compared
+  raw, not only hashed); md5 `b0bd0f55ca92c69c65912bd9f151bf89` — the same fingerprint the
+  finalize batch recorded, unchanged through this batch. Totals after: **9 active criteria /
+  90 coefficient rows**. Periods state byte-identical (closed/draft/draft — launch stays paused,
+  no activation, no start, no mail, no workflow PUT, Auth Guard untouched). Both marked probe
+  sessions deleted in `finally` (`DELETE 2`), session count back to its pre-run value.
 
 ---
 
 ## Surfaced for decision
 
-1. **The attached document with the approved texts never reached the executor.** Nothing on this
-   machine holds the title, description, or the ten level texts of «Ответственность сверх роли».
-   Needed: the document (or its texts pasted verbatim) saved anywhere reachable — then
-   `python3 scripts/create_criterion9_live.py --texts <file>.json` executes the whole approved
-   sequence with proofs, and the two deferred HANDOVER updates in §4 follow. Everything else in
-   the brief is done.
+*(empty — the one blocker this report originally surfaced, the missing texts document, was
+resolved by Alexander re-sending the texts in chat; nothing else requires a decision)*

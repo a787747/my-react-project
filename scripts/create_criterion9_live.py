@@ -60,12 +60,24 @@ import base64
 import hashlib
 import hmac
 import json
+import ssl
 import subprocess
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+
+def _tls_context() -> ssl.SSLContext:
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context(cafile="/etc/ssl/cert.pem")
+
+
+TLS = _tls_context()
 
 HOST = "root@92.51.45.147"
 REPO = Path(__file__).resolve().parent.parent
@@ -130,7 +142,7 @@ def call(base: str, method: str, path: str, token: str, body=None):
     request = urllib.request.Request(
         f"{base.rstrip('/')}/{path.lstrip('/')}", data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=120, context=TLS) as response:
             raw = response.read()
             return response.status, json.loads(raw) if raw else None
     except urllib.error.HTTPError as exc:
@@ -242,7 +254,8 @@ def main() -> None:
             ["ssh", "-o", "BatchMode=yes", HOST,
              "docker exec postgres_n8n pg_dump -U admin --no-owner --no-acl -Fc epe_2026"],
             stdout=fh, stderr=subprocess.PIPE)
-    if result.returncode or dump_path.stat().st_size < 100_000:
+    # known-good dumps of this DB (0 evaluations) are ~79 KB in -Fc
+    if result.returncode or dump_path.stat().st_size < 50_000:
         raise SystemExit(f"dump failed or implausibly small: {dump_path} "
                          f"({dump_path.stat().st_size} bytes) {result.stderr.decode('utf-8', 'replace')}")
     REPORT["dump"] = {"path": str(dump_path), "bytes": dump_path.stat().st_size}
