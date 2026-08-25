@@ -675,3 +675,10 @@ is refused. `HAS_DIRECT_REPORTS` names exactly who is in the way.
 `backups/2026-08-25-termination/` holds `termination_proof.json`,
 `termination_proof_api.json` and `live_verify.json`. It is deliberately **not**
 tracked — `backups/` is gitignored because those files carry personal data.
+
+---
+
+**This report, the D-0825-7 row, the two bug rows and the executor scripts landed
+on `main` as commit `7f67c49`.** The proof files under
+`backups/2026-08-25-termination/` are deliberately **not** tracked — `backups/`
+is gitignored because those files carry personal data.
