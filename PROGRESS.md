@@ -1382,3 +1382,17 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - **No live write of any kind**, not even a probe session: `auth_sessions` created after 16:00Z = 0. Catalogue, `score_coefficients` and `grades` md5-identical to the pre-session anchor, checked by computing the same fingerprints on live and on the stand restored from the 16:42Z dump.
 - Rollback anchor refreshed: `epe_2026_teampage_20260825_1642.dump`, md5 `5ecbf2c0c908340f4e28b63a36950129`, verified equal on the VPS and on the Mac, kept in `~/EPE_ROLLBACK/2026-08-25-teampage/` outside the repo.
 - Closed BUG-012, BUG-040, BUG-062, BUG-063. Opened BUG-065. Second gate not pressed; H1 in scope = 85.
+
+---
+
+## 2026-08-25 — Sidebar: parent vs child is visible (live deploy)
+
+**What was done:**
+- The three section headers and their pages sat on one left edge, same icon size, same padding — an open group read as a flat list. `src/components/Sidebar.jsx` only: children sit 34px to the right of the section icon, under a 2px rail; child icons 14px vs 16px on the header; headers stay uppercase.
+- Verified locally first, then `./scripts/deploy_epe_frontend.sh`. `npm test` 351/351. Gates: legacy `:5678` absent, `/webhook` present. Flip `20260825T165732Z` → **`20260825T170810Z`**. Live `index.html` Last-Modified Tue, 25 Aug 2026 17:08:19 GMT; public HTML serves `index-vSAg6wtt.js`, which contains the new rail class.
+
+**Results:**
+- Live now serves the nested sidebar. Hard refresh if the old menu is cached.
+
+**Notes / Gotchas:**
+- Not committed. No login on live this pass — the sidebar itself was walked locally; production was checked as far as the login page and the bundle markers. H1 and the four data tables were not touched.

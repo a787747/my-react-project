@@ -38,14 +38,14 @@ const NavItem = ({ to, icon: Icon, label, onClick, end = false }) => {
       end={end}
       onClick={onClick}
       className={({ isActive }) => `
-        flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium text-sm
+        flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-200 font-medium text-[13px]
         ${isActive 
           ? 'bg-brand-600 text-white shadow-brand' 
           : 'text-slate-400 hover:bg-slate-800 hover:text-white'
         }
       `}
     >
-      <Icon className="w-5 h-5 flex-shrink-0" />
+      <Icon className="w-3.5 h-3.5 flex-shrink-0 opacity-70" />
       <span className="truncate">{label}</span>
     </NavLink>
   );
@@ -68,19 +68,21 @@ const NavGroup = ({ title, icon: Icon, children, groupId, openGroupId, onToggle 
   if (!hasChildren) return null;
   
   return (
-    <div className="mb-2 mt-3 first:mt-0">
+    <div className="mt-1 first:mt-0">
       <button
         onClick={handleToggle}
-        className="w-full flex items-center justify-between px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-slate-200 transition-colors border-t border-slate-700/50 pt-3"
+        className="w-full flex items-center justify-between px-3 py-2.5 text-[11px] font-bold text-slate-300 uppercase tracking-widest hover:text-white transition-colors border-t border-slate-700/50"
       >
-        <div className="flex items-center gap-2">
-          {Icon && <Icon className="w-3.5 h-3.5 text-brand-500" />}
+        <div className="flex items-center gap-2.5">
+          {Icon && <Icon className="w-4 h-4 text-brand-400" />}
           <span>{title}</span>
         </div>
-        <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'}`} />
+        <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'}`} />
       </button>
-      <div className={`space-y-1 overflow-hidden transition-all duration-200 ${isOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
-        {children}
+      <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+        <div className="ml-5 mt-1 mb-2 pl-3 border-l-2 border-slate-500/45 space-y-0.5">
+          {children}
+        </div>
       </div>
     </div>
   );
