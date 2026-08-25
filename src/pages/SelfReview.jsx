@@ -17,7 +17,7 @@ import React, { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 
 // Компоненты
-import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice } from '../components/common';
+import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice, RatingGuide } from '../components/common';
 import { SelfReviewStatusCard, SelfReviewModal } from '../components/self-review';
 
 // Хуки
@@ -142,6 +142,10 @@ const SelfReview = () => {
           <p className="text-gray-600">Оцените свою работу в текущем периоде</p>
         </div>
 
+        <div className="mb-6">
+          <RatingGuide variant="employee" />
+        </div>
+
         {/* Предупреждение */}
         <div className="bg-amber-50 border-l-4 border-amber-400 p-6 mb-6 rounded-r-xl shadow-sm">
           <div className="flex items-start gap-4">
@@ -159,11 +163,6 @@ const SelfReview = () => {
                 </p>
                 <p>
                   Будьте честны и объективны при оценке своих результатов. Самооценка не влияет на материальную составляющую мотивации и нужна для планирования развития сотрудников.
-                </p>
-                <p>
-                  Пожалуйста, старайтесь следовать логике в описании оценок, они построены таким образом, 
-                  что 85-90% сотрудников попадают в желтую и зеленую зоны, редкие сотрудники 
-                  в красную и фиолетовую по определенным критериям.
                 </p>
                 <p className="font-semibold">
                   Явное завышение или занижение не будет добавлять вам никаких преимуществ.

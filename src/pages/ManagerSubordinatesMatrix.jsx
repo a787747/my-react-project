@@ -18,6 +18,7 @@ import { API_ENDPOINTS } from '../config/api';
 import { LoadingSpinner, PeriodBanner } from '../components/common';
 import ScoreDetailModal from '../components/admin/ScoreDetailModal';
 import { groupCriteria } from '../utils/matrixUtils';
+import { getScoreBandChipClasses } from '../utils/evaluationUtils';
 import logger from '../utils/logger';
 
 /**
@@ -47,14 +48,11 @@ const getFinalScore = (criterion) => {
 /**
  * Стиль для оценки
  */
-const getScoreStyle = (score) => {
+const getScoreStyle = (score, criterion) => {
   if (score === null || score === undefined) {
     return 'bg-gray-100 text-gray-400';
   }
-  if (score >= 8) return 'bg-green-100 text-green-700';
-  if (score >= 5) return 'bg-yellow-100 text-yellow-700';
-  if (score >= 3) return 'bg-orange-100 text-orange-700';
-  return 'bg-red-100 text-red-700';
+  return getScoreBandChipClasses(score, criterion);
 };
 
 const ManagerSubordinatesMatrix = ({ user }) => {
@@ -406,7 +404,7 @@ const ManagerSubordinatesMatrix = ({ user }) => {
                                       onClick={() => handleScoreClick(employee, criterion, 'general')}
                                       className={`
                                         px-2 py-1 rounded text-xs font-medium transition-all
-                                        ${score !== null ? getScoreStyle(score) : 'bg-gray-100 text-gray-400'}
+                                        ${score !== null ? getScoreStyle(score, criterion) : 'bg-gray-100 text-gray-400'}
                                         ${hasCorrection ? 'ring-2 ring-teal-400 ring-offset-1' : ''}
                                         hover:scale-105 hover:shadow-md cursor-pointer
                                       `}
@@ -431,7 +429,7 @@ const ManagerSubordinatesMatrix = ({ user }) => {
                                           onClick={() => handleScoreClick(employee, criterion, 'project')}
                                           className={`
                                             px-2 py-1 rounded text-xs font-medium transition-all
-                                            ${score !== null ? getScoreStyle(score) : 'bg-purple-100 text-purple-400'}
+                                            ${score !== null ? getScoreStyle(score, criterion) : 'bg-purple-100 text-purple-400'}
                                             ${hasCorrection ? 'ring-2 ring-teal-400 ring-offset-1' : ''}
                                             hover:scale-105 hover:shadow-md cursor-pointer
                                           `}
@@ -462,20 +460,28 @@ const ManagerSubordinatesMatrix = ({ user }) => {
         <h4 className="font-semibold text-gray-700 mb-3">Легенда</h4>
         <div className="flex flex-wrap gap-4 text-sm">
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded bg-green-100 flex items-center justify-center text-green-700 text-xs font-bold">8+</span>
-            <span className="text-gray-600">Отлично</span>
+            <span className="w-6 h-6 rounded bg-purple-50 flex items-center justify-center text-purple-700 text-xs font-bold">9+</span>
+            <span className="text-gray-600">Зона исключительности</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded bg-yellow-100 flex items-center justify-center text-yellow-700 text-xs font-bold">5-7</span>
+            <span className="w-6 h-6 rounded bg-emerald-50 flex items-center justify-center text-emerald-800 text-xs font-bold">8</span>
+            <span className="text-gray-600">Выше нормы</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded bg-green-50 flex items-center justify-center text-green-700 text-xs font-bold">6-7</span>
             <span className="text-gray-600">Хорошо</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded bg-orange-100 flex items-center justify-center text-orange-700 text-xs font-bold">3-4</span>
-            <span className="text-gray-600">Требует улучшения</span>
+            <span className="w-6 h-6 rounded bg-amber-50 flex items-center justify-center text-amber-800 text-[10px] font-bold">5</span>
+            <span className="text-gray-600">В целом справляется, требует внимания</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded bg-red-100 flex items-center justify-center text-red-700 text-xs font-bold">&lt;3</span>
-            <span className="text-gray-600">Критично</span>
+            <span className="w-6 h-6 rounded bg-orange-50 flex items-center justify-center text-orange-700 text-xs font-bold">3-4</span>
+            <span className="text-gray-600">Ниже ожиданий</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded bg-red-50 flex items-center justify-center text-red-700 text-xs font-bold">1-2</span>
+            <span className="text-gray-600">Зона риска</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 rounded bg-gray-100 ring-2 ring-teal-400 flex items-center justify-center text-gray-600 text-xs font-bold">✓</span>

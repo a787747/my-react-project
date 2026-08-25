@@ -19,6 +19,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Star, User, TrendingUp, MessageSquare, Edit3, Save, Loader2, AlertCircle, Crown, Users } from 'lucide-react';
 import { ADMIN_ROLES } from '../../config/constants';
+import { getScoreZone } from '../../utils/evaluationUtils';
 import logger from '../../utils/logger';
 
 const ScoreDetailModal = ({ 
@@ -91,10 +92,8 @@ const ScoreDetailModal = ({
   // Функция для определения цвета оценки
   const getScoreStyle = (score) => {
     if (!score && score !== 0) return { bg: 'bg-gray-100', text: 'text-gray-400', label: 'Нет оценки' };
-    if (score >= 8) return { bg: 'bg-green-100', text: 'text-green-700', label: 'Отлично' };
-    if (score >= 5) return { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Хорошо' };
-    if (score >= 3) return { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Требует улучшения' };
-    return { bg: 'bg-red-100', text: 'text-red-700', label: 'Критично' };
+    const zone = getScoreZone(score, criterion);
+    return { bg: zone.bg, text: zone.text, label: zone.label };
   };
 
   // Получаем описание уровня

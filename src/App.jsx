@@ -50,6 +50,9 @@ const AdminAnnualRollup = lazy(() => import('./pages/AdminAnnualRollup'));
 const ManagerEvaluation = lazy(() => import('./pages/ManagerEvaluation'));
 const ManagerSubordinatesMatrix = lazy(() => import('./pages/ManagerSubordinatesMatrix'));
 const Welcome = lazy(() => import('./pages/Welcome'));
+const GuidePreview = import.meta.env.DEV
+  ? lazy(() => import('./pages/GuidePreview'))
+  : null;
 const HRDashboard = lazy(() => import('./pages/HRDashboard'));
 const TeamView = lazy(() => import('./pages/TeamView'));
 const AdminScoreCalculator = lazy(() => import('./pages/AdminScoreCalculator'));
@@ -152,6 +155,9 @@ function AppContent() {
       <div className={user ? 'lg:ml-64 flex-1 min-h-screen' : 'flex-1 min-h-screen'}>
         <Suspense fallback={<LoadingSpinner text="Загрузка страницы..." />}>
         <Routes>
+          {GuidePreview && (
+            <Route path="/__guide-preview" element={<GuidePreview />} />
+          )}
           <Route
             path="/login"
             element={user ? <Navigate to={user.role === 'hr' ? '/hr/dashboard' : '/welcome'} replace /> : <Login />}

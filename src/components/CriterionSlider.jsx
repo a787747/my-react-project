@@ -40,7 +40,7 @@ const CriterionSlider = ({
   const [isAnimating, setIsAnimating] = useState(false);
 
   // Получаем стили и описание из общих утилит
-  const zone = isSelected ? getScoreZone(currentScore) : null;
+  const zone = isSelected ? getScoreZone(currentScore, criterion) : null;
   const description = isSelected ? getLevelDescription(criterion, currentScore) : null;
 
   // Логика получения самооценки
@@ -142,7 +142,7 @@ const CriterionSlider = ({
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0">
               <span className={`
-                inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wide
+                inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold tracking-wide
                 ${zone.text} bg-white/60 border border-current/20
               `}>
                 {zone.label}

@@ -18,7 +18,7 @@ import {
   Info,
   CheckCircle2
 } from 'lucide-react';
-import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice, PeriodNotice } from '../components/common';
+import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice, PeriodNotice, RatingGuide } from '../components/common';
 import { CriteriaOverview } from '../components/profile';
 import { useProfile } from '../hooks/useProfile';
 import { useUser } from '../context/UserContext';
@@ -240,6 +240,10 @@ const Welcome = () => {
               </div>
             </div>
 
+            <div className="mb-5">
+              <RatingGuide variant="full" />
+            </div>
+
             <div className="space-y-4">
               {/* Шаг 1 */}
               <div className="flex gap-3">
@@ -365,6 +369,10 @@ const Welcome = () => {
                   Процесс оценки для обычных сотрудников включает следующие этапы
                 </p>
               </div>
+            </div>
+
+            <div className="mb-5">
+              <RatingGuide variant="employee" />
             </div>
 
             <div className="space-y-4">

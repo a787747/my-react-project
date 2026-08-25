@@ -15,6 +15,7 @@
 
 import React from 'react';
 import { ArrowUp, ArrowDown, ArrowUpDown, Trophy, TrendingUp, User, Calculator } from 'lucide-react';
+import { getScoreZone } from '../../utils/evaluationUtils';
 
 const FinalScoresMatrixTable = ({ 
   employees, 
@@ -37,13 +38,10 @@ const FinalScoresMatrixTable = ({
   };
 
   // Получить цвет для балла по критерию
-  const getScoreColor = (score) => {
+  const getScoreColor = (score, criterion) => {
     if (score === null || score === undefined || score === 0) return 'text-gray-300';
-    const val = parseFloat(score);
-    if (val <= 1) return 'text-red-600';
-    if (val <= 3) return 'text-amber-600';
-    if (val <= 5) return 'text-blue-600';
-    return 'text-green-600';
+    const zone = getScoreZone(score, criterion);
+    return zone.text;
   };
 
   // Получить цвет фона для итогового балла
@@ -224,7 +222,7 @@ const FinalScoresMatrixTable = ({
                         key={`score-${emp.id}-${c.id}`} 
                         className="px-2 py-3 text-center border-x border-gray-50"
                       >
-                        <span className={`font-bold text-sm ${getScoreColor(criterionScore)}`}>
+                        <span className={`font-bold text-sm ${getScoreColor(criterionScore, c)}`}>
                           {criterionScore !== null && criterionScore !== undefined 
                             ? criterionScore.toFixed(2) 
                             : '-'

@@ -137,7 +137,7 @@ const ManagerEvaluationDetailsModal = ({ isOpen, employee, onClose }) => {
         <div className="space-y-3">
           {scores.map((score, idx) => {
             const numericScore = parseFloat(score.score || score.manager_score);
-            const zone = getScoreZone(numericScore);
+            const zone = getScoreZone(numericScore, score);
             
             return (
               <div 

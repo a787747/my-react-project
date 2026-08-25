@@ -171,8 +171,8 @@ const SelfReviewDetailsModal = ({ isOpen, employee, onClose }) => {
                   <div className="space-y-3">
                     {Object.entries(selfReviewData.grades).map(([criterionKey, score]) => {
                       const numericScore = parseInt(score, 10);
-                      const zone = getScoreZone(numericScore);
                       const criterion = getCriterionById(criterionKey);
+                      const zone = getScoreZone(numericScore, criterion || criterionKey);
                       
                       // Получаем комментарий для этого критерия
                       const comment = selfReviewData.comments?.[criterionKey];

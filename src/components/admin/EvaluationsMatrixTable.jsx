@@ -16,6 +16,7 @@
 import React from 'react';
 import { Star, Eye, Edit2, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { buildSharedCriteriaGroups, getCriterionFinalScore, getCriterionCorrections, canReceiveCLevel, formatCorrectionTooltip } from '../../utils/matrixUtils';
+import { getScoreBandChipClasses } from '../../utils/evaluationUtils';
 
 const EvaluationsMatrixTable = ({ 
   employees, 
@@ -93,13 +94,11 @@ const EvaluationsMatrixTable = ({
     const finalScore = getFinalScore(criterion);
     const hasScore = managerScore !== null && managerScore !== undefined;
 
-    let bgClass = 'bg-green-100';
-    let textClass = 'text-green-700';
-    
-    if (hasCorrectionApplied) {
-      bgClass = 'bg-amber-100';
-      textClass = 'text-amber-700';
-    }
+    const chip = getScoreBandChipClasses(
+      hasCorrectionApplied ? finalScore : managerScore,
+      criterion,
+      { hasCorrection: hasCorrectionApplied }
+    );
     
     return (
       <td 
@@ -109,7 +108,7 @@ const EvaluationsMatrixTable = ({
         {hasScore ? (
           <button
             onClick={(e) => handleScoreClick(e, employee, criterion, group)}
-            className={`inline-flex items-center justify-center w-8 h-8 ${bgClass} ${textClass} rounded-full font-bold text-xs hover:ring-2 hover:ring-offset-1 hover:ring-indigo-400 transition-all cursor-pointer group relative`}
+            className={`inline-flex items-center justify-center w-8 h-8 ${chip} rounded-full font-bold text-xs hover:ring-2 hover:ring-offset-1 hover:ring-indigo-400 transition-all cursor-pointer group relative`}
             title={hasCorrectionApplied ? formatCorrectionTooltip(criterion) : 'Нажмите для просмотра'}
           >
             {hasCorrectionApplied ? finalScore : managerScore}

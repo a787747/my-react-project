@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useManagerEvaluation } from '../hooks/useManagerEvaluation';
 import { useTaskStatus } from '../context/TaskStatusContext';
-import { OutOfScopeNotice, CampaignNotStartedNotice } from '../components/common';
+import { OutOfScopeNotice, CampaignNotStartedNotice, RatingGuide } from '../components/common';
 import CriterionSlider from '../components/CriterionSlider';
 import { getScoreZone } from '../utils/evaluationUtils';
 import { ADMIN_ROLES } from '../config/constants';
@@ -348,6 +348,7 @@ const ManagerEvaluation = ({ user }) => {
 
             {/* Критерии */}
             <div className="p-6 space-y-6">
+              <RatingGuide variant="employee" />
               {criteria.map((criterion) => (
                 <CriterionSlider
                   key={criterion.id}

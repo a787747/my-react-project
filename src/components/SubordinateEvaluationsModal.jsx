@@ -106,7 +106,7 @@ const SubordinateEvaluationsModal = ({ isOpen, employee, currentUser, onClose })
   // Рендер оценки по критерию
   const renderCriterion = (criterion, idx) => {
     const numericScore = parseFloat(criterion.score_value);
-    const zone = getScoreZone(numericScore);
+    const zone = getScoreZone(numericScore, criterion);
     
     return (
       <div 

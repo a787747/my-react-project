@@ -1085,3 +1085,18 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 **Results:**
 - Report: `docs/CATALOGUE_FIX_H1_2026-08-25.md`. Snapshots: `docs/catalogue/H1-2026_catalogue_before_20260825T062507Z.md`, `docs/catalogue/H1-2026_catalogue_after_20260825T062601Z.md`. Decision D-0825-1. HANDOVER §3 catalogue bullet updated; §10 counters untouched.
 - Surfaced: `performance_db.criteria` has no `updated_at` column — write times recorded from `clock_timestamp()` after each 200. Route SET-list rewrites the whole row; unchanged values were sent from the fresh read and came back identical. No cache of old texts on `GET /api/criteria`.
+
+## 2026-08-25 — Rating guide in-product; score zones treat 6 as first «хорошо»
+
+**What was done:**
+- Frontend, tests and docs only. No DB write, no mail, no stand, no workflow, catalogue untouched.
+- Verbatim guide «Как ставить оценки — 10 правил H1» on the Welcome manager track (all 10), Welcome employee track + upward form + self-review (rules 1, 7, 8), and one-click (collapsed) at the top of `EvaluationModal`.
+- Score-band labels/colours: 6 is the first «хорошо»; 5 is «в целом справляется, требует внимания». Criterion 14 (norm 2) and 13 (volume) have their own bands. Numbers and payloads unchanged.
+- Self-review no longer promises that 85–90% land in yellow/green zones.
+- HANDOVER §1/§3/§7 and AGENTS.md: H1 **active since 2026-08-24 19:07:36Z**, not started. Activate done; remaining runbook starts at «Запустить оценку».
+
+**Results:**
+- Report: `docs/PRELAUNCH_GUIDE_AND_ZONES_2026-08-25.md`. Screenshots: `docs/prelaunch_guide_and_zones/`.
+- `npm test` **313 → 326** (re-run after deploy: 326/326).
+- Deploy: release **`20260825T065554Z`**; previous **`20260824T182054Z`** retained on disk. Live after: H1 id 2 `active` / `evaluation_started_at` NULL; four tables 0/0/0/0.
+- Guide strings live in served `index-C_mvqGch.js` (shared chunk), not in the Welcome lazy chunk. Title + all ten leads and bodies present verbatim. Chunk md5 local = disk = served.

@@ -22,6 +22,7 @@
 import React, { useState, useMemo } from 'react';
 import { Loader2, MessageSquare, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { getScoreZone, getLevelDescription } from '../../utils/evaluationUtils';
+import RatingGuide from '../RatingGuide';
 
 const SelfReviewModal = ({ 
   isOpen, 
@@ -91,10 +92,11 @@ const SelfReviewModal = ({
 
         {/* Content */}
         <div className="p-6 space-y-8 overflow-y-auto">
+            <RatingGuide variant="employee" />
             {criteria.map((criterion) => {
             const isSelected = grades[criterion.id] !== undefined && grades[criterion.id] !== null;
             const currentScore = isSelected ? parseInt(grades[criterion.id], 10) : null;
-            const zone = isSelected ? getScoreZone(currentScore) : null;
+            const zone = isSelected ? getScoreZone(currentScore, criterion) : null;
             const desc = isSelected ? getLevelDescription(criterion, currentScore) : null;
 
             return (
@@ -158,7 +160,7 @@ const SelfReviewModal = ({
                 {isSelected && zone && (
                   <div className={`${zone.bg} ${zone.border} border rounded-lg p-3 transition-colors duration-300`}>
                     <div className="flex items-start gap-3">
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold uppercase mt-0.5 ${zone.text} bg-white bg-opacity-50 border border-current border-opacity-20`}>
+                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold mt-0.5 ${zone.text} bg-white bg-opacity-50 border border-current border-opacity-20`}>
                         {zone.label}
                       </span>
                       <p className={`text-sm ${zone.text} font-medium`}>
@@ -274,7 +276,7 @@ const SelfReviewModal = ({
               <div className="space-y-3">
                 {criteria.map((criterion) => {
                   const score = parseInt(grades[criterion.id], 10);
-                  const zone = getScoreZone(score);
+                  const zone = getScoreZone(score, criterion);
                   return (
                     <div key={criterion.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <span className="text-sm font-medium text-gray-700 flex-1 mr-4 line-clamp-1">

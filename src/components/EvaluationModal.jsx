@@ -20,6 +20,7 @@ import apiClient from '../api/client';
 import { X, Loader2, CheckCircle, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 import { API_ENDPOINTS } from '../config/api';
 import { calculateFinalScore, filterCriteriaByEmployee, getScoreZone } from '../utils/evaluationUtils';
+import RatingGuide from './RatingGuide';
 import { groupCriteria } from '../utils/matrixUtils';
 import { USER_ROLES, ADMIN_ROLES, getWorkCategoryLabel } from '../config/constants';
 import {
@@ -537,6 +538,9 @@ const EvaluationModal = ({
                 </div>
               ) : (
                 <div>
+                  <div className="mb-5">
+                    <RatingGuide variant="full" collapsible defaultOpen={false} />
+                  </div>
                   {groupConfig.map(group => renderCriteriaGroup(group))}
                 </div>
               )}
@@ -658,7 +662,7 @@ const EvaluationModal = ({
                 <div className="space-y-3">
                   {visibleCriteria.map((criterion) => {
                     const score = parseInt(evaluations[criterion.id], 10);
-                    const zone = getScoreZone(score);
+                    const zone = getScoreZone(score, criterion);
                     return (
                       <div key={criterion.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <span className="text-sm font-medium text-gray-700 flex-1 mr-4 line-clamp-1">

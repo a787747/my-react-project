@@ -19,10 +19,10 @@ Alexander and the chat-side architect assistant **have no code access. You do.**
 
 ## Current goal
 
-**Phase 2 — H1 is built and paused.** Phase 0 (review) and Phase 1 (architecture decision) are done; their
-outputs are `docs/REVIEW_H1.md` and §5 of `docs/HANDOVER.md`. The H1 surface is deployed, guarded, proven
-and **not activated**: period id 2 is `draft`, and Alexander paused the launch on 2026-08-21. Read
-`docs/HANDOVER.md` for the live state before assuming anything about this list.
+**Phase 2 — H1 is active and not started.** Phase 0 (review) and Phase 1 (architecture decision) are done; their
+outputs are `docs/REVIEW_H1.md` and §5 of `docs/HANDOVER.md`. The H1 surface is deployed, guarded and proven.
+Period id 2 has been `active` / `is_active=true` since **2026-08-24 19:07:36Z**; `evaluation_started_at` is
+NULL (preparation window). Read `docs/HANDOVER.md` for the live state before assuming anything about this list.
 
 Season goal: H1 evaluation → H2 evaluation → annual aggregation. The system ran a full cycle last year; last year's scores exist and are in use.
 

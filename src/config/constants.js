@@ -89,10 +89,12 @@ export const UI_CONFIG = {
 // ЗОНЫ ОЦЕНОК (для UI стилизации)
 // ============================================
 export const SCORE_ZONES = {
-  CRITICAL: { min: 1, max: 3, label: 'Критический', color: 'red' },
-  BELOW: { min: 4, max: 5, label: 'Ниже ожиданий', color: 'amber' },
-  MEETS: { min: 6, max: 7, label: 'Соответствует', color: 'blue' },
-  EXCEEDS: { min: 8, max: 10, label: 'Превосходит', color: 'green' }
+  RISK: { min: 1, max: 2, label: 'Зона риска', color: 'red' },
+  BELOW: { min: 3, max: 4, label: 'Ниже ожиданий', color: 'orange' },
+  ATTENTION: { min: 5, max: 5, label: 'В целом справляется, требует внимания', color: 'amber' },
+  GOOD: { min: 6, max: 7, label: 'Хорошо', color: 'green' },
+  ABOVE: { min: 8, max: 8, label: 'Выше нормы', color: 'emerald' },
+  EXCEPTIONAL: { min: 9, max: 10, label: 'Зона исключительности', color: 'purple' },
 };
 
 

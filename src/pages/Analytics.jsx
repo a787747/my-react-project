@@ -57,15 +57,16 @@ const COLORS = {
 const getScoreColor = (score) => {
   if (score >= 8) return COLORS.excellent;
   if (score >= 6) return COLORS.good;
-  if (score >= 4) return COLORS.average;
+  if (score >= 5) return COLORS.average;
   return COLORS.poor;
 };
 
-// Получить зону по баллу
+// Получить зону по баллу (department averages — default quality scale)
 const getScoreZone = (score) => {
   if (score >= 8) return { label: 'Отлично', color: 'text-green-600', bg: 'bg-green-100' };
   if (score >= 6) return { label: 'Хорошо', color: 'text-blue-600', bg: 'bg-blue-100' };
-  if (score >= 4) return { label: 'Средне', color: 'text-amber-600', bg: 'bg-amber-100' };
+  if (score >= 5) return { label: 'В целом справляется, требует внимания', color: 'text-amber-600', bg: 'bg-amber-100' };
+  if (score >= 4) return { label: 'Ниже ожиданий', color: 'text-orange-600', bg: 'bg-orange-100' };
   return { label: 'Низко', color: 'text-red-600', bg: 'bg-red-100' };
 };
 
@@ -339,19 +340,19 @@ const Analytics = () => {
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.excellent }} />
-              <span className="text-slate-600">8-10</span>
+              <span className="text-slate-600">8–10</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.good }} />
-              <span className="text-slate-600">6-8</span>
+              <span className="text-slate-600">6–7 Хорошо</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.average }} />
-              <span className="text-slate-600">4-6</span>
+              <span className="text-slate-600">5 — требует внимания</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.poor }} />
-              <span className="text-slate-600">&lt;4</span>
+              <span className="text-slate-600">&lt;5</span>
             </div>
           </div>
         </div>
