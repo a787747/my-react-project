@@ -676,3 +676,11 @@ were closed through their own real `POST /api/periods/close`.
   start was clean and every modified file is this session's.
 - `backups/` is gitignored — the proof artefacts and the dumps under
   `backups/2026-08-25-prelaunch-night/` are deliberately not tracked.
+
+---
+
+**This report, the five D-0825 rows, the three bug rows, the executor scripts, the refreshed
+workflow exports and every frontend change landed on `main` as commit `8525ab1`.** The proof
+artefacts under `backups/2026-08-25-prelaunch-night/` — `hiredate_exclusions.json`,
+`night_proof.json`, `night_close_proof.json`, `live_verify.json` and the two dumps — are
+deliberately **not** tracked: `backups/` is gitignored because those files carry personal data.
