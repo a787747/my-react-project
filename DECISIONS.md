@@ -594,3 +594,20 @@ the termination event carries a date and an author and must remain readable afte
 closes. No evaluation row is ever deleted and nothing is recomputed — the database keeps the full
 record so the pool size at calculation time stays reconstructible. Closed periods and the 2025
 archive are untouched.
+
+### D-0825-8 — A filter offers only what exists, with the count it will produce (engineering, 2026-08-25)
+**Decision:** on /admin/users the option list of every control is derived from the population on
+screen, never hardcoded in the markup, and each option carries the number of people it will yield
+given the other active filters. A value nobody carries is not offered; a value somebody carries is
+always offered, including `hr`, a terminated manager, «Без отдела» and «Без руководителя». Every
+number in the header names its own population: «Найдено» is the filtered set, «Всего в базе:
+N · работают · уволены» is the whole visible one, and the employment control states how many people
+it alone is hiding.
+**Consequence:** the filter row can no longer return an unexplained zero. Before this, selecting a
+manager whose reports are all `employee` made the role control look broken — «Employee» changed
+nothing and every other role emptied the list — and a search for a terminated person answered
+«Сотрудники не найдены» with no hint that the default «Работают» was hiding them. The predicate
+itself was already correct and is unchanged: role AND department AND manager AND employment AND
+search, in any order. Employment keeps `active` as its default and reset returns to it (D-0825-7).
+The rule is a frontend one; `API: Admin Get Users Data` still returns every row with no WHERE
+clause and was not touched. Report: `docs/ADMIN_USERS_FILTERS_2026-08-25.md`.

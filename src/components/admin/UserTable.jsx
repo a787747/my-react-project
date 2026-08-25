@@ -159,9 +159,9 @@ const UserTable = ({
         <table className="w-full text-left border-collapse">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+              <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">
                 {sortable ? (
-                  <div className="flex flex-col items-start gap-1">
+                  <div className="flex flex-col items-start gap-0.5">
                     <SortButton field="name" label="Сотрудник" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
                     <SortButton field="registered" label="Рег." title="Статус регистрации" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
                   </div>
@@ -169,9 +169,9 @@ const UserTable = ({
                   'Сотрудник'
                 )}
               </th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+              <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">
                 {sortable ? (
-                  <div className="flex flex-col items-start gap-1">
+                  <div className="flex flex-col items-start gap-0.5">
                     <SortButton field="role" label="Роль" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
                     <SortButton field="category" label="Категория" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
                   </div>
@@ -179,9 +179,9 @@ const UserTable = ({
                   'Роль / Категория'
                 )}
               </th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+              <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">
                 {sortable ? (
-                  <div className="flex flex-col items-start gap-1">
+                  <div className="flex flex-col items-start gap-0.5">
                     <SortButton field="department" label="Отдел" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
                     <SortButton field="grade" label="Грейд" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
                   </div>
@@ -189,7 +189,7 @@ const UserTable = ({
                   'Отдел / Грейд'
                 )}
               </th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+              <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">
                 {sortable ? (
                   <SortButton field="manager" label="Менеджер" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
                 ) : (
@@ -197,11 +197,11 @@ const UserTable = ({
                 )}
               </th>
               {showEvaluationStatus && (
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-center">
+                <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase text-center">
                   {showThreeColumns ? 'Статусы оценок' : 'Статус (Само. / Рук.)'}
                 </th>
               )}
-              {canEdit && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">Действия</th>}
+              {canEdit && <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase text-right">Действия</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -215,35 +215,33 @@ const UserTable = ({
                   onClick={onRowClick ? () => onRowClick(user) : undefined}
                 >
                   {/* Сотрудник */}
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-2">
                     <div className="flex items-center">
-                      <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold mr-3 flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-sm font-bold mr-2.5 flex-shrink-0">
                         {user.full_name?.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-semibold text-gray-900 truncate">{user.full_name}</div>
-                        <div className="text-xs text-gray-500 flex items-center gap-1 truncate">
-                          <Mail className="w-3 h-3 flex-shrink-0" /> 
+                        <div className="font-semibold text-sm text-gray-900 truncate">{user.full_name}</div>
+                        <div className="text-xs text-gray-500 flex items-center gap-1.5 min-w-0">
+                          <Mail className="w-3 h-3 flex-shrink-0" />
                           <span className="truncate">{user.email}</span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1">
                           {user.is_registered != null && (
-                            <div className={`mt-1 inline-flex w-fit items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                            <span className={`inline-flex shrink-0 items-center px-1.5 py-0 rounded text-[10px] font-medium border ${
                               user.is_registered
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                 : 'bg-gray-50 text-gray-500 border-gray-200'
                             }`}>
                               {user.is_registered ? 'Зарегистрирован' : 'Не зарегистрирован'}
-                            </div>
+                            </span>
                           )}
                           {user.terminated_at && (
-                            <div
+                            <span
                               title="Уволен: вне списков, задач и расчёта премии. Оценки в базе сохранены."
-                              className="mt-1 inline-flex w-fit items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-red-50 text-red-700 border-red-200"
+                              className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0 rounded text-[10px] font-semibold border bg-red-50 text-red-700 border-red-200"
                             >
                               <UserMinus className="w-3 h-3" />
                               Уволен{user.termination_date ? ` ${user.termination_date}` : ''}
-                            </div>
+                            </span>
                           )}
                         </div>
                       </div>
@@ -251,16 +249,16 @@ const UserTable = ({
                   </td>
                   
                   {/* Роль / Категория */}
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1">
+                  <td className="px-4 py-2">
+                    <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-1.5">
-                        <span className={`inline-flex w-fit items-center px-2 py-0.5 rounded text-xs font-medium capitalize border ${getRoleBadgeClass(user.role)}`}>
+                        <span className={`inline-flex w-fit items-center px-2 py-0 rounded text-xs font-medium capitalize border ${getRoleBadgeClass(user.role)}`}>
                           {user.role === 'c_level' ? 'C-Level' : user.role}
                         </span>
                         {user.has_subordinates && (
                           <span 
                             title="Руководитель (есть подчиненные)"
-                            className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                            className="inline-flex items-center px-1.5 py-0 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
                           >
                             <Crown className="w-3 h-3" />
                           </span>
@@ -271,15 +269,15 @@ const UserTable = ({
                   </td>
                   
                   {/* Отдел / Грейд */}
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-2">
                     <div className="text-sm text-gray-900 font-medium">{user.department_name || '-'}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">
+                    <div className="text-xs text-gray-500">
                       Grade: <span className="font-medium text-gray-700">{user.grade_name || 'N/A'}</span>
                     </div>
                   </td>
                   
                   {/* Менеджер */}
-                  <td className="px-6 py-4 text-sm text-gray-600">
+                  <td className="px-4 py-2 text-sm text-gray-600">
                     {user.manager_name ? (
                       <div className="flex items-center gap-1.5">
                         <Users className="w-4 h-4 text-gray-400 flex-shrink-0" /> 
@@ -292,7 +290,7 @@ const UserTable = ({
                   
                   {/* Статусы — omitted on AdminUsers: no admin-allowed route returns these metrics */}
                   {showEvaluationStatus && (
-                  <td className="px-4 py-4">
+                  <td className="px-4 py-2">
                     <div className="flex items-center justify-center gap-2">
                       {/* Колонка 1: Самооценка - фиксированная ширина */}
                       <div className="w-14 flex flex-col items-center">
@@ -393,17 +391,17 @@ const UserTable = ({
                   
                   {/* Действия */}
                   {canEdit && (
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex items-center justify-end gap-0.5">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             onEdit(user);
                           }}
-                          className="text-gray-400 hover:text-indigo-600 p-2 rounded-lg hover:bg-indigo-50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                          className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-200"
                           aria-label={`Редактировать ${user.full_name}`}
                         >
-                          <Pencil className="w-5 h-5" />
+                          <Pencil className="w-4 h-4" />
                         </button>
                         {canChangeEmployment && (
                           user.terminated_at ? (
@@ -412,11 +410,11 @@ const UserTable = ({
                                 e.stopPropagation();
                                 onEmploymentChange(user, 'reinstate');
                               }}
-                              className="text-gray-400 hover:text-emerald-600 p-2 rounded-lg hover:bg-emerald-50 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                              className="text-gray-400 hover:text-emerald-600 p-1.5 rounded-lg hover:bg-emerald-50 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-200"
                               aria-label={`Восстановить ${user.full_name}`}
                               title="Восстановить сотрудника"
                             >
-                              <UserCheck className="w-5 h-5" />
+                              <UserCheck className="w-4 h-4" />
                             </button>
                           ) : (
                             <button
@@ -424,11 +422,11 @@ const UserTable = ({
                                 e.stopPropagation();
                                 onEmploymentChange(user, 'terminate');
                               }}
-                              className="text-gray-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-200"
+                              className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-200"
                               aria-label={`Отметить увольнение: ${user.full_name}`}
                               title="Отметить увольнение"
                             >
-                              <UserMinus className="w-5 h-5" />
+                              <UserMinus className="w-4 h-4" />
                             </button>
                           )
                         )}

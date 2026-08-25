@@ -73,7 +73,6 @@ const TeamView = ({ user }) => {
   // Хук для работы с пользователями
   const { 
     users, 
-    options, 
     loading
   } = useUsers();
 
@@ -203,6 +202,8 @@ const TeamView = ({ user }) => {
     filteredUsers,
     paginatedUsers,
     totalPages,
+    facets,
+    activeFilterCount,
     setSearchInput,
     handleFilterChange,
     resetFilters,
@@ -283,7 +284,8 @@ const TeamView = ({ user }) => {
           <UserFilters
             searchInput={searchInput}
             filters={filters}
-            options={options}
+            facets={facets}
+            activeFilterCount={activeFilterCount}
             onSearchChange={setSearchInput}
             onFilterChange={handleFilterChange}
             onReset={resetFilters}

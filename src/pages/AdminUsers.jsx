@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Users, Plus, Info, Upload } from 'lucide-react';
+import { Users, Plus, Info, Upload, UserMinus, UserCheck } from 'lucide-react';
 
 // Компоненты
 import { Toast, LoadingSpinner, Pagination } from '../components/common';
@@ -95,13 +95,6 @@ const AdminUsers = ({ user }) => {
     return subordinates;
   }, [users, user?.id, isFullAccess]);
 
-  // Численность: рабочий список против уволенных (D-0825-7).
-  // «Всего» больше не показывается — оно смешивало две разные величины.
-  const headcount = useMemo(() => {
-    const terminated = visibleUsers.filter(u => u.terminated_at).length;
-    return { active: visibleUsers.length - terminated, terminated };
-  }, [visibleUsers]);
-
   // Хук для фильтрации
   const {
     filters,
@@ -110,6 +103,9 @@ const AdminUsers = ({ user }) => {
     filteredUsers,
     paginatedUsers,
     totalPages,
+    facets,
+    counts,
+    activeFilterCount,
     setSearchInput,
     handleFilterChange,
     resetFilters,
@@ -248,12 +244,23 @@ const AdminUsers = ({ user }) => {
             <Users className="w-8 h-8 text-indigo-600" />
             {isFullAccess ? 'Сотрудники' : 'Моя команда'}
           </h1>
+          {/* Каждое число — над названной популяцией. «Найдено» считается по
+              отфильтрованному списку, строка ниже — по всей видимой популяции;
+              раньше они стояли рядом без подписи и противоречили друг другу
+              (например «Работают: 88 … Найдено: 89» при фильтре «Все»). */}
           <p className="text-gray-500">
-            {isFullAccess
-              ? `Работают: ${headcount.active}${headcount.terminated ? ` | Уволены: ${headcount.terminated}` : ''} | Найдено: `
-              : `Подчинённых: ${visibleUsers.length} | Найдено: `
-            }
-            <span className="text-indigo-600 font-bold">{filteredUsers.length}</span>
+            Найдено: <span className="text-indigo-600 font-bold">{counts.found}</span>
+            {counts.foundTerminated > 0 && (
+              <span className="text-gray-500">
+                {' '}— из них уволенных:{' '}
+                <span className="text-red-600 font-semibold">{counts.foundTerminated}</span>
+              </span>
+            )}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {isFullAccess ? 'Всего в базе' : 'Подчинённых'}: {counts.total}
+            {' · '}работают {counts.active}
+            {' · '}уволены {counts.terminated}
           </p>
         </div>
         
@@ -294,11 +301,44 @@ const AdminUsers = ({ user }) => {
       <UserFilters
         searchInput={searchInput}
         filters={filters}
-        options={options}
+        facets={facets}
+        activeFilterCount={activeFilterCount}
         onSearchChange={setSearchInput}
         onFilterChange={handleFilterChange}
         onReset={resetFilters}
       />
+
+      {/* Статус занятости убирает людей, которые подходят под все остальные
+          фильтры. Без этой строки поиск по уволенному человеку отвечает
+          «Сотрудники не найдены» и не говорит, почему. */}
+      {counts.hiddenTerminated > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-6 flex flex-wrap items-center gap-2 text-sm text-amber-900">
+          <UserMinus className="w-4 h-4 flex-shrink-0" />
+          <span>
+            Скрыто уволенных: <strong>{counts.hiddenTerminated}</strong> — они подходят под остальные фильтры.
+          </span>
+          <button
+            onClick={() => handleFilterChange('employment', 'all')}
+            className="underline underline-offset-2 font-medium hover:text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-300 rounded"
+          >
+            Показать всех
+          </button>
+        </div>
+      )}
+      {counts.hiddenActive > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-6 flex flex-wrap items-center gap-2 text-sm text-amber-900">
+          <UserCheck className="w-4 h-4 flex-shrink-0" />
+          <span>
+            Скрыто работающих: <strong>{counts.hiddenActive}</strong> — они подходят под остальные фильтры.
+          </span>
+          <button
+            onClick={() => handleFilterChange('employment', 'all')}
+            className="underline underline-offset-2 font-medium hover:text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-300 rounded"
+          >
+            Показать всех
+          </button>
+        </div>
+      )}
 
       {/* Таблица пользователей */}
       <UserTable

@@ -2,33 +2,77 @@
  * UserFilters - Панель фильтрации пользователей
  * 
  * Назначение: UI для фильтрации списка пользователей по разным критериям
- * Используется в: AdminUsers
+ * Используется в: AdminUsers, TeamView
  * 
  * Props:
  * - searchInput: string - текущее значение поиска
  * - filters: object - текущие значения фильтров
- * - options: object - опции для селектов (departments, managers)
+ * - facets: object - варианты каждого контрола со счётчиками (useUserFilters)
+ * - activeFilterCount: number - сколько контролов уведено от значения по умолчанию
  * - onSearchChange: function - колбэк изменения поиска
  * - onFilterChange: function(key, value) - колбэк изменения фильтра
  * - onReset: function - колбэк сброса фильтров
+ *
+ * Варианты выбора приходят из данных, а не из константы в разметке: опция
+ * существует, только если её кто-то из популяции носит, и показывает число,
+ * которое даст с учётом остальных активных фильтров. Поэтому «(0)» видно до
+ * клика, а не после — прежняя строка молча отдавала пустой список.
  */
 
 import React from 'react';
 import { Search, Filter, X } from 'lucide-react';
+import { ALL } from '../../utils/userFilters';
+
+const SELECT_BASE =
+  'w-full p-2 border rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white transition-all';
+const SELECT_IDLE = 'border-gray-200 text-gray-900';
+const SELECT_ACTIVE = 'border-indigo-400 ring-1 ring-indigo-200 text-indigo-900 font-medium';
+
+const optionText = (option) =>
+  option.orphan ? option.label : `${option.label} (${option.count})`;
+
+const FilterSelect = ({ id, label, value, defaultValue, allLabel, options, onChange }) => {
+  const isActive = value !== defaultValue;
+  return (
+    <select
+      className={`${SELECT_BASE} ${isActive ? SELECT_ACTIVE : SELECT_IDLE}`}
+      value={value}
+      onChange={(e) => onChange(id, e.target.value)}
+      aria-label={label}
+      title={label}
+    >
+      {allLabel && <option value={ALL}>{allLabel}</option>}
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {optionText(option)}
+        </option>
+      ))}
+    </select>
+  );
+};
 
 const UserFilters = ({ 
   searchInput, 
   filters, 
-  options, 
+  facets,
+  activeFilterCount = 0,
   onSearchChange, 
   onFilterChange, 
   onReset 
 }) => {
+  const lists = facets || {};
+  const searchActive = String(searchInput || '').trim() !== '';
+
   return (
     <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-6">
       {/* Заголовок */}
       <div className="flex items-center gap-2 mb-4 text-gray-700 font-medium">
         <Filter className="w-4 h-4" /> Фильтрация
+        {activeFilterCount > 0 && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            активных: {activeFilterCount}
+          </span>
+        )}
       </div>
       
       {/* Сетка фильтров */}
@@ -39,83 +83,77 @@ const UserFilters = ({
           <input 
             type="text" 
             placeholder="Поиск..." 
-            className="w-full pl-9 p-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all"
+            className={`w-full pl-9 p-2 border rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all ${
+              searchActive ? 'border-indigo-400 ring-1 ring-indigo-200' : 'border-gray-200'
+            }`}
             value={searchInput}
             onChange={(e) => onSearchChange(e.target.value)}
             aria-label="Поиск сотрудников"
+            title="Поиск по имени и e-mail"
           />
         </div>
 
         {/* Роль */}
-        <select 
-          className="w-full p-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white transition-all"
+        <FilterSelect
+          id="role"
+          label="Фильтр по роли"
           value={filters.role}
-          onChange={(e) => onFilterChange('role', e.target.value)}
-          aria-label="Фильтр по роли"
-        >
-          <option value="all">Все роли</option>
-          <option value="admin">Admin</option>
-          <option value="c_level">C-Level</option>
-          <option value="manager">Manager</option>
-          <option value="employee">Employee</option>
-        </select>
+          defaultValue={ALL}
+          allLabel="Все роли"
+          options={lists.role || []}
+          onChange={onFilterChange}
+        />
 
         {/* Отдел */}
-        <select 
-          className="w-full p-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white transition-all"
+        <FilterSelect
+          id="department_id"
+          label="Фильтр по отделу"
           value={filters.department_id}
-          onChange={(e) => onFilterChange('department_id', e.target.value)}
-          aria-label="Фильтр по отделу"
-        >
-          <option value="all">Все отделы</option>
-          {options.departments.map(d => (
-            <option key={d.id} value={d.id}>{d.name}</option>
-          ))}
-        </select>
+          defaultValue={ALL}
+          allLabel="Все отделы"
+          options={lists.department_id || []}
+          onChange={onFilterChange}
+        />
 
         {/* Менеджер */}
-        <select 
-          className="w-full p-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white transition-all"
+        <FilterSelect
+          id="manager_id"
+          label="Фильтр по руководителю"
           value={filters.manager_id}
-          onChange={(e) => onFilterChange('manager_id', e.target.value)}
-          aria-label="Фильтр по руководителю"
-        >
-          <option value="all">Все руководители</option>
-          {options.managers.map(m => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
+          defaultValue={ALL}
+          allLabel="Все руководители"
+          options={lists.manager_id || []}
+          onChange={onFilterChange}
+        />
 
         {/* Категория */}
-        <select 
-          className="w-full p-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white transition-all"
+        <FilterSelect
+          id="work_category"
+          label="Фильтр по категории"
           value={filters.work_category}
-          onChange={(e) => onFilterChange('work_category', e.target.value)}
-          aria-label="Фильтр по категории"
-        >
-          <option value="all">Все категории</option>
-          <option value="general">General</option>
-          <option value="project">Project</option>
-          <option value="tender">Tender</option>
-        </select>
+          defaultValue={ALL}
+          allLabel="Все категории"
+          options={lists.work_category || []}
+          onChange={onFilterChange}
+        />
 
         {/* Статус занятости — по умолчанию «Работают» (D-0825-7) */}
-        <select
-          className="w-full p-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white transition-all"
+        <FilterSelect
+          id="employment"
+          label="Фильтр по статусу занятости"
           value={filters.employment}
-          onChange={(e) => onFilterChange('employment', e.target.value)}
-          aria-label="Фильтр по статусу занятости"
-        >
-          <option value="active">Работают</option>
-          <option value="terminated">Уволены</option>
-          <option value="all">Все (вкл. уволенных)</option>
-        </select>
+          defaultValue="active"
+          allLabel={null}
+          options={lists.employment || []}
+          onChange={onFilterChange}
+        />
 
         {/* Кнопка сброса */}
         <button
           onClick={onReset}
           className="flex items-center justify-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-dashed border-gray-300 hover:border-red-200 focus:outline-none focus:ring-2 focus:ring-red-200"
           aria-label="Сбросить фильтры"
+          title="Сбросить всё: поиск пустой, все списки «Все», статус занятости — «Работают»"
         >
           <X className="w-4 h-4" /> Сброс
         </button>
@@ -125,4 +163,3 @@ const UserFilters = ({
 };
 
 export default UserFilters;
-

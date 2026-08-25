@@ -1326,3 +1326,37 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - **BUG-059 is narrowed, not closed.** `employment_events` is the first audit row this database has for a change to a person, but it covers employment events only; `users` still has no `updated_at` and `admin/save-user` still writes no audit row.
 - **No mail of any kind was sent.** The registration-refusal proof inserted a verified code row directly into the **stand** database, so no address was ever contacted.
 - Two stand databases and one verification throwaway created and dropped; `SELECT datname` reads `epe_2026, postgres`. One stand container created and removed; the same six containers as before. Nothing in host `/tmp`. **The second gate was not pressed and no route that could press it was called.**
+
+---
+
+## 2026-08-25 — Admin users list: tighter rows (live deploy)
+
+**What was done:**
+- Compacted `UserTable` vertically only: cell padding `py-4` → `py-2`, avatar 40→32 px, registration/termination badges on the email line instead of a third row, smaller action icons. Same table is used on Team View.
+- Local preview measured row height **98 → 57 px**. `tests/prelaunchCopyBatch.test.js`: 11/11. Frontend release **`20260825T160958Z`** (`index.html` Last-Modified Tue, 25 Aug 2026 16:10:06 GMT).
+
+**Results:**
+- Live `/admin/users` now serves the denser list. Logic, filters, sort, edit and terminate/reinstate unchanged.
+
+**Notes / Gotchas:**
+- Deploy script ran with Cursor’s `rg` binary on PATH so BUG-040 did not block this release. No shim was installed. No commit.
+
+---
+
+## 2026-08-25 — /admin/users: the filter row offers only what exists (live deploy)
+
+**What was done:**
+- Diagnosed the owner's «фильтры не сужают список» report. Both hypotheses in the brief are wrong: the role options carry the DB value in `value` and the display casing only as child text, and the employment filter composes as a plain AND like the other five. The deployed chunk was byte-identical to the repository. «Найдено: 12» was the filter working — the manager control held Yelena Son, whose 13 reports are all `employee`/`project`/department «Project», so every further control was degenerate and nothing on screen said so.
+- Real defects found and fixed, frontend only: `hr` was missing from the role list (2 live people unreachable); `options.managers` offered 4 people who manage nobody; «Tender» matched nobody; 1 person with `department_id IS NULL` and 3 with `manager_id IS NULL` were unreachable; a terminated manager would drop out of the option list while still filtering, making the control read «Все руководители»; the header's «Работают/Уволены» counted the whole population and «Найдено» the filtered one, side by side, unlabelled.
+- New pure module `src/utils/userFilters.js` feeds filtering, counters and option lists from one predicate. Options are now derived from the data with faceted counts (`Manager (0) · Employee (11)`), the header names each population, and the employment control announces «Скрыто уволенных: N … Показать всех».
+- `npm test` **351/351** (23 new). `npx eslint src` at the 19-error baseline. Twenty-step browser walkthrough over the production bundle answering with the exact live payload; every count matched a SQL oracle computed against live first.
+- Frontend release **`20260825T162505Z`** (`index.html` Last-Modified Tue, 25 Aug 2026 16:24:29 GMT). H1 still active with `evaluation_started_at` NULL, four data tables 0/0/0/0, 89 users, `EPE: Auth Guard` and `API: Admin Get Users Data` unchanged, zero workflow writes.
+
+**Results:**
+- The filter row narrows predictably and says why when it does not. A zero is now visible on the option before the click.
+
+**Notes / Gotchas:**
+- **Live carries two terminated people, not one.** Kuvvat Garayev (51) at 15:54:23Z and Murad Bayramov (66) at 15:56:23Z, both by actor 2, both before this session's first command. H1 in-scope is 85.
+- **A second session was editing and deploying this same checkout.** It shipped `20260825T160958Z` (UserTable density) at 16:10:06Z mid-brief, uncommitted. This session's build was redone on top of that file so the density change was not reverted, and their `UserTable.jsx` + PROGRESS entry are committed here, attributed. **BUG-062** filed: the deploy script has no lock and no check that `current` still points where the run started.
+- BUG-040 still open and now known to be intermittent per terminal: `rg` is a shell function here, so both gates fail closed and were run by hand with `grep`; the other session's note says its deploy passed because Cursor put a real `rg` on PATH. No shim installed.
+- Filed **BUG-063** (`/team` calls an undeclared `setLoadingSelfReviews` — pre-existing) and **BUG-064** (`UserModal` still offers «Tender», which the route 422s).

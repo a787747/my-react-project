@@ -2,10 +2,10 @@
  * useUserFilters - Хук для фильтрации пользователей
  * 
  * Назначение: Логика фильтрации и поиска по списку пользователей
- * Используется в: AdminUsers
+ * Используется в: AdminUsers, TeamView
  * 
  * Параметры:
- * - users: массив всех пользователей
+ * - users: массив всех пользователей (популяция, видимая текущей роли)
  * - itemsPerPage: количество элементов на странице
  * 
  * Возвращает:
@@ -15,34 +15,33 @@
  * - filteredUsers: отфильтрованный список (порядок API; счётчик «Найдено»)
  * - paginatedUsers: список для текущей страницы (уже отсортированный)
  * - totalPages: общее количество страниц
+ * - facets: варианты выбора каждого контрола со счётчиками (см. utils/userFilters)
+ * - counts: все числа заголовка, каждое над своей популяцией
+ * - activeFilterCount: сколько контролов уведены от значения по умолчанию
  * - sortField / sortDirection: текущая сортировка (null = порядок API)
  * - setSearchInput: установить поиск
  * - handleFilterChange: изменить фильтр
  * - handleSort: переключить сортировку по колонке
  * - resetFilters: сбросить фильтры и сортировку
  * - setCurrentPage: установить страницу
+ *
+ * Сама логика «подходит ли человек» живёт в utils/userFilters.js — один
+ * предикат на фильтрацию, счётчики и списки опций, чтобы они не разъезжались.
  */
 
 import { useState, useEffect, useMemo } from 'react';
 import { UI_CONFIG } from '../config/constants';
 import { sortUsers } from '../utils/userSort';
-
-// Начальные значения фильтров.
-// employment по умолчанию 'active': уволенные скрыты из рабочего списка
-// (D-0825-7), но остаются в базе и доступны через фильтр «Уволены» / «Все».
-// Это единственный фильтр со значением по умолчанию, отличным от «все», —
-// поэтому сброс возвращает именно 'active', а не 'all'.
-const initialFilters = {
-  search: '',
-  role: 'all',
-  department_id: 'all',
-  manager_id: 'all',
-  work_category: 'all',
-  employment: 'active'
-};
+import {
+  INITIAL_FILTERS,
+  buildCounts,
+  buildFacets,
+  countActiveFilters,
+  filterUsers,
+} from '../utils/userFilters';
 
 export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PAGE) => {
-  const [filters, setFilters] = useState(initialFilters);
+  const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [searchInput, setSearchInput] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState(null);
@@ -58,35 +57,16 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Фильтрация пользователей
-  const filteredUsers = useMemo(() => {
-    return users.filter(user => {
-      // Статус занятости — до всех остальных фильтров
-      const isTerminated = Boolean(user.terminated_at);
-      if (filters.employment === 'active' && isTerminated) return false;
-      if (filters.employment === 'terminated' && !isTerminated) return false;
+  const filteredUsers = useMemo(() => filterUsers(users, filters), [users, filters]);
 
-      // Поиск по имени и email
-      const searchMatch =
-        user.full_name?.toLowerCase().includes(filters.search.toLowerCase()) ||
-        user.email?.toLowerCase().includes(filters.search.toLowerCase());
-      if (!searchMatch) return false;
+  const facets = useMemo(() => buildFacets(users, filters), [users, filters]);
 
-      // Фильтр по роли
-      if (filters.role !== 'all' && user.role !== filters.role) return false;
-      
-      // Фильтр по категории
-      if (filters.work_category !== 'all' && user.work_category !== filters.work_category) return false;
-      
-      // Фильтр по отделу
-      if (filters.department_id !== 'all' && String(user.department_id) !== String(filters.department_id)) return false;
-      
-      // Фильтр по менеджеру
-      if (filters.manager_id !== 'all' && String(user.manager_id) !== String(filters.manager_id)) return false;
+  const counts = useMemo(
+    () => buildCounts(users, filters, filteredUsers),
+    [users, filters, filteredUsers]
+  );
 
-      return true;
-    });
-  }, [users, filters]);
+  const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
 
   const sortedUsers = useMemo(
     () => sortUsers(filteredUsers, sortField, sortDirection),
@@ -109,9 +89,10 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
     setCurrentPage(1); // Сброс на первую страницу
   };
 
-  // Сброс всех фильтров
+  // Сброс всех фильтров. employment возвращается в 'active', а не в 'all' —
+  // это его значение по умолчанию (D-0825-7).
   const resetFilters = () => {
-    setFilters(initialFilters);
+    setFilters(INITIAL_FILTERS);
     setSearchInput('');
     setSortField(null);
     setSortDirection('asc');
@@ -135,6 +116,9 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
     filteredUsers,
     paginatedUsers,
     totalPages,
+    facets,
+    counts,
+    activeFilterCount,
     sortField,
     sortDirection,
     setSearchInput,
@@ -146,4 +130,3 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
 };
 
 export default useUserFilters;
-

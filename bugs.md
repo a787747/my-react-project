@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 22 |
+| 🔴 Open | 25 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 37 |
 
@@ -529,6 +529,39 @@
 - How to fix: a 422 in `Validate User Data` when the requested `manager_id` names a person with `terminated_at IS NOT NULL`. Cheap in isolation; the reason it was not done here is that `admin/save-user` is a full-row overwrite with `body.role || 'employee'` and `body.work_category || 'general'` defaults, i.e. the most dangerous write path in the system, and the UI already prevents the case.
 - Not done here: no change was made to `admin/save-user` in the TERMINATED_EMPLOYEES brief. The client-side guard shipped; the server-side one did not.
 - Source: `docs/TERMINATED_EMPLOYEES_2026-08-25.md` §5.2.
+
+### BUG-062: Two sessions can flip the live frontend symlink minutes apart, and nothing notices
+
+- Status: 🔴 OPEN
+- Severity: ⚠️ High
+- Location: `scripts/deploy_epe_frontend.sh` (no lock, no dirty-tree check, no commit stamp — see BUG-056); `/var/www/epe/current`.
+- Description: on 2026-08-25 a second agent session deployed release `20260825T160958Z` at 16:10:06Z while this session was mid-brief in the same checkout. This session had read `current` as `20260825T153640Z` at 16:03Z, built against that assumption, and only discovered the change because it captured `readlink current` again immediately before flipping the symlink. Had it flipped on the stale reading, the other session's live change would have been reverted silently.
+- Why it matters: the deploy script's rollback capture (`OLD_LINK`) makes the *last* deploy recoverable, not the *other* session's. Two builds from two different working trees can alternate as `current` with no record of which is which — the release id is a timestamp, not a commit. This is the 2026-08-22 parallel-session incident in a different organ.
+- How to fix: an `flock` on a lockfile for the whole deploy, plus refusing to flip when `readlink current` differs from the value captured at the start of the run. Both are a few lines and neither needs the server. Stamping the commit hash into the release (BUG-056) would make «which build is live» answerable at all.
+- Not done here: this brief's boundary was the frontend filter row; the deploy script was not modified. The collision was handled by hand — the release was uploaded, the symlink left alone, the build redone on top of what was actually live, and only then flipped.
+- Source: `docs/ADMIN_USERS_FILTERS_2026-08-25.md` §7.
+
+### BUG-063: `/team` throws — `setLoadingSelfReviews` is called and never declared
+
+- Status: 🔴 OPEN
+- Severity: ⚠️ High
+- Location: `src/pages/TeamView.jsx:111` and `:136`. No matching `useState` anywhere in the file.
+- Description: `loadStatuses` calls `setLoadingSelfReviews(true)` before fetching and `setLoadingSelfReviews(false)` in its `finally`. The setter does not exist, so the first call raises `ReferenceError`. Pre-existing: `git show HEAD:src/pages/TeamView.jsx` carries both calls and no declaration, and `eslint` reports them as `no-undef` — two of the repo's 19-error baseline.
+- Why it matters: the effect only runs when `visibleUsers.length > 0`, so the page survives for anyone with no subordinates. A manager with reports hits it on mount. The page also loads its roster from `useUsers()` → `GET /api/admin-users-data`, which is admin-only, so a manager's roster is empty today and the crash is masked — the two defects hide each other, and fixing either alone exposes the other.
+- How to fix: declare the state (`const [loadingSelfReviews, setLoadingSelfReviews] = useState(false);`) or delete both calls; then decide whether `/team` should read `/api/employees` instead of the admin route.
+- Not done here: `/team` is outside the ADMIN_USERS_FILTERS subject. This session touched `TeamView.jsx` only to pass the new `facets` / `activeFilterCount` props to `UserFilters` and to drop the now-unused `options`; it added no lint error and removed none.
+- Source: `docs/ADMIN_USERS_FILTERS_2026-08-25.md` §8.
+
+### BUG-064: The user edit form still offers «Tender», which the write route refuses
+
+- Status: 🔴 OPEN
+- Severity: 🟢 Low
+- Location: `src/components/admin/UserModal.jsx`, the `work_category` select (`<option value="tender">Tender</option>`); live `API: Admin Save User (GUI Mode)` validates `general` / `project` only.
+- Description: «Тендер» is a leftover: an unused `work_category_type` enum label carried by zero live rows, which `admin/save-user` answers 422 for (`docs/TENDER_CATEGORY_2026-08-2x.md`). The **filter** row no longer offers it — since 2026-08-25 its category options are derived from the population — but the **edit** form still does.
+- Why it matters: an admin who picks it gets a 422 and a generic «Ошибка при сохранении» toast, with nothing saying the value is retired. Small, but it is a money-adjacent field: `work_category` drives project-criterion applicability.
+- How to fix: remove the option from `UserModal`, or drive that select from `WORK_CATEGORY_LABELS` in `src/config/constants.js`, which already lists only `general` and `project`.
+- Not done here: the brief's subject was the filter row; `UserModal` is the edit path and was not touched.
+- Source: `docs/ADMIN_USERS_FILTERS_2026-08-25.md` §8.
 
 ## ✅ Closed
 
