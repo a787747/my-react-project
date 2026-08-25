@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 18 |
+| 🔴 Open | 21 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 37 |
 
@@ -130,6 +130,17 @@
 - Fix (2026-08-24, prelaunch fix batch): one shared column list for header AND rows. `buildSharedCriteriaGroups(employees)` (new, `src/utils/matrixUtils.js`) unions every row's criteria in first-seen order — employees[0] alone was also a broken header source (a general first row would have dropped the project columns entirely). Every body row maps the HEADER's group lists, looks its own cell up by `criteria_id`, and renders a placeholder in its own column when the criterion is absent: N/A in project/management columns, «—» elsewhere. Header criterion objects (another row's data) never render as data cells. Presentation only — no formula, weight or payload touched.
 - Verification (2026-08-24, throwaway stand `epe_walk_20260824_1432`, real Chromium, walkthrough-shaped data): all **97 rows emit exactly 10 `td`** under the 10-`th` header (histogram `{10: 97}`; the walkthrough recorded 8 for the general row). Per-column DOM map: general subject G shows `N/A` under both «Проектные» headers, `N/A` under «Как руководитель», C-level cells under C-level; project subject P shows 8 and 7 under their own project headers; a c_level correction on P×crit8 renders **8.5 amber at column index 5** («Взаимодействие и надежность в проекте») while G's same column shows N/A. Money unchanged: with the walkthrough's coefficient set the fixed build reproduces the recorded figures **to the digit** (G Σ 70.20 × 0.60 = 42.12; P Σ 121.30 × 2.20 = 266.86 — final-scores screen, same per-criterion contributions), and under live's current coefficients the screen matches independent arithmetic exactly (см. report §2 — criterion-14 weight moved 1.5→2.0 on live between the walkthrough and this batch, admin-side edit, fully accounted). Tests: `tests/matrixUtils.test.js` (+3), `tests/evaluationsMatrixAlignment.test.js` (new, 4 source pins); suite 284/284. Deployed to live release `20260824T145133Z`; live chunks byte-identical (md5) to the fixed build; drift 30/0 before and after.
 - Source: browser walkthrough 2026-08-24 (`docs/BROWSER_WALKTHROUGH_2026-08-2x.md`); closed by `docs/PRELAUNCH_FIX_BATCH_2026-08-2x.md`.
+
+### BUG-056: The deploy script neither refuses a dirty tree nor stamps a commit into the release
+
+- Status: 🔴 OPEN
+- Severity: ⚠️ High
+- Location: `scripts/deploy_epe_frontend.sh:7` (`RELEASE_ID="$(date -u +%Y%m%dT%H%M%SZ)"`) and lines 25–34 — the whole upload/symlink path.
+- Description: a release directory carries a UTC timestamp and nothing else. There is no `git rev-parse` in the script, no version file in `dist/`, and no check that the working tree is clean before `npm run build`. A deploy from a dirty tree is therefore indistinguishable, on the server, from a deploy of a committed state.
+- Why it matters: it already happened. On 2026-08-25 the live release `20260825T115748Z` was built from seven uncommitted files; `/var/www/epe/current` pointed at a bundle that existed in no commit and no branch, and the only way to establish what was serving was to rebuild candidate commits and compare CSS-bundle md5s. That is the same exposure class as the 2026-08-22 parallel-session incident. The specific tree was brought under version control as `d1b2d18`, but the script that permits the situation is unchanged. It also blocks rollback-by-checkout: with no commit id in the release, "put back what was serving yesterday" has no mechanical answer.
+- How to fix: two lines in the script — refuse when `git status --porcelain` is non-empty (with an explicit `EPE_DEPLOY_ALLOW_DIRTY=1` escape hatch for a deliberate hotfix), and write `git rev-parse HEAD` plus the dirty flag into `dist/RELEASE.txt` before the tar, so every release directory names its own commit. Note that `20260825T065554Z` → `6ca603e` had to be established by rebuild instead.
+- Rider found while investigating: rolldown-vite 7.2.5 output is **path-dependent** — rebuilding provably identical source in a different directory reproduced only 4 of 57 asset files and never the JS entry hash. Only the CSS bundle is a stable cross-machine fingerprint. Any future "does this bundle match that commit" check must use the CSS, not the JS.
+- Source: `docs/PRELAUNCH_LIVE_CHECK_2026-08-25.md` §4.2–§4.3.
 
 ## 📌 Medium
 
@@ -463,6 +474,28 @@
 - Why it matters: cosmetic — an empty-looking label on the subject's own profile once upward evaluations exist. No data leaks; the null is the seal working.
 - How to fix: when `evaluation_source === 'subordinate'`, render the label without the name (e.g. just «Оценен подчиненным») or an anonymized wording.
 - Source: surfaced in `docs/WELCOME_PERIOD_NOTICE_2026-08-2x.md` §4/§8; filed in `docs/EMPLOYEES_PERIOD_META_2026-08-2x.md`.
+
+### BUG-057: The Admin Settings cleanup button calls a route that was deleted from live
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: `src/pages/AdminSettings.jsx:132` (`apiClient.post(API_ENDPOINTS.ADMIN_CLEAR_TEST_EVALUATIONS)`) and `src/config/api.js:107` (the constant).
+- Description: `API: Admin Clear Test Evaluations` was deleted from live on 2026-08-19 under BUG-002. Verified live this session: `SELECT id, name, active FROM public.workflow_entity WHERE name ILIKE '%clear%' OR nodes::text ILIKE '%clear-test-evaluations%'` returns `(0 rows)` — the route is absent by name **and** by node content. The frontend control and its endpoint constant were never removed.
+- Why it matters: an admin-visible button that 404s and deletes nothing. Not a hazard — the destructive route is genuinely gone — but it invites someone to "fix" it by restoring the endpoint, which is the exact thing BUG-002 closed. It also misleads anyone reading the admin surface for what the system can still do.
+- How to fix: delete the control from `AdminSettings.jsx` and the constant from `api.js`. No server change.
+- Note: the previous session declined to file this because asserting the route's absence needed a live probe it could not make (`docs/LAUNCH_READINESS_SMOKE_FACTS_2026-08-25.md` §9). That probe is now done, so the row is filed on a verified premise rather than an assumed one.
+- Source: `docs/PRELAUNCH_LIVE_CHECK_2026-08-25.md` §4.4.
+
+### BUG-058: Three EPE artefacts survive in VPS `/tmp` after the BUG-053 cleanup
+
+- Status: 🔴 OPEN
+- Severity: 📝 Low
+- Location: VPS `92.51.45.147` — `/tmp/epe-health-body` (15 B, 18 Aug), `/tmp/epe-n8n-before-recreate.json` (11 388 B, 18 Aug), `/tmp/epe-docs-hygiene/guard_nodes.json` (4 605 B, 20 Aug). All mode `0644`.
+- Description: BUG-053's fix removed the seven world-readable `epe_2026` dumps from `/tmp` and established the rule that no brief artefact lives there at all (`PROJECT_RULES` — everything transient goes under root-only `/root/epe_stand_tmp`). These three predate the rule and were not caught, because the cleanup targeted dumps specifically.
+- Why it matters: materially smaller than BUG-053 — none of the three contains employee personal data; the largest is an n8n container-config snapshot and the other two are a health-probe body and a workflow-node listing. It is a rule violation and a stale-file question, not an exposure. It is filed because the rule is «no brief artefact in `/tmp`», not «no dumps in `/tmp`».
+- How to fix: `rm -rf /tmp/epe-health-body /tmp/epe-n8n-before-recreate.json /tmp/epe-docs-hygiene` from a session authorised to write. Confirm nothing else matches `/tmp/*epe*` afterwards.
+- Not done here: `docs/PRELAUNCH_LIVE_CHECK_2026-08-25.md` was a read-only brief; its boundary was «surface, do not resolve».
+- Source: `docs/PRELAUNCH_LIVE_CHECK_2026-08-25.md` §5.2.
 
 ## ✅ Closed
 
