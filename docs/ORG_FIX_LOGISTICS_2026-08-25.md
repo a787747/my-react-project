@@ -343,3 +343,9 @@ sides as JSON. Recorded here because it was a change to live that no instruction
 - The probe sessions were minted and deleted in `finally` blocks; `auth_sessions` 13 → 13.
 - No catalogue, coefficient, criteria, grade, department or period write of any kind. **The second
   gate was not pressed and no route that could press it was called.**
+
+---
+
+**This report, the two decision rows and the executor script landed on `main` as commit `c0afd34`.**
+The proof file `backups/2026-08-25-logistics/logistics_proof.json` is deliberately **not** tracked —
+`backups/` is gitignored because those files carry personal data.
