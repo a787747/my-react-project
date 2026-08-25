@@ -1418,11 +1418,54 @@ return {
           AND evaluation_started_at IS NOT NULL
       ),
       actor_scope AS (
-        SELECT epp.is_in_scope
+        -- D-0825-11: the reason rides along with the flag. Until 2026-08-25 only
+        -- the boolean left Postgres, so an out-of-scope person was told «ваш
+        -- первый цикл начнётся со следующего периода» whatever had actually
+        -- happened to them. The reason is what lets Welcome say the true thing.
+        SELECT epp.is_in_scope, epp.exclusion_reason,
+               to_char(actor_u.join_date, 'YYYY-MM-DD') AS actor_join_date
         FROM current_period cp
         LEFT JOIN performance_db.evaluation_period_participants epp
           ON epp.period_id = cp.id
          AND epp.user_id = ${actorId}
+        LEFT JOIN performance_db.users actor_u ON actor_u.id = ${actorId}
+      ),
+      -- D-0825-11: the manager's own people who are EMPLOYED but out of this
+      -- period's scope. They are not tasks and never join the scoped CTE — the task
+      -- surface, its counters and every submit path stay exactly as they were.
+      -- They exist so the team surface can show them present, marked and not
+      -- evaluable, instead of silently missing. A TERMINATED person is excluded
+      -- here on purpose: termination makes a person disappear (D-0825-7), and
+      -- the two states are deliberately not merged.
+      out_of_scope_team AS (
+        SELECT
+          users.id,
+          users.full_name,
+          users.email,
+          users.job_title,
+          users.work_category,
+          users.is_project_participant,
+          users.manager_id,
+          users.has_subordinates,
+          departments.name AS department_name,
+          grades.code AS grade_code,
+          epp.exclusion_reason,
+          to_char(users.join_date, 'YYYY-MM-DD') AS join_date,
+          false AS is_in_scope
+        FROM performance_db.users users
+        LEFT JOIN performance_db.departments departments
+          ON users.department_id = departments.id
+        LEFT JOIN performance_db.grades grades
+          ON users.grade_id = grades.id
+        JOIN active_period ap ON true
+        JOIN performance_db.evaluation_period_participants epp
+          ON epp.period_id = ap.id
+         AND epp.user_id = users.id
+         AND epp.is_in_scope = false
+        WHERE users.manager_id = ${actorId}
+          AND users.terminated_at IS NULL
+          AND ${actorCanEvaluate}
+          AND COALESCE((SELECT is_in_scope FROM actor_scope), false)
       ),
       scoped AS (
         SELECT
@@ -1548,10 +1591,21 @@ return {
           THEN COALESCE((SELECT is_in_scope FROM actor_scope), false)
           ELSE NULL
         END AS actor_is_in_scope,
+        CASE
+          WHEN EXISTS(SELECT 1 FROM current_period)
+          THEN (SELECT exclusion_reason FROM actor_scope)
+          ELSE NULL
+        END AS actor_exclusion_reason,
+        (SELECT actor_join_date FROM actor_scope) AS actor_join_date,
         COALESCE(
           (SELECT json_agg(row_to_json(scoped) ORDER BY scoped.full_name) FROM scoped),
           '[]'::json
-        ) AS employees
+        ) AS employees,
+        COALESCE(
+          (SELECT json_agg(row_to_json(out_of_scope_team) ORDER BY out_of_scope_team.full_name)
+           FROM out_of_scope_team),
+          '[]'::json
+        ) AS out_of_scope_employees
     `,
   },
 };
@@ -1598,6 +1652,21 @@ const actorIsInScope = row.actor_is_in_scope === null || row.actor_is_in_scope =
   ? null
   : row.actor_is_in_scope === true || row.actor_is_in_scope === 't';
 
+// D-0825-11: the manager's employed-but-out-of-scope people. A separate array,
+// never merged into `data`: `data` is the task list and every counter, flag and
+// submit path keys off it, so an out-of-scope person must not be able to reach
+// it. The grade coefficient is stripped the same way it is on `data`.
+let outOfScope = row.out_of_scope_employees || [];
+if (typeof outOfScope === 'string') {
+  try { outOfScope = JSON.parse(outOfScope); } catch { outOfScope = []; }
+}
+if (!Array.isArray(outOfScope)) outOfScope = [];
+outOfScope = outOfScope.map(employee => {
+  const safeEmployee = { ...employee };
+  if (!canSeeGradeCoefficient) delete safeEmployee.grade_coefficient;
+  return safeEmployee;
+});
+
 return {
   json: {
     http_status: 200,
@@ -1612,7 +1681,10 @@ return {
       period_start_date: row.period_start_date || null,
       period_end_date: row.period_end_date || null,
       actor_is_in_scope: actorIsInScope,
+      actor_exclusion_reason: row.actor_exclusion_reason || null,
+      actor_join_date: row.actor_join_date || null,
       data: employees,
+      out_of_scope_data: outOfScope,
     },
   },
 };

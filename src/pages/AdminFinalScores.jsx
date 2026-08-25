@@ -74,6 +74,10 @@ const AdminFinalScores = () => {
       'Отдел', 
       'Грейд',
       'Коэф. грейда',
+      // Состояние человека в периоде едет в файл: без него выгрузка не
+      // отличает «не оценен» от «вне охвата», и таблица из нулей выглядит
+      // как платёжная ведомость.
+      'Берёт долю фонда',
       ...criteriaList.map(c => `${c.title} (вес ${c.weight})`),
       'Σ баллов',
       'Итог'
@@ -84,7 +88,15 @@ const AdminFinalScores = () => {
       emp.department_name || '',
       emp.grade_code || '',
       emp.grade_coefficient?.toFixed(2) || '1.00',
-      ...criteriaList.map(c => emp.criteria_scores?.[c.id]?.toFixed(2) || '0'),
+      emp.takes_bonus_share === false
+        ? (emp.is_in_scope === false ? 'нет — вне охвата' : 'нет — не оценивается никем')
+        : 'да',
+      // Пустая клетка там, где на экране прочерк: '0' сообщал бы, что человека
+      // оценили нулём, а «н/п» и «ещё не оценен» — не ноль.
+      ...criteriaList.map(c => {
+        const score = emp.criteria_scores?.[c.id];
+        return score === null || score === undefined ? '' : score.toFixed(2);
+      }),
       emp.weighted_sum?.toFixed(2) || '0.00',
       emp.final_weighted_score?.toFixed(2) || '0.00'
     ]);

@@ -13,6 +13,13 @@ export const USER_SORT_FIELDS = [
   'registered',
 ];
 
+/**
+ * D-0825-11: the roster opens sorted by name, A→Z. Exported rather than inlined
+ * in the hook so the default and the comparator cannot drift apart.
+ */
+export const DEFAULT_SORT_FIELD = 'name';
+export const DEFAULT_SORT_DIRECTION = 'asc';
+
 const COLLATOR = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 
 function text(value) {

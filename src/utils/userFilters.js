@@ -15,6 +15,12 @@
  *    the option, before the click.
  */
 
+import {
+  EVALUATION_STATE_LABELS,
+  EVALUATION_STATE_ORDER,
+  evaluationStateOf,
+} from './evaluationState.js';
+
 export const ALL = 'all';
 
 // Sentinel for "this person has no department / no manager at all". Without it
@@ -29,6 +35,10 @@ export const FILTER_KEYS = [
   'work_category',
   'department_id',
   'manager_id',
+  // D-0825-11: the person's state in the current period — terminated, hired
+  // after the period end, taken out by hand, hire date missing, or in
+  // evaluation. Each is distinct from the others and from «в оценке».
+  'evaluation_state',
 ];
 
 // employment is the only filter whose default is not «все» — it is `active`, so
@@ -41,6 +51,7 @@ export const INITIAL_FILTERS = {
   manager_id: ALL,
   work_category: ALL,
   employment: 'active',
+  evaluation_state: ALL,
 };
 
 export const EMPLOYMENT_OPTIONS = [
@@ -104,6 +115,9 @@ const MATCHERS = {
     idKey(user?.department_id) === String(filters.department_id),
   manager_id: (user, filters) =>
     filters.manager_id === ALL || idKey(user?.manager_id) === String(filters.manager_id),
+  evaluation_state: (user, filters) =>
+    filters.evaluation_state === ALL
+    || evaluationStateOf(user) === String(filters.evaluation_state),
 };
 
 /**
@@ -249,6 +263,21 @@ export function buildFacets(users = [], filters = INITIAL_FILTERS) {
         return { value, label };
       },
       byLabelNoneLast,
+    ),
+
+    // Derived, not a column: the state is computed from four fields the route
+    // returns. Only states somebody actually carries are offered, each with the
+    // count it will produce given the other active filters — same contract as
+    // every other control (D-0825-8).
+    evaluation_state: facetFor(
+      roster,
+      filters,
+      'evaluation_state',
+      (user) => {
+        const value = evaluationStateOf(user);
+        return { value, label: EVALUATION_STATE_LABELS[value] ?? value };
+      },
+      byFixedOrder(EVALUATION_STATE_ORDER),
     ),
   };
 }

@@ -38,6 +38,7 @@ import SelfReviewDetailsModal from '../components/SelfReviewDetailsModal';
 // Хуки
 import { useTeamRoster } from '../hooks/useTeamRoster';
 import { useUserFilters } from '../hooks/useUserFilters';
+import OutOfScopeTeamSection from '../components/common/OutOfScopeTeamSection';
 
 // Константы
 import { UI_CONFIG } from '../config/constants';
@@ -45,6 +46,7 @@ import { UI_CONFIG } from '../config/constants';
 const TeamView = ({ user }) => {
   const {
     employees,
+    outOfScopeEmployees,
     campaignActive,
     periodInPreparation,
     periodName,
@@ -247,6 +249,11 @@ const TeamView = ({ user }) => {
           />
         </>
       )}
+
+      {/* D-0825-11: работающие подчинённые вне охвата периода. Отдельным
+          блоком: они не задачи, их нельзя открыть и они не входят ни в один
+          счётчик выше. Уволенные сюда не попадают — сервер их не отдаёт. */}
+      <OutOfScopeTeamSection employees={outOfScopeEmployees} className="mt-6" />
 
       {/* Детали самооценки одного подчинённого */}
       <SelfReviewDetailsModal

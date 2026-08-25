@@ -43,6 +43,7 @@ const Welcome = () => {
     isManagerCLevel,
     needsSelfReview,
     isOutOfScope,
+    outOfScopeReason,
     loading: loadingTaskStatus 
   } = useTaskStatus();
 
@@ -64,7 +65,7 @@ const Welcome = () => {
       <div className="min-h-screen bg-surface-raised p-4 lg:p-6">
         <div className="max-w-5xl mx-auto space-y-5">
           <PeriodNotice notice={periodNotice} />
-          <OutOfScopeNotice embedded />
+          <OutOfScopeNotice embedded reason={outOfScopeReason} />
         </div>
       </div>
     );

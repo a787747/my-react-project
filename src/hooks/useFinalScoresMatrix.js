@@ -21,7 +21,12 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import apiClient from '../api/client';
 import { API_ENDPOINTS } from '../config/api';
-import { extractFilterOptions, filterEmployees } from '../utils/matrixUtils';
+import {
+  buildSharedCriteriaList,
+  extractFilterOptions,
+  filterEmployees,
+  takesBonusShare,
+} from '../utils/matrixUtils';
 import logger from '../utils/logger';
 
 const initialFilters = {
@@ -215,25 +220,29 @@ export const useFinalScoresMatrix = () => {
       });
       logger.log('Grades map:', gradesMap);
       
-      // Получаем уникальный список критериев из первого сотрудника
-      let criteriaFromData = [];
-      if (rawEmployees.length > 0 && rawEmployees[0].criteria) {
-        criteriaFromData = rawEmployees[0].criteria.map(c => ({
-          id: c.criteria_id,
-          title: c.criteria_title,
-          weight: coefficientsMap[c.criteria_id]?.weight || 1.0,
-          score_coefficients: coefficientsMap[c.criteria_id]?.score_coefficients || {}
-        }));
-      }
+      // Колонки — объединение критериев ВСЕХ строк (BUG-051, вторая половина).
+      // Раньше заголовок брался из rawEmployees[0], а сервер отдаёт каждой
+      // строке только применимые ей критерии: снять «участник проекта» с
+      // первого по алфавиту человека — и проектные колонки исчезали у всех,
+      // при том что weightedSum продолжал их считать.
+      const criteriaFromData = buildSharedCriteriaList(rawEmployees).map(c => ({
+        id: c.criteria_id,
+        title: c.criteria_title,
+        weight: coefficientsMap[c.criteria_id]?.weight || 1.0,
+        score_coefficients: coefficientsMap[c.criteria_id]?.score_coefficients || {}
+      }));
       setCriteriaList(criteriaFromData);
       
       // Рассчитываем баллы для каждого сотрудника
       const employeesWithScores = rawEmployees.map(emp => {
-        const criteriaScores = {}; // Взвешенные баллы по критериям
-        let weightedSum = 0;       // Сумма взвешенных баллов
+        const criteriaScores = {};    // Взвешенные баллы по критериям
+        const criteriaRawScores = {}; // Сырые 1–10 — только для окраски и подсказок
+        const criteriaById = {};      // Применимые критерии этой строки
+        let weightedSum = 0;          // Сумма взвешенных баллов
         
         if (emp.criteria && Array.isArray(emp.criteria)) {
           emp.criteria.forEach(crit => {
+            criteriaById[crit.criteria_id] = crit;
             const rawScore = getCriterionFinalScore(crit);
             if (rawScore !== null) {
               const weightedScore = calculateCriterionScore(
@@ -242,22 +251,32 @@ export const useFinalScoresMatrix = () => {
                 coefficientsMap
               );
               criteriaScores[crit.criteria_id] = weightedScore;
+              criteriaRawScores[crit.criteria_id] = rawScore;
               weightedSum += weightedScore || 0;
             }
           });
         }
         
-        // Получаем коэффициент грейда по коду грейда сотрудника
+        // Коэффициент грейда по коду грейда сотрудника. Подстановка 1.0 при
+        // отсутствующем грейде остаётся (иначе строка исчезнет из расчёта
+        // молча), но теперь она ПОМЕЧЕНА: экран, который отказывается рисовать
+        // числа при упавшем справочнике грейдов (BUG-030), не имеет права
+        // тихо подставлять множитель одному человеку.
         const gradeCode = emp.grade_code || emp.grade;
         const gradeCoefficient = gradesMap[gradeCode] || 1.0;
+        const gradeResolved = Boolean(gradeCode) && gradesMap[gradeCode] !== undefined;
         const finalWeightedScore = weightedSum * gradeCoefficient;
         
         return {
           ...emp,
           criteria_scores: criteriaScores,
+          criteria_raw_scores: criteriaRawScores,
+          criteria_by_id: criteriaById,
           weighted_sum: weightedSum,
           final_weighted_score: finalWeightedScore,
-          grade_coefficient: gradeCoefficient
+          grade_coefficient: gradeCoefficient,
+          grade_resolved: gradeResolved,
+          takes_bonus_share: takesBonusShare(emp)
         };
       });
       
@@ -290,9 +309,15 @@ export const useFinalScoresMatrix = () => {
     return sortEmployees(filtered, sorting);
   }, [employees, filters, sorting]);
 
-  // Итоговые суммы
+  // Итоговые суммы.
+  //
+  // ИТОГО и «средний итог» считаются ТОЛЬКО по людям, которые берут долю фонда
+  // этого периода (D-0825-14): выведенные из охвата и те, кого не оценивает
+  // никто, остаются видимыми строками — это диагностический экран, а не
+  // платёжная ведомость, — но в сумму и в среднее не входят. До 2026-08-25 они
+  // входили, и «Сотрудников: 88» читалось как размер премиального пула, при
+  // том что охват периода в тот момент был 84.
   const totals = useMemo(() => {
-    // Суммы по критериям
     const criteriaSums = {};
     criteriaList.forEach(c => {
       criteriaSums[c.id] = 0;
@@ -300,9 +325,11 @@ export const useFinalScoresMatrix = () => {
     
     let totalWeightedSum = 0;
     let totalWeightedScore = 0;
+    let poolCount = 0;
     
     filteredEmployees.forEach(emp => {
-      // Суммируем по каждому критерию
+      if (emp.takes_bonus_share === false) return;
+      poolCount += 1;
       Object.entries(emp.criteria_scores || {}).forEach(([criteriaId, score]) => {
         if (criteriaSums[criteriaId] !== undefined && score !== null) {
           criteriaSums[criteriaId] += score;
@@ -317,11 +344,13 @@ export const useFinalScoresMatrix = () => {
     
     return {
       employeesCount,
+      poolCount,
+      excludedCount: employeesCount - poolCount,
       criteriaSums,
       totalWeightedSum,
       totalWeightedScore,
-      averageWeightedScore: employeesCount > 0 
-        ? (totalWeightedScore / employeesCount).toFixed(2)
+      averageWeightedScore: poolCount > 0 
+        ? (totalWeightedScore / poolCount).toFixed(2)
         : '0.00'
     };
   }, [filteredEmployees, criteriaList]);

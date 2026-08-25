@@ -48,6 +48,15 @@ export const RATING_GUIDE_RULES = [
   },
 ];
 
+/**
+ * D-0825-13, owner's words, verbatim. Not a numbered rule: it is not an
+ * instruction about how to score, it is the standing fact that a half-year
+ * pays nothing. Rendered above the list in every variant, so it reaches the
+ * employee subset as well as the full manager guide.
+ */
+export const RATING_GUIDE_STANDING_NOTE =
+  'Оценка за первое полугодие — промежуточная. По её итогам премия не выплачивается: результат первого полугодия войдёт в годовую оценку вместе с результатом второго полугодия и повлияет на годовой результат.';
+
 export const EMPLOYEE_GUIDE_RULE_NUMBERS = [1, 6, 7];
 
 export function formatRatingGuideRule(rule) {

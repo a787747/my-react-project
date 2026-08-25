@@ -2851,10 +2851,24 @@ return {
   json: {
     ok: true,
     users_sql: `
+      WITH active_period AS (
+        SELECT id FROM performance_db.evaluation_periods
+        WHERE is_active = true AND status = 'active' LIMIT 1
+      )
       SELECT
         u.id, u.full_name, u.email, u.role, u.work_category, u.is_project_participant,
         u.job_title, u.manager_id, u.department_id, u.grade_id, u.has_subordinates,
         (u.password_hash IS NOT NULL) AS is_registered,
+        -- D-0825-11 / D-0825-12. The evaluation state of the row, for the period
+        -- the admin is looking at. Text, never a date object (BUG-031).
+        to_char(u.join_date, 'YYYY-MM-DD') AS join_date,
+        -- LEFT JOIN, not JOIN: a person with no participants row (BUG-067) must
+        -- stay on this page and be visibly distinguishable from an excluded one,
+        -- and the whole page must not empty out when no period is active.
+        epp.is_in_scope AS period_is_in_scope,
+        epp.exclusion_reason AS period_exclusion_reason,
+        (epp.user_id IS NOT NULL) AS has_period_row,
+        (SELECT id FROM active_period) AS period_id,
         -- D-0825-7. Both are text, never a date object: a date column crossing
         -- the n8n Postgres node is UTC-serialised and can shift a calendar day
         -- (BUG-031). The page filters on terminated_at being non-null and shows
@@ -2890,6 +2904,9 @@ return {
       LEFT JOIN performance_db.departments d ON d.id = u.department_id
       LEFT JOIN performance_db.grades g ON g.id = u.grade_id
       LEFT JOIN performance_db.users m ON m.id = u.manager_id
+      LEFT JOIN performance_db.evaluation_period_participants epp
+        ON epp.user_id = u.id
+       AND epp.period_id = (SELECT id FROM active_period)
       ORDER BY u.id DESC
     `,
     depts_sql: `SELECT id, name FROM performance_db.departments ORDER BY name`,
@@ -3469,14 +3486,26 @@ participants AS (
     -- CROSS JOIN would put them back in scope the moment H2 is created and
     -- silently return them to the bonus pool. Termination wins over the
     -- hire-date rule, so the reason names the state that actually excluded them.
+    --
+    -- D-0825-12: a person with NO hire date goes OUT of scope with a reason
+    -- saying the date is missing and must be confirmed. Until 2026-08-25 the
+    -- second branch read "join_date IS NOT NULL AND join_date > end_date", so a
+    -- NULL fell through to ELSE true and joined the period silently, looking
+    -- exactly like somebody with ten years' service (BUG-066). Somebody entered
+    -- in advance of their start date must not dilute a running period's pool by
+    -- accident. Reversible by hand: POST /api/admin/include-participant.
+    -- This is forward-looking only — no existing row is rewritten, so Cem
+    -- Durukan's H1 row stays in scope (D-0821-4 keeps the read-only trio in).
     CASE
       WHEN u.terminated_at IS NOT NULL THEN false
-      WHEN u.join_date IS NOT NULL AND u.join_date > '${endDate}'::date THEN false
+      WHEN u.join_date IS NULL THEN false
+      WHEN u.join_date > '${endDate}'::date THEN false
       ELSE true
     END,
     CASE
       WHEN u.terminated_at IS NOT NULL THEN 'terminated'
-      WHEN u.join_date IS NOT NULL AND u.join_date > '${endDate}'::date THEN 'hired_after_period_end'
+      WHEN u.join_date IS NULL THEN 'join_date_missing'
+      WHEN u.join_date > '${endDate}'::date THEN 'hired_after_period_end'
       ELSE NULL
     END
   FROM new_period np
@@ -4312,8 +4341,15 @@ SELECT
    -- participant — the same predicate as Build Matrix Query, so the frozen
    -- period_results inherit exactly what the matrix shows. Excluded cells
    -- take their correction sub-selects with them.
-   WHERE cd.target_audience <> 'project_participants'
-      OR u.is_project_participant = true) AS criteria
+   WHERE (cd.target_audience <> 'project_participants'
+          OR u.is_project_participant = true)
+     -- Second applicability dimension, added 2026-08-25, in lockstep with
+     -- Build Matrix Query: managers_only applies only to somebody with
+     -- direct reports, which is what the manager form has always enforced.
+     -- If these two predicates ever drift, the screen and the frozen result
+     -- stop agreeing about money.
+     AND (cd.target_audience <> 'managers_only'
+          OR u.has_subordinates = true)) AS criteria
 FROM performance_db.evaluation_period_participants epp
 JOIN performance_db.users u ON u.id = epp.user_id
 LEFT JOIN performance_db.grades g ON u.grade_id = g.id
@@ -6018,7 +6054,15 @@ if (!(check.row_exists === true || check.row_exists === 't')) {
 // feature wrote are flipped back. A row excluded for 'terminated' or for
 // 'hired_after_period_end' is left exactly as it is, so a person who is both
 // stays out for the other reason and the round trip is byte-exact.
-if (String(check.row_reason || '') !== 'excluded_by_admin') {
+//
+// D-0825-12 adds a second admissible reason: 'join_date_missing'. That reason is
+// written by period creation for somebody with no hire date, and its whole point
+// is that it MUST be confirmable by hand — an admin who checks the person and
+// decides they belong in the period needs a way in. Without this the new reason
+// would be a state with no exit. It stays distinct from 'terminated', which is
+// reinstatement's population and is still refused here.
+const REVERSIBLE_REASONS = ['excluded_by_admin', 'join_date_missing'];
+if (!REVERSIBLE_REASONS.includes(String(check.row_reason || ''))) {
   const inScope = check.row_is_in_scope === true || check.row_is_in_scope === 't';
   return {
     json: {
@@ -6054,7 +6098,7 @@ WITH target AS (
   WHERE epp.period_id = ${periodId}
     AND epp.user_id = ${userId}
     AND epp.is_in_scope = false
-    AND epp.exclusion_reason = 'excluded_by_admin'
+    AND epp.exclusion_reason IN ('excluded_by_admin', 'join_date_missing')
     AND EXISTS (
       SELECT 1 FROM performance_db.evaluation_periods p
       WHERE p.id = ${periodId} AND p.status <> 'closed'

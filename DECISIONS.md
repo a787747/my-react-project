@@ -660,3 +660,57 @@ the year must be excludable, and who evaluates their reports afterwards is the o
 Closed periods are untouched in both directions.
 Report: `docs/MID_YEAR_HIRES_SCOPE_2026-08-25.md`; owner's marking sheet:
 `docs/MID_YEAR_HIRES_MARKING_SHEET_2026-08-25.md`.
+
+### D-0825-11 — H1 scope boundary: hired after 31 March is out (owner, 2026-08-25)
+**Decision (Alexander):** a person hired after 2026-03-31 is out of scope of H1-2026. Less than
+three months in the period is too little to judge reliability, development or volume, and a noisy
+score feeds straight into money because every participant takes a share of the pool. They keep
+their login, enter H2 in full and stay in the annual container. Applied to exactly four people:
+Asatryan (25), Atayeva (64), Chariyev (22), Jumayeva (63). Esenova (31) and Balova (35) remain out
+by the existing hire-date rule.
+**Consequence:** the pool is divided among 80 rather than 84, and each of the four stops being an
+upward evaluator of their manager. The annual result is unaffected: the annual rating is the mean
+over in-scope periods only with no zero-fill, and the annual index is the sum of half-year indices
+(D-0821-3), so these four are measured on H2 alone. Both the excluded people and their managers
+are told why, in the owner's words, on the surfaces they actually use.
+
+### D-0825-12 — A missing hire date means out of scope until confirmed (owner, 2026-08-25)
+**Decision (Alexander):** when a period is created, a person with no join_date is placed out of
+scope with a reason stating that the date is missing and must be confirmed, instead of silently
+entering scope as the rule did until now (BUG-066). Forward-looking only: Cem Durukan's H1 row is
+not changed, because D-0821-4 keeps the read-only trio in H1 scope.
+**Consequence:** people entered into the portal before they start work — signed offer, September
+start — no longer join a running period by accident and no longer dilute its pool.
+
+### D-0825-13 — A half-year pays nothing; H1 is an intermediate measurement (owner, 2026-08-25)
+**Decision (Alexander):** no bonus is paid for a half-year period. H1 is an intermediate
+evaluation whose result feeds the annual evaluation together with H2. Every employee is told this
+before they start evaluating, on the Welcome page and in the rating guide, in the owner's words.
+**Consequence:** the admin bonus-calculation surface stays — it models the pool from the index —
+but nothing is paid on a half-year result. This belongs in EVALUATION_METHODOLOGY §1 and in the
+aggregation section alongside D-0821-3.
+
+### D-0825-14 — A share of the pool goes to people who can have a result, and the rule is a predicate (engineering, 2026-08-26)
+**Decision:** `/admin/bonus-calculation` lists a person if and only if they are in scope of the
+period **and** `can_be_evaluated` is true. No identifier appears anywhere in the rule, so the list
+maintains itself: both inputs are edited by the owner in «Сотрудники» and by the period routes.
+The rule's output decomposes cleanly and the two halves never overlap — `can_be_evaluated=false`
+is exactly the six people evaluated by nobody (2, 18, 21, 40, 47, 61 — D-0825-6, of whom id 2 the
+matrix route never returns at all because it filters `role <> 'admin'`), and `is_in_scope=false`
+is the nine already excluded for their own decided reasons (three terminated under D-0825-7, two
+hired after the period end, four under D-0825-11). Everyone who takes no share is **named on the
+screen with the reason**, never silently removed.
+**Consequence:** money. On live the pool is 74 of 88 matrix rows. `/admin/final-scores` keeps
+showing every row — it is a diagnostic screen, not a payout sheet — but its Σ and its average now
+count the pool rather than the page; before this they counted 88 people while the period's own
+scope table said 84. The brief's claim that the rule yields «exactly six» is true of the
+`can_be_evaluated` half only; the difference is stated rather than hidden.
+
+### D-0825-15 — HR are evaluated employees and the portal must let them act like it (engineering, 2026-08-26)
+**Decision:** the personal navigation group and the task panel are shown to role `hr`, as to every
+other evaluated employee.
+**Consequence:** found by the day-one walkthrough (item 9). Both HR people (Liya Dmitriyeva 52,
+Sona Rahmanova 80) are in H1 scope and `can_be_evaluated`; `API: Submit Self Review` accepts role
+`hr`; Welcome listed «Самооценка» among their tasks — and the sidebar offered no route to the
+form, which worked perfectly when reached by URL. Two of eighty in-scope people would have been
+told on day one that they had tasks they could not open. No route, guard or payload changed.

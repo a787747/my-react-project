@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   RATING_GUIDE_TITLE,
+  RATING_GUIDE_STANDING_NOTE,
   getRatingGuideRules,
 } from '../content/ratingGuideH1';
 
@@ -66,6 +67,15 @@ const RatingGuide = ({
         </button>
       ) : (
         <div className="p-5 pb-0">{titleRow}</div>
+      )}
+
+      {showBody && (
+        <p
+          className="px-5 pt-4 text-sm text-slate-700 leading-normal"
+          data-testid="rating-guide-standing-note"
+        >
+          {RATING_GUIDE_STANDING_NOTE}
+        </p>
       )}
 
       {showBody && (

@@ -22,6 +22,13 @@
 
 import React from 'react';
 import { Pencil, Mail, Users, CheckCircle, Circle, Clock, Crown, Star, Eye, UserCheck, UserMinus, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
+import {
+  EVALUATION_STATE_CLASSES,
+  EVALUATION_STATE_HINTS,
+  EVALUATION_STATE_LABELS,
+  EVALUATION_STATES,
+  evaluationStateOf,
+} from '../../utils/evaluationState';
 
 const SortIcon = ({ field, sortField, sortDirection }) => {
   if (sortField !== field) {
@@ -62,6 +69,11 @@ const UserTable = ({
   showSelfReviewScore = false,
   showThreeColumns = false,
   showEvaluationStatus = true,
+  // D-0825-11. Off by default: /team reads /api/employees, whose payload has no
+  // participants columns at all, so every row there would compute to «нет
+  // активного периода». Only /admin/users, fed by API: Admin Get Users Data,
+  // carries the four fields the state is derived from.
+  showEvaluationState = false,
   sortField = null,
   sortDirection = 'asc',
   onSort,
@@ -196,6 +208,11 @@ const UserTable = ({
                   'Менеджер'
                 )}
               </th>
+              {showEvaluationState && (
+                <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">
+                  Оценка в периоде
+                </th>
+              )}
               {showEvaluationStatus && (
                 <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase text-center">
                   {showThreeColumns ? 'Статусы оценок' : 'Статус (Само. / Рук.)'}
@@ -293,6 +310,34 @@ const UserTable = ({
                     )}
                   </td>
                   
+                  {/* Оценка в периоде — D-0825-11. Пять состояний, каждое
+                      отличимо от остальных и от «в оценке»; подпись объясняет,
+                      что это значит для задач и для доли премиального фонда. */}
+                  {showEvaluationState && (() => {
+                    const state = evaluationStateOf(user);
+                    const showJoinDate =
+                      state === EVALUATION_STATES.HIRED_AFTER_PERIOD_END
+                      || state === EVALUATION_STATES.EXCLUDED_BY_ADMIN;
+                    return (
+                      <td className="px-4 py-2">
+                        <span
+                          title={EVALUATION_STATE_HINTS[state]}
+                          data-testid="evaluation-state-badge"
+                          data-state={state}
+                          className={`inline-flex w-fit items-center px-2 py-0 rounded text-xs font-medium border ${EVALUATION_STATE_CLASSES[state]}`}
+                        >
+                          {EVALUATION_STATE_LABELS[state]}
+                        </span>
+                        {state === EVALUATION_STATES.TERMINATED && user.termination_date && (
+                          <div className="text-[10px] text-gray-500 mt-0.5">{user.termination_date}</div>
+                        )}
+                        {showJoinDate && user.join_date && (
+                          <div className="text-[10px] text-gray-500 mt-0.5">принят {user.join_date}</div>
+                        )}
+                      </td>
+                    );
+                  })()}
+
                   {/* Статусы — omitted on AdminUsers: no admin-allowed route returns these metrics */}
                   {showEvaluationStatus && (
                   <td className="px-4 py-2">
@@ -442,7 +487,7 @@ const UserTable = ({
               ))
             ) : (
               <tr>
-                <td colSpan={(canEdit ? 5 : 4) + (showEvaluationStatus ? 1 : 0)} className="text-center py-10 text-gray-500">
+                <td colSpan={(canEdit ? 5 : 4) + (showEvaluationStatus ? 1 : 0) + (showEvaluationState ? 1 : 0)} className="text-center py-10 text-gray-500">
                   Сотрудники не найдены.
                 </td>
               </tr>

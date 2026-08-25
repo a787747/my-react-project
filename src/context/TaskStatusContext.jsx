@@ -37,6 +37,10 @@ export const TaskStatusProvider = ({ children }) => {
   const [hasManager, setHasManager] = useState(false);
   const [isManagerCLevel, setIsManagerCLevel] = useState(false);
   const [isOutOfScope, setIsOutOfScope] = useState(false);
+  // D-0825-11: WHY the actor is out of scope, so the notice can say the true
+  // thing instead of the one sentence that only fits a late hire.
+  const [outOfScopeReason, setOutOfScopeReason] = useState(null);
+  const [actorJoinDate, setActorJoinDate] = useState(null);
   const [campaignActive, setCampaignActive] = useState(false);
   const [periodInPreparation, setPeriodInPreparation] = useState(false);
   const [periodName, setPeriodName] = useState(null);
@@ -82,8 +86,17 @@ export const TaskStatusProvider = ({ children }) => {
       setPeriodName(periodMeta.periodName);
       setPeriodStart(periodMeta.startDate);
       setPeriodEnd(periodMeta.endDate);
-      const actorOutOfScope = employeesPayload.actor_is_in_scope === false;
+      const actorOutOfScope = employeesPayload.actor_is_in_scope === false
+        || employeesPayload[0]?.actor_is_in_scope === false;
       setIsOutOfScope(actorOutOfScope);
+      setOutOfScopeReason(
+        employeesPayload.actor_exclusion_reason
+        ?? employeesPayload[0]?.actor_exclusion_reason
+        ?? null
+      );
+      setActorJoinDate(
+        employeesPayload.actor_join_date ?? employeesPayload[0]?.actor_join_date ?? null
+      );
       if (actorOutOfScope || !campaignRunning) {
         setHasSelfReview(false);
         setHasEvaluatedManager(false);
@@ -155,6 +168,8 @@ export const TaskStatusProvider = ({ children }) => {
     hasManager,
     isManagerCLevel,
     isOutOfScope,
+    outOfScopeReason,
+    actorJoinDate,
     isCLevel,
     needsSelfReview,
     loading,
@@ -185,6 +200,8 @@ export const useTaskStatus = () => {
       hasManager: false,
       isManagerCLevel: false,
       isOutOfScope: false,
+      outOfScopeReason: null,
+      actorJoinDate: null,
       isCLevel: false,
       needsSelfReview: false,
       loading: true,

@@ -22,6 +22,9 @@
  *
  * Возвращает:
  * - employees: массив прямых подчинённых (в охвате, кампания идёт)
+ * - outOfScopeEmployees: прямые подчинённые, которые РАБОТАЮТ, но выведены из
+ *   охвата этого периода (D-0825-11). Уволенных в этом массиве нет никогда —
+ *   их сервер не отдаёт, и увольнение остаётся исчезновением.
  * - campaignActive / periodInPreparation / periodName: состояние периода
  * - actorIsInScope: false, если сам актор выведен из охвата
  * - loading / error
@@ -38,6 +41,9 @@ const unwrap = (payload) => (Array.isArray(payload) ? payload[0] || {} : payload
 
 export const useTeamRoster = (user) => {
   const [employees, setEmployees] = useState([]);
+  // D-0825-11: employed people out of THIS period's scope. A separate array on
+  // purpose — they are not tasks and must never reach the counters.
+  const [outOfScopeEmployees, setOutOfScopeEmployees] = useState([]);
   const [campaignActive, setCampaignActive] = useState(false);
   const [periodInPreparation, setPeriodInPreparation] = useState(false);
   const [periodName, setPeriodName] = useState(null);
@@ -63,6 +69,8 @@ export const useTeamRoster = (user) => {
       const rows = Array.isArray(body.data) ? body.data : [];
 
       setEmployees(rows.filter((row) => row.id !== user.id));
+      const outOfScopeRows = Array.isArray(body.out_of_scope_data) ? body.out_of_scope_data : [];
+      setOutOfScopeEmployees(outOfScopeRows.filter((row) => row.id !== user.id));
       setCampaignActive(body.campaign_active === true);
       setPeriodInPreparation(body.period_in_preparation === true);
       setPeriodName(body.period_name || null);
@@ -74,6 +82,7 @@ export const useTeamRoster = (user) => {
     } catch (err) {
       logger.error('Ошибка загрузки команды:', err);
       setEmployees([]);
+      setOutOfScopeEmployees([]);
       setError(err.userMessage || 'Не удалось загрузить список команды');
     } finally {
       setLoading(false);
@@ -86,6 +95,7 @@ export const useTeamRoster = (user) => {
 
   return {
     employees,
+    outOfScopeEmployees,
     campaignActive,
     periodInPreparation,
     periodName,

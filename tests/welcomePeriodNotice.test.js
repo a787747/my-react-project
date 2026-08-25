@@ -166,7 +166,9 @@ test('Welcome period notice is above the task area; out-of-scope still sees it',
   const welcome = read('src/pages/Welcome.jsx');
   const noticeIdx = welcome.indexOf('<PeriodNotice notice={periodNotice} />');
   const taskIdx = welcome.indexOf('Ваши задачи');
-  const outIdx = welcome.indexOf('<OutOfScopeNotice embedded />');
+  // D-0825-11: the notice now takes the exclusion reason, so the copy can say
+  // the true thing instead of the one sentence that only fits a late hire.
+  const outIdx = welcome.indexOf('<OutOfScopeNotice embedded reason={outOfScopeReason} />');
   assert.ok(noticeIdx > 0, 'PeriodNotice is mounted');
   assert.ok(taskIdx > noticeIdx, 'PeriodNotice precedes the task heading');
   assert.ok(outIdx > 0, 'OutOfScopeNotice stays on the out-of-scope path');

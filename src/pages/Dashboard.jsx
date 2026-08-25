@@ -15,6 +15,7 @@ import { User } from 'lucide-react';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useTaskStatus } from '../context/TaskStatusContext';
 import EmployeeCard from '../components/EmployeeCard';
+import OutOfScopeTeamSection from '../components/common/OutOfScopeTeamSection';
 import EvaluationModal from '../components/EvaluationModal';
 import { Skeleton } from '../components/common';
 import { ADMIN_ROLES } from '../config/constants';
@@ -25,6 +26,7 @@ const Dashboard = ({ user }) => {
   const { refreshTaskStatus } = useTaskStatus();
   const {
     employees,
+    outOfScopeEmployees,
     criteria,
     evaluatedDetails,
     campaignActive,
@@ -204,6 +206,12 @@ const Dashboard = ({ user }) => {
             ))}
           </div>
         )}
+
+        {/* D-0825-11: работающие подчинённые вне охвата этого периода.
+            Отдельным блоком под карточками: это не задачи, кнопки «Оценить»
+            у них нет, и ни один счётчик выше их не считает. Уволенные сюда не
+            попадают — увольнение остаётся исчезновением (D-0825-7). */}
+        <OutOfScopeTeamSection employees={outOfScopeEmployees} className="mt-6" />
       </div>
 
       <EvaluationModal

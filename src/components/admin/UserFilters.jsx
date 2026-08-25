@@ -58,7 +58,10 @@ const UserFilters = ({
   activeFilterCount = 0,
   onSearchChange, 
   onFilterChange, 
-  onReset 
+  onReset,
+  // D-0825-11. Off by default, for the same reason UserTable's column is:
+  // /team's payload cannot tell the states apart.
+  showEvaluationState = false
 }) => {
   const lists = facets || {};
   const searchActive = String(searchInput || '').trim() !== '';
@@ -76,7 +79,7 @@ const UserFilters = ({
       </div>
       
       {/* Сетка фильтров */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
+      <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${showEvaluationState ? 'lg:grid-cols-8' : 'lg:grid-cols-7'}`}>
         {/* Поиск */}
         <div className="lg:col-span-1 relative">
           <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
@@ -147,6 +150,21 @@ const UserFilters = ({
           options={lists.employment || []}
           onChange={onFilterChange}
         />
+
+        {/* Оценка в периоде — D-0825-11. Показывается только там, где состояние
+            вообще различимо: на /team payload маршрута не несёт строк участия,
+            и список свёлся бы к одному пункту «нет активного периода». */}
+        {showEvaluationState && (
+          <FilterSelect
+            id="evaluation_state"
+            label="Фильтр по состоянию в оценке"
+            value={filters.evaluation_state}
+            defaultValue={ALL}
+            allLabel="Любое состояние"
+            options={lists.evaluation_state || []}
+            onChange={onFilterChange}
+          />
+        )}
 
         {/* Кнопка сброса */}
         <button

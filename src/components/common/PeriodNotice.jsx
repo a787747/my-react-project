@@ -21,6 +21,14 @@ const PeriodNotice = ({ notice }) => {
             </h2>
           )}
           <p className="text-sm text-slate-700 leading-normal mb-3">{notice.body}</p>
+          {notice.noBonus && (
+            <p
+              className="text-sm text-slate-700 leading-normal mb-3"
+              data-testid="period-notice-no-bonus"
+            >
+              {notice.noBonus}
+            </p>
+          )}
           {notice.showScope && notice.scope && (
             <p className="text-sm text-slate-700 leading-normal mb-3">{notice.scope}</p>
           )}

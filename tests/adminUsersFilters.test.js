@@ -40,9 +40,14 @@ test('defaults: employment is the only filter that is not «все»', () => {
     manager_id: ALL,
     work_category: ALL,
     employment: 'active',
+    // D-0825-11: the period-state control defaults to «любое состояние», so the
+    // page still opens on every employed person and the exclusions are visible
+    // rather than filtered away.
+    evaluation_state: ALL,
   });
   assert.deepEqual(FILTER_KEYS.slice().sort(), [
-    'department_id', 'employment', 'manager_id', 'role', 'search', 'work_category',
+    'department_id', 'employment', 'evaluation_state', 'manager_id', 'role',
+    'search', 'work_category',
   ]);
 });
 

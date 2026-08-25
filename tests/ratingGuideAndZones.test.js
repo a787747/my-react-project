@@ -150,7 +150,14 @@ test('matrix and slider call sites pass the criterion into the zone helper', () 
   assert.match(read('src/components/EvaluationModal.jsx'), /getScoreZone\(score, criterion\)/);
   assert.match(read('src/pages/ManagerSubordinatesMatrix.jsx'), /getScoreStyle\(score, criterion\)/);
   assert.match(read('src/components/admin/ScoreDetailModal.jsx'), /getScoreZone\(score, criterion\)/);
-  assert.match(read('src/components/admin/FinalScoresMatrixTable.jsx'), /getScoreColor\(criterionScore, c\)/);
+  // Inverted 2026-08-25. The zones in evaluationUtils describe a raw 1–10
+  // score; this call site was handing them the WEIGHTED product, so criterion
+  // 14 at its documented norm of 2 painted as «сверх роли» (2 × 1.00 × 1.50 =
+  // 3.00) and criterion 12 at 7 painted «зона исключительности» (7 × 1.30 ×
+  // 1.00 = 9.10). The cell now colours by the raw score and prints the
+  // weighted one.
+  assert.match(read('src/components/admin/FinalScoresMatrixTable.jsx'), /getScoreColor\(rawScore, c\)/);
+  assert.doesNotMatch(read('src/components/admin/FinalScoresMatrixTable.jsx'), /getScoreColor\(criterionScore/);
 });
 
 test('manager-subordinates legend no longer calls 5–7 Хорошо', () => {

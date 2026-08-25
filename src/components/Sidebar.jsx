@@ -171,7 +171,13 @@ const Sidebar = ({ user }) => {
   const closeMobileMenu = () => setIsMobileOpen(false);
 
   const safeUser = user || { full_name: 'Guest', role: 'guest' };
-  const showTaskPanel = !isHR(safeUser.role);
+  // D-0825-15 (item 9, day-one defect). HR used to get neither the personal
+  // group nor the task panel. But both HR people are in H1 scope, both are
+  // `can_be_evaluated`, and `API: Submit Self Review` accepts role `hr` — so
+  // Welcome told them «Ваши задачи: Самооценка / Руководитель» and the portal
+  // offered no way to reach either form. The self-review page works when
+  // reached by URL; only the navigation was missing.
+  const showTaskPanel = true;
 
   // Контент сайдбара
   const SidebarContent = () => (
@@ -192,8 +198,8 @@ const Sidebar = ({ user }) => {
       {/* Меню Навигации */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-thin">
         
-        {/* === ЛИЧНЫЕ === */}
-        {!isHR(safeUser.role) && (
+        {/* === ЛИЧНЫЕ === (D-0825-15: HR included — they have tasks too) */}
+        {(
           <NavGroup title="Личные" icon={User} groupId="personal" openGroupId={openGroupId} onToggle={setOpenGroupId}>
             <NavItem to="/welcome" icon={BookOpen} label="Инструкции" onClick={closeMobileMenu} />
             <NavItem to="/profile" icon={User} label="Мой Профиль" onClick={closeMobileMenu} />

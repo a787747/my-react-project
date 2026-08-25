@@ -306,6 +306,7 @@ const AdminUsers = ({ user }) => {
         onSearchChange={setSearchInput}
         onFilterChange={handleFilterChange}
         onReset={resetFilters}
+        showEvaluationState
       />
 
       {/* Статус занятости убирает людей, которые подходят под все остальные
@@ -346,6 +347,7 @@ const AdminUsers = ({ user }) => {
         canEdit={canEdit}
         onEdit={handleOpenModal}
         showEvaluationStatus={false}
+        showEvaluationState
         sortField={sortField}
         sortDirection={sortDirection}
         onSort={handleSort}

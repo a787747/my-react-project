@@ -16,6 +16,7 @@
 import React from 'react';
 import { ArrowUp, ArrowDown, ArrowUpDown, Trophy, TrendingUp, User, Calculator } from 'lucide-react';
 import { getScoreZone } from '../../utils/evaluationUtils';
+import { formatCorrectionTooltip, getCriterionCorrections } from '../../utils/matrixUtils';
 
 const FinalScoresMatrixTable = ({ 
   employees, 
@@ -37,21 +38,26 @@ const FinalScoresMatrixTable = ({
     return <ArrowDown className="w-3 h-3 text-indigo-600" />;
   };
 
-  // Получить цвет для балла по критерию
-  const getScoreColor = (score, criterion) => {
-    if (score === null || score === undefined || score === 0) return 'text-gray-300';
-    const zone = getScoreZone(score, criterion);
+  // Цвет ячейки по СЫРОЙ оценке 1–10, а не по взвешенному произведению.
+  // Зоны в evaluationUtils описаны для шкалы 1–10; критерий 14 с нормой 2 после
+  // умножения на вес 1.50 попадал в полосу «сверх роли», а критерий 12 при
+  // оценке 7 — в «зону исключительности». Раскрашен был вес, не человек.
+  const getScoreColor = (rawScore, criterion) => {
+    if (rawScore === null || rawScore === undefined || rawScore === 0) return 'text-gray-300';
+    const zone = getScoreZone(rawScore, criterion);
     return zone.text;
   };
 
-  // Получить цвет фона для итогового балла
+  // Итог — это ИНДЕКС распределения премии (§4 HANDOVER, формула 3): взвешенная
+  // сумма БЕЗ деления на сумму весов, × коэффициент грейда. Он не ограничен
+  // сверху и не является оценкой 1–10, поэтому пороги 3/5/7 на нём не значили
+  // ничего: A-грейд с шестёрками по всем критериям давал 35.68 и красился в
+  // зелёный ровно так же, как M3 с 356.76. Одна нейтральная плашка, число само
+  // за себя; сравнивать людей между собой — задача сортировки, а не цвета.
   const getFinalScoreColor = (score) => {
-    if (score === null || score === undefined || score === 0) return 'bg-gray-200 text-gray-600';
     const val = parseFloat(score);
-    if (val <= 3) return 'bg-red-500 text-white';
-    if (val <= 5) return 'bg-amber-500 text-white';
-    if (val <= 7) return 'bg-blue-500 text-white';
-    return 'bg-green-500 text-white';
+    if (!Number.isFinite(val) || val === 0) return 'bg-gray-200 text-gray-600';
+    return 'bg-indigo-600 text-white';
   };
 
   // Получить позицию в рейтинге (медаль)
@@ -73,6 +79,11 @@ const FinalScoresMatrixTable = ({
               <span className="text-xs text-gray-500">Сотрудников</span>
             </div>
             <span className="text-2xl font-bold text-indigo-600">{totals.employeesCount}</span>
+            {totals.excludedCount > 0 && (
+              <div className="text-[10px] text-amber-700 mt-0.5">
+                в фонде {totals.poolCount}, вне фонда {totals.excludedCount}
+              </div>
+            )}
           </div>
           <div className="bg-white rounded-lg p-3 shadow-sm border border-green-100">
             <div className="flex items-center gap-2 mb-1">
@@ -91,7 +102,9 @@ const FinalScoresMatrixTable = ({
           <div className="bg-white rounded-lg p-3 shadow-sm border border-amber-100">
             <div className="flex items-center gap-2 mb-1">
               <Trophy className="w-4 h-4 text-amber-500" />
-              <span className="text-xs text-gray-500">Средний итог</span>
+              <span className="text-xs text-gray-500" title="Среднее по людям, которые берут долю фонда">
+                Средний итог{totals.excludedCount > 0 ? ` (по ${totals.poolCount})` : ''}
+              </span>
             </div>
             <span className="text-2xl font-bold text-amber-600">{totals.averageWeightedScore}</span>
           </div>
@@ -103,8 +116,8 @@ const FinalScoresMatrixTable = ({
           <thead className="bg-gray-50">
             {/* Строка с весами критериев */}
             <tr className="border-b border-gray-200">
-              <th className="px-4 py-2 text-[10px] text-gray-400 uppercase sticky left-0 bg-gray-50 z-10">#</th>
-              <th className="px-4 py-2 text-[10px] text-gray-400 uppercase sticky left-10 bg-gray-50 z-10">Сотрудник</th>
+              <th className="px-4 py-2 text-[10px] text-gray-400 uppercase sticky left-0 w-14 min-w-[3.5rem] max-w-[3.5rem] bg-gray-50 z-20">#</th>
+              <th className="px-4 py-2 text-[10px] text-gray-400 uppercase sticky left-14 bg-gray-50 z-10">Сотрудник</th>
               
               {criteriaList.map(c => (
                 <th 
@@ -124,14 +137,14 @@ const FinalScoresMatrixTable = ({
             {/* Заголовки критериев */}
             <tr className="border-b-2 border-gray-300">
               <th 
-                className="px-4 py-3 text-xs font-bold text-gray-700 uppercase sticky left-0 bg-gray-50 z-10 cursor-pointer hover:bg-gray-100"
+                className="px-4 py-3 text-xs font-bold text-gray-700 uppercase sticky left-0 w-14 min-w-[3.5rem] max-w-[3.5rem] bg-gray-50 z-20 cursor-pointer hover:bg-gray-100"
                 onClick={() => onSort && onSort('full_name')}
               >
                 <div className="flex items-center gap-1">
                   # {getSortIcon('full_name')}
                 </div>
               </th>
-              <th className="px-4 py-3 text-xs font-bold text-gray-700 uppercase sticky left-10 bg-gray-50 z-10">
+              <th className="px-4 py-3 text-xs font-bold text-gray-700 uppercase sticky left-14 bg-gray-50 z-10">
                 Сотрудник
               </th>
               
@@ -184,12 +197,12 @@ const FinalScoresMatrixTable = ({
                   className="hover:bg-gray-50 transition-colors border-b border-gray-100"
                 >
                   {/* Позиция в рейтинге */}
-                  <td className="px-4 py-3 sticky left-0 bg-white z-10 text-center">
+                  <td className="px-4 py-3 sticky left-0 w-14 min-w-[3.5rem] max-w-[3.5rem] bg-white z-20 text-center">
                     {getRankBadge(index)}
                   </td>
                   
                   {/* Сотрудник */}
-                  <td className="px-3 py-3 sticky left-10 bg-white z-10">
+                  <td className="px-3 py-3 sticky left-14 bg-white z-10">
                     <button
                       onClick={() => onEmployeeClick && onEmployeeClick(emp)}
                       className="flex items-center gap-2 text-left hover:bg-indigo-50 rounded-lg p-1 -m-1 transition-colors group w-full"
@@ -204,30 +217,76 @@ const FinalScoresMatrixTable = ({
                         </div>
                         <div className="text-[10px] text-gray-500 truncate max-w-[140px]">
                           {emp.department_name && <span className="text-purple-600">{emp.department_name}</span>}
-                          {emp.grade_code && (
+                          {emp.grade_code ? (
                             <span className="ml-1 text-indigo-600">
                               • {emp.grade_code} (×{emp.grade_coefficient?.toFixed(2) || '1.00'})
                             </span>
+                          ) : (
+                            <span
+                              className="ml-1 text-orange-600 font-semibold"
+                              title="Грейд не задан — в расчёте подставлен множитель 1.00. Это дефект карточки, а не решение."
+                            >
+                              • без грейда (×1.00)
+                            </span>
                           )}
                         </div>
+                        {emp.takes_bonus_share === false && (
+                          <div
+                            className="text-[10px] font-semibold text-amber-700"
+                            data-testid="no-bonus-share"
+                            title={
+                              emp.is_in_scope === false
+                                ? 'Вне охвата этого периода: доли премиального фонда не берёт, в ИТОГО и в средний не входит.'
+                                : 'Этого человека не оценивает никто: доли премиального фонда не берёт, в ИТОГО и в средний не входит.'
+                            }
+                          >
+                            {emp.is_in_scope === false ? 'вне охвата периода' : 'не оценивается никем'}
+                          </div>
+                        )}
                       </div>
                     </button>
                   </td>
                   
-                  {/* Баллы по критериям */}
+                  {/* Баллы по критериям.
+                      Три разных состояния, которые до 2026-08-25 рисовались
+                      одним прочерком: критерий к человеку не применяется,
+                      применяется но ещё не оценен, оценен. */}
                   {criteriaList.map(c => {
                     const criterionScore = emp.criteria_scores?.[c.id];
+                    const rawScore = emp.criteria_raw_scores?.[c.id];
+                    const applicable = Boolean(emp.criteria_by_id?.[c.id]);
+                    const corrections = applicable
+                      ? getCriterionCorrections(emp.criteria_by_id[c.id])
+                      : { hasAny: false };
+                    const scored = criterionScore !== null && criterionScore !== undefined;
                     return (
                       <td 
                         key={`score-${emp.id}-${c.id}`} 
-                        className="px-2 py-3 text-center border-x border-gray-50"
+                        className={`px-2 py-3 text-center border-x border-gray-50 ${applicable ? '' : 'bg-gray-50'}`}
+                        title={
+                          !applicable
+                            ? `«${c.title}» не применяется к этому сотруднику`
+                            : scored
+                              ? [
+                                // formatCorrectionTooltip knows the manager path
+                                // only; a c_level_only cell has no manager score
+                                // and would otherwise open with a bare « · ».
+                                formatCorrectionTooltip(emp.criteria_by_id[c.id]),
+                                `${rawScore?.toFixed(2)} × коэф. × вес ${c.weight?.toFixed(2)} = ${criterionScore.toFixed(2)}`,
+                              ].filter(Boolean).join(' · ')
+                              : `«${c.title}» ещё не оценен`
+                        }
                       >
-                        <span className={`font-bold text-sm ${getScoreColor(criterionScore, c)}`}>
-                          {criterionScore !== null && criterionScore !== undefined 
-                            ? criterionScore.toFixed(2) 
-                            : '-'
-                          }
-                        </span>
+                        {!applicable ? (
+                          <span className="text-[10px] text-gray-400">н/п</span>
+                        ) : (
+                          <span className={`font-bold text-sm ${getScoreColor(rawScore, c)}`}>
+                            {scored ? criterionScore.toFixed(2) : '-'}
+                            {corrections.hasAny && (
+                              <sup className="ml-0.5 text-[10px] text-amber-600" title="Есть корректировка">*</sup>
+                            )}
+                          </span>
+                        )}
                       </td>
                     );
                   })}
@@ -254,9 +313,10 @@ const FinalScoresMatrixTable = ({
           {employees.length > 0 && (
             <tfoot className="bg-gray-100 border-t-2 border-gray-300">
               <tr className="font-bold">
-                <td className="px-4 py-4 sticky left-0 bg-gray-100 z-10"></td>
-                <td className="px-3 py-4 sticky left-10 bg-gray-100 z-10 text-gray-700 text-sm">
-                  ИТОГО ({totals.employeesCount} чел.)
+                <td className="px-4 py-4 sticky left-0 w-14 min-w-[3.5rem] max-w-[3.5rem] bg-gray-100 z-20"></td>
+                <td className="px-3 py-4 sticky left-14 bg-gray-100 z-10 text-gray-700 text-sm">
+                  ИТОГО ({totals.poolCount} чел. в фонде
+                  {totals.excludedCount > 0 ? `, ${totals.excludedCount} вне` : ''})
                 </td>
                 
                 {/* Суммы по критериям */}

@@ -3,6 +3,15 @@ import { formatPeriodDateRu } from './formatPeriodDateRu.js';
 export const PERIOD_NOTICE_BODY =
   'С 2026 года оценка проводится дважды в год — за первое и за второе полугодие; годовой результат складывается из двух полугодовых оценок. В декабре 2025 оценка проводилась один раз за весь год — это первая промежуточная.';
 
+/**
+ * D-0825-13, owner's words, verbatim. A half-year pays nothing; H1 is an
+ * intermediate measurement whose result feeds the annual evaluation. It rides
+ * on the period notice because that is the one block every employee sees on
+ * Welcome — in scope or out, campaign running or not.
+ */
+export const PERIOD_NOTICE_NO_BONUS =
+  'Оценка за первое полугодие — промежуточная. По её итогам премия не выплачивается: результат первого полугодия войдёт в годовую оценку вместе с результатом второго полугодия и повлияет на годовой результат.';
+
 export const PERIOD_NOTICE_STATE_LINES = {
   none: 'Период оценки сейчас не открыт.',
   preparation:
@@ -77,6 +86,7 @@ export const buildPeriodNotice = ({
       ? `Промежуточная оценка: ${periodName} (${start} — ${end})`
       : null,
     body: PERIOD_NOTICE_BODY,
+    noBonus: PERIOD_NOTICE_NO_BONUS,
     scope: showTitleAndScope
       ? `Сейчас оценивается работа за период с ${start} по ${end}. Оценивайте только этот период: то, что произошло после ${end}, относится ко второму полугодию и будет учтено в следующей оценке.`
       : null,

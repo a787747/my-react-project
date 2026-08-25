@@ -317,6 +317,15 @@ WHERE u.role != 'admin'
   -- correction sub-selects live inside the cell, so an excluded criterion
   -- takes its corrections with it.
   AND (c.target_audience <> 'project_participants' OR u.is_project_participant = true)
+  -- Second applicability dimension, added 2026-08-25. The manager form has
+  -- always gated managers_only on has_subordinates (API: Get Employees,
+  -- evaluated_by_actor / missing_criteria_ids), so a person with no reports can
+  -- never be scored on criterion 2 — yet the matrix emitted the cell for all 88
+  -- people and printed a permanently empty column for the 72 who are not
+  -- managers. Emitting only what the form can fill makes «пусто» mean «ещё не
+  -- оценено» and nothing else. The identical clause is in the close dataset, so
+  -- the frozen period_results inherit exactly what the matrix shows.
+  AND (c.target_audience <> 'managers_only' OR u.has_subordinates = true)
 GROUP BY u.id, u.full_name, u.job_title, u.manager_id, u.has_subordinates,
          u.role, u.can_be_evaluated, epp.is_in_scope,
          d.name, g.code, g.description, u.is_project_participant

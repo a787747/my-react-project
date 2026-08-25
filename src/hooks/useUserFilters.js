@@ -31,7 +31,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { UI_CONFIG } from '../config/constants';
-import { sortUsers } from '../utils/userSort';
+import { DEFAULT_SORT_DIRECTION, DEFAULT_SORT_FIELD, sortUsers } from '../utils/userSort';
 import {
   INITIAL_FILTERS,
   buildCounts,
@@ -44,8 +44,12 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [searchInput, setSearchInput] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortField, setSortField] = useState(null);
-  const [sortDirection, setSortDirection] = useState('asc');
+  // D-0825-11: the list opens sorted by name, A→Z. Until 2026-08-25 the initial
+  // sortField was null, which made `sortUsers` return the array untouched, so
+  // the table opened in the route's own `ORDER BY u.id DESC` — newest employee
+  // first, an order nothing on screen explained and no header showed as active.
+  const [sortField, setSortField] = useState(DEFAULT_SORT_FIELD);
+  const [sortDirection, setSortDirection] = useState(DEFAULT_SORT_DIRECTION);
 
   // Debounce для поиска - обновляем фильтр через 300мс после ввода
   useEffect(() => {
@@ -94,8 +98,8 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
   const resetFilters = () => {
     setFilters(INITIAL_FILTERS);
     setSearchInput('');
-    setSortField(null);
-    setSortDirection('asc');
+    setSortField(DEFAULT_SORT_FIELD);
+    setSortDirection(DEFAULT_SORT_DIRECTION);
     setCurrentPage(1);
   };
 

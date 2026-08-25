@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 27 |
+| 🔴 Open | 28 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 41 |
+| 🟢 Closed | 43 |
 
 ---
 
@@ -588,14 +588,17 @@
 
 ### BUG-066: A missing hire date silently keeps a person in scope of every period ever created
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED (2026-08-26, forward-looking only — see the Fix line)
 - Severity: 🟡 Medium
 - Location: LIVE `API: Manage Periods` → `Build Create SQL`, the participants CTE; `performance_db.users.join_date`.
 - Description: scope is computed once, when a period is created, by `CASE WHEN u.terminated_at IS NOT NULL THEN false WHEN u.join_date IS NOT NULL AND u.join_date > '<end_date>'::date THEN false ELSE true END`. The second branch guards on `join_date IS NOT NULL`, so a person with **no hire date at all** falls through to `ELSE true` — in scope, `exclusion_reason NULL`, indistinguishable in `evaluation_period_participants` from somebody with ten years' service. There is no warning anywhere. Live 2026-08-25 17:2xZ: exactly one such row of 89 — **Cem Durukan (21)**, General Manager, `join_date IS NULL`, in scope of both period 2 and period 5.
 - Why it matters: nothing today. Durukan is `can_evaluate=false` and `can_be_evaluated=false` (D-0821-4), has no grade and no manager, and his `c_level` role cannot submit a self-review, so he can neither give nor receive a score and no money number can reach him. The rule is what matters: it fires the same way for **every future period**, including H2, and it is exactly the wrong default for the population it will meet there — somebody entered into the portal before their start date (offer signed in April, first day in September) has a NULL or a future-looking hire date and would be admitted to the period silently. Criteria count drives bonus share, so an unnoticed participant is a money input nobody checked.
 - How to fix: this is an owner decision before it is code. Either (a) fill Durukan's `join_date` in and keep the rule, or (b) invert the default so an unknown hire date means **out of scope** with a reason such as `join_date_unknown`, requiring an explicit hand-inclusion — which is now possible, because `POST /api/admin/include-participant` exists (D-0825-10). (b) is safer and noisier: money never lands on somebody nobody looked at, at the cost of a click per advance-entered hire.
 - Not done here: the MID_YEAR_HIRES_SCOPE brief's boundary was «anything the brief does not resolve: surface — do not resolve», and it forbade any write to a user row. `API: Manage Periods` was deliberately not touched by that brief at all.
-- Source: `docs/MID_YEAR_HIRES_SCOPE_2026-08-25.md` §1.1, §1.3 and §5.1; owner-facing version in `docs/MID_YEAR_HIRES_MARKING_SHEET_2026-08-25.md` §3.
+- Fix (2026-08-26, D-0825-12): the owner chose option (b). `Build Create SQL` now reads `WHEN u.terminated_at IS NOT NULL THEN false WHEN u.join_date IS NULL THEN false WHEN u.join_date > '<end_date>'::date THEN false ELSE true`, with reason `join_date_missing`, and the NULL branch is asserted to come **before** the comparison. `POST /api/admin/include-participant` accepts the new reason as well as `excluded_by_admin`, so it is not a state with no exit; `terminated` is still refused there, and reinstatement is still the only way back from that one.
+- Deliberately NOT retroactive: no existing participants row was rewritten, so Cem Durukan's H1 row is untouched and the read-only trio stay in H1 scope (D-0821-4). The rule fires for the first time when H2 is created. `/admin/users` now shows «Нет даты приёма» as its own state for a person in scope with a NULL date, so the H1 residue is visible rather than inferred.
+- Verification: `tests/prelaunchNightBatch.test.js` («item 2»); live `API: Manage Periods` `updatedAt=2026-08-25T19:47:02.586Z`. No period was created on live to exercise it — the next real exercise is H2.
+- Source: `docs/MID_YEAR_HIRES_SCOPE_2026-08-25.md` §1.1, §1.3 and §5.1; owner-facing version in `docs/MID_YEAR_HIRES_MARKING_SHEET_2026-08-25.md` §3; fix in `docs/PRELAUNCH_BATCH_NIGHT_2026-08-26.md` §2.
 
 ### BUG-067: A person added after a period is created has no participants row, and leaves no trace in the closed period
 
@@ -744,3 +747,33 @@
 - Why it matters: this is exactly the H2 attach Alexander performs in September — «H2-2026» 01.07–31.12 under «Annual 2026» 01.01–31.12 — and it would have been refused with a message saying the dates are outside the container when they are not. Found by the post-verification proof, not in production.
 - Fix (2026-08-21): containment is decided by Postgres (`'start'::date >= p.start_date AND 'end'::date <= p.end_date` as `child_inside_parent`), and the Code node accepts only an explicit `true`; NULL or false refuses. The same change was applied to reparent so it no longer depends on the two shifts cancelling. The SQL re-assertions inside the INSERT/UPDATE were already date-typed and were correct throughout.
 - Verification: stand proof `create_h1_canonical` 200 + `create_h2_canonical` 200 on the canonical 01.01–30.06 / 01.07–31.12 split, `dates_outside_parent_422` still 422; `tests/periodsHierarchy.test.js` — the SQL verdict is read, JS date slicing is gone, and false/null/undefined all refuse. Live `updatedAt=2026-08-21T07:28:10.039Z`.
+
+### BUG-069: HR is told they have evaluation tasks and given no way to reach them
+
+- Status: 🟢 CLOSED (2026-08-26)
+- Severity: ⚠️ High
+- Location: `src/components/Sidebar.jsx` — the `Личные` NavGroup was wrapped in `{!isHR(safeUser.role) && …}` and `showTaskPanel` was `!isHR(safeUser.role)`.
+- Description: found by the day-one walkthrough on a stand with the gate pressed, logged in as a real HR account. Both HR people are in H1 scope with `can_be_evaluated=true`; `API: Submit Self Review` carries `required_roles: ["employee","manager","hr"]`; the Welcome page renders «Ваши задачи: Самооценка / Руководитель» for them. The sidebar showed exactly two links — «Статусы оценок» and «Сотрудники» — and the task panel was suppressed, so there was no route in the product to `/self-review` or `/manager-evaluation`. Both pages render and submit correctly when reached by URL; only the navigation was missing.
+- Why it matters: on day one, 2 of 80 in-scope people are told they have tasks and cannot open them — and they are the two people the rest of the company will ask about the campaign. Not money: a self-review never feeds the bonus index (HANDOVER §4), and their manager is `c_level`, so the upward channel is closed to them by D-0825-6 anyway.
+- Fix (2026-08-26): the personal group and the task panel render for every role, including `hr`. The HR panel group and the manager-only team group are unchanged. D-0825-15.
+- Verification: `tests/prelaunchNightBatch.test.js` — «item 9: HR can reach the tasks the portal tells them they have»; browser walkthrough as `liya@sedamedical.com` on the night stand. Frontend release `20260825T194735Z`.
+
+### BUG-070: The HR completion card counts two different populations and names neither
+
+- Status: 🔴 OPEN
+- Severity: 🔵 Low
+- Location: LIVE `API: HR Evaluation Status`; rendered by `src/pages/HRDashboard.jsx`.
+- Description: the four tiles on «Статусы оценок» read «Самооценки N из 81», «Оценили руководителя N из 81», «Оценили подчинённых N из 17» and «Полностью завершили N из 87» (numbers from the night stand, 2026-08-26). Three different denominators, none labelled. They are each defensible on their own — 81 is the people who owe a self-review, 17 the managers, 87 everybody in scope — but nothing on screen says so, and «Полностью завершили 5 из 87» sits beside «Самооценки 2 из 81» as though the two counted the same people.
+- Why it matters: HR reads this screen to decide whether to chase somebody. A denominator that moves between tiles without explanation makes «завершили» unreadable, and the natural conclusion — «six people are missing from the self-review count» — is wrong.
+- How to fix: label each tile with the population it counts, the way the `/admin/users` header was fixed under D-0825-8. Out of the PRELAUNCH_BATCH_NIGHT brief's scope (items 1–8 plus day-one breaks); this is a readability defect, not a break.
+- Source: `docs/PRELAUNCH_BATCH_NIGHT_2026-08-26.md` §9.
+
+### BUG-071: A criterion cell that cannot be filled is still emitted for the two heaviest criteria
+
+- Status: 🔴 OPEN
+- Severity: 🔵 Low
+- Location: LIVE `API: evaluations-matrix` → `Build Matrix Query`; `src/utils/matrixUtils.js:canReceiveCLevel`.
+- Description: applicability in the matrix is now filtered on two dimensions — `project_participants` against `is_project_participant`, and `managers_only` against `has_subordinates` (this session, in lockstep with the close dataset). The third is not filtered: criteria 1 «Стратегическая значимость роли» (weight 5.00) and 10 «Оценка C-Level и соответствие культуре» (weight 1.60) are `c_level_only`, and `canReceiveCLevel` refuses `role IN ('admin','c_level')` and anybody with `can_be_evaluated=false` — yet both columns are emitted for all five C-level people, who can never be scored on them.
+- Why it matters: cosmetic today, and shrinking. Since this session the cells render «н/п» versus «-» from the client's own applicability map, so a blank column no longer reads as «behind schedule» for the two dimensions that ARE filtered; for these five rows it still does. Not fixed server-side on purpose: the natural predicate is `can_be_evaluated`, which the owner edits at will, and tying the matrix's emitted criteria set to a column that can flip mid-campaign would let one checkbox move a person's criteria count — and therefore their index — with no evaluation changing.
+- How to fix: decide whether `c_level_only` applicability is a property of the person's role (stable) or of `can_be_evaluated` (editable), then filter on the stable one. Needs the owner.
+- Source: `docs/PRELAUNCH_BATCH_NIGHT_2026-08-26.md` §6.

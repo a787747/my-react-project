@@ -24,6 +24,8 @@ import logger from '../utils/logger';
 
 export const useDashboardData = (user) => {
   const [employees, setEmployees] = useState([]);
+  // D-0825-11: employed, out of this period's scope, never a task.
+  const [outOfScopeEmployees, setOutOfScopeEmployees] = useState([]);
   const [criteria, setCriteria] = useState([]);
   const [evaluatedDetails, setEvaluatedDetails] = useState({});
   const [campaignActive, setCampaignActive] = useState(false);
@@ -54,6 +56,10 @@ export const useDashboardData = (user) => {
           ? employeesPayload[0]?.data || []
           : employeesPayload.data || [];
         setEmployees(employeesData);
+        const outOfScopeData = Array.isArray(employeesPayload)
+          ? employeesPayload[0]?.out_of_scope_data || []
+          : employeesPayload.out_of_scope_data || [];
+        setOutOfScopeEmployees(Array.isArray(outOfScopeData) ? outOfScopeData : []);
         setCampaignActive(
           employeesPayload.campaign_active === true
           || employeesPayload[0]?.campaign_active === true
@@ -94,6 +100,7 @@ export const useDashboardData = (user) => {
 
   return {
     employees,
+    outOfScopeEmployees,
     criteria,
     evaluatedDetails,
     campaignActive,
