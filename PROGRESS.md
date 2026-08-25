@@ -1100,3 +1100,16 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - `npm test` **313 → 326** (re-run after deploy: 326/326).
 - Deploy: release **`20260825T065554Z`**; previous **`20260824T182054Z`** retained on disk. Live after: H1 id 2 `active` / `evaluation_started_at` NULL; four tables 0/0/0/0.
 - Guide strings live in served `index-C_mvqGch.js` (shared chunk), not in the Welcome lazy chunk. Title + all ten leads and bodies present verbatim. Chunk md5 local = disk = served.
+
+## 2026-08-25 — Catalogue fix 2: five level-6 norm labels removed on live (D-0825-2)
+
+**What was done:**
+- Dated `pg_dump -Fc` of `epe_2026` before the first write: VPS `/root/epe_stand_tmp/epe_2026_20260825_072229.dump` (80 676 B, then removed); local `backups/2026-08-25-catalogue-fix2/` (gitignored). No dump in `/tmp`.
+- Five `POST /manage-criteria {action:'save'}` as admin (marked probe session `caf10000-2026-0825-8000-000000000002`, deleted; `auth_sessions` 12 → 12). Each row read fresh from live immediately before its write. All five returned **200**. No raw SQL on `criteria`.
+- Exactly five `level_6_desc` fields (criteria 3, 4, 8, 10, 12) now equal the brief strings character-for-character. The other **103** text fields and every non-text column (90 values) are identical to the before snapshot. Titles, audiences, flags, weights, coefficients, criteria 13 and 14, and the sentence in criterion 14's description unchanged.
+- Before snapshot **equals** `H1-2026_catalogue_after_20260825T062601Z.md` (0 diffs). After snapshot committed as `H1-2026_catalogue_after_20260825T072316Z.md`. `GET /api/criteria` 200, new level-6 texts for 3 / 4 / 8 / 10 / 12.
+- Live after: H1 id 2 `active` / `evaluation_started_at` NULL; four data tables 0/0/0/0. No frontend, workflow, deploy, mail, or stand.
+
+**Results:**
+- Report: `docs/CATALOGUE_FIX2_H1_2026-08-25.md`. Decision D-0825-2. HANDOVER §3 catalogue bullet updated to the new after snapshot; §10 counters untouched.
+- Surfaced, not resolved: `src/pages/GuidePreview.jsx` (DEV-only fixture, not in the production bundle) still quotes «(Нижняя граница нормы)» on criterion 3 level 6.
