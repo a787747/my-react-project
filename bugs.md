@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 22 |
+| 🔴 Open | 27 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 41 |
 
@@ -585,6 +585,39 @@
 - Why it matters: it does not, for the campaign — `/admin/users` is the full roster and is guarded for it, and `/team` is a manager's screen that happens to admit admins through `ManagerRoute`. It is recorded because it is a deliberate behaviour change, not an oversight, and because somebody will notice the number moved.
 - How to fix, if the owner wants the old view: a separate screen, or a `?subtree=1` parameter on a route that can prove the actor is above every person it returns. Not a change to `/api/employees`, whose whole value is that its scope is not negotiable by the client.
 - Source: `docs/TEAM_PAGE_AND_DEPLOY_LOCK_2026-08-25.md` §2 and §7.
+
+### BUG-066: A missing hire date silently keeps a person in scope of every period ever created
+
+- Status: 🔴 OPEN
+- Severity: 🟡 Medium
+- Location: LIVE `API: Manage Periods` → `Build Create SQL`, the participants CTE; `performance_db.users.join_date`.
+- Description: scope is computed once, when a period is created, by `CASE WHEN u.terminated_at IS NOT NULL THEN false WHEN u.join_date IS NOT NULL AND u.join_date > '<end_date>'::date THEN false ELSE true END`. The second branch guards on `join_date IS NOT NULL`, so a person with **no hire date at all** falls through to `ELSE true` — in scope, `exclusion_reason NULL`, indistinguishable in `evaluation_period_participants` from somebody with ten years' service. There is no warning anywhere. Live 2026-08-25 17:2xZ: exactly one such row of 89 — **Cem Durukan (21)**, General Manager, `join_date IS NULL`, in scope of both period 2 and period 5.
+- Why it matters: nothing today. Durukan is `can_evaluate=false` and `can_be_evaluated=false` (D-0821-4), has no grade and no manager, and his `c_level` role cannot submit a self-review, so he can neither give nor receive a score and no money number can reach him. The rule is what matters: it fires the same way for **every future period**, including H2, and it is exactly the wrong default for the population it will meet there — somebody entered into the portal before their start date (offer signed in April, first day in September) has a NULL or a future-looking hire date and would be admitted to the period silently. Criteria count drives bonus share, so an unnoticed participant is a money input nobody checked.
+- How to fix: this is an owner decision before it is code. Either (a) fill Durukan's `join_date` in and keep the rule, or (b) invert the default so an unknown hire date means **out of scope** with a reason such as `join_date_unknown`, requiring an explicit hand-inclusion — which is now possible, because `POST /api/admin/include-participant` exists (D-0825-10). (b) is safer and noisier: money never lands on somebody nobody looked at, at the cost of a click per advance-entered hire.
+- Not done here: the MID_YEAR_HIRES_SCOPE brief's boundary was «anything the brief does not resolve: surface — do not resolve», and it forbade any write to a user row. `API: Manage Periods` was deliberately not touched by that brief at all.
+- Source: `docs/MID_YEAR_HIRES_SCOPE_2026-08-25.md` §1.1, §1.3 and §5.1; owner-facing version in `docs/MID_YEAR_HIRES_MARKING_SHEET_2026-08-25.md` §3.
+
+### BUG-067: A person added after a period is created has no participants row, and leaves no trace in the closed period
+
+- Status: 🔴 OPEN
+- Severity: 🟡 Medium
+- Location: LIVE `API: Manage Periods` → `Build Create SQL` (the only INSERT into `evaluation_period_participants`); `API: Admin Save User (GUI Mode)` and `src/components/admin/UserImportModal.jsx` (both write `users` only); `Build Close Dataset Query` (iterates the participants table).
+- Description: participation rows are written exactly once, in the `CROSS JOIN users` of period creation. Nothing else ever inserts one. A person entered into `users` after that moment therefore has **no row** for the periods that already exist. Nobody is in this state on live today — all 89 people have a row on period 2 and on period 5, verified 2026-08-25 — but it is one ordinary `admin/save-user` call away, and the Excel import posts through the same route.
+- Why it matters: the read surface treats "no row" exactly like "row with `is_in_scope=false`" — measured on a stand fixture, not inferred: absent from the manager's task list, `actor_is_in_scope=false` on their own read, absent from HR completion and its denominator, absent from `in_scope_count`, 403 on both submit routes, and emitted on the admin matrix as an out-of-scope row with empty cells. **The close is the exception.** `Build Close Dataset Query` builds its dataset by iterating `evaluation_period_participants` for the period, so a person with no row gets **no `period_results` row at all**, where an excluded person gets one saying «was a participant, out of scope, no data». Neither carries a number — the table's two CHECKs forbid it — so this is not money, it is evidence: a year later the closed period cannot be asked whether that person existed in it.
+- How to fix: user creation should insert a participants row into every non-closed period, computed by the same rule period creation uses. Cheap in isolation; the reason it was not done is that `admin/save-user` is a full-row-overwrite route with `body.role || 'employee'` and `body.work_category || 'general'` defaults — the most dangerous write path in the system (BUG-061 was left open for the same reason).
+- Not done here: `POST /api/admin/exclude-participant` (D-0825-10) deliberately **refuses** such a person by name — 404 `NOT_A_PARTICIPANT`, with a message saying they were entered after the period was created and are already out of scope — rather than inventing a participation row they never had. That is a refusal, not a fix.
+- Source: `docs/MID_YEAR_HIRES_SCOPE_2026-08-25.md` §1.4 and §5.2.
+
+### BUG-068: Score correction never checks period scope
+
+- Status: 🔴 OPEN
+- Severity: 🟢 Low
+- Location: LIVE `API: Score Correction` → `Validate Input` / `Decide Level` (the SQL joins `users`, `criteria` and `evaluation_periods`, and never `evaluation_period_participants`).
+- Description: the correction route checks the actor's role and ownership (`mid_level` = the subject's manager's manager, `c_level` for admin/c_level), the classification applicability of the criterion, and that a period is active **and started**. It does not check that the subject — or the actor — is in scope of that period. A correction row can therefore be written about somebody who is out of scope for any of the three reasons: `terminated` (D-0825-7), `hired_after_period_end`, or `excluded_by_admin` (D-0825-10).
+- Why it matters: it cannot move money. At close, `Compute Close Results` starts from `let hasData = inScope && …`, so an out-of-scope person freezes with `has_data=false` and NULL money columns, and `period_results`' two CHECKs make a number impossible on such a row — the correction is simply never read. The cost is a row in `score_corrections` asserting a judgement about a person who is not in the period, which contradicts what every other write path enforces and what the admin screen implies.
+- How to fix: join the participants row for subject and actor in `Validate Input`'s SQL, exactly as `API: Submit Evaluation` does, and return 403 when either is out of scope.
+- Not done here: pre-existing since D-0820-9; neither introduced nor fixed by MID_YEAR_HIRES_SCOPE, whose boundary was additive-only and whose deploy asserts it writes no existing workflow. `score_corrections` is empty on live (0 rows), so nothing is wrong today.
+- Source: `docs/MID_YEAR_HIRES_SCOPE_2026-08-25.md` §5.3.
 
 ## ✅ Closed
 

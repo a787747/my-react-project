@@ -1,0 +1,724 @@
+{
+  "updatedAt": "2026-08-25T17:56:16.087Z",
+  "createdAt": "2026-08-25T17:56:15.135Z",
+  "id": "8xK4EnDJrH1b1OJ7",
+  "name": "API: Manage Period Scope",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/admin/exclude-participant",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "scope-webhook-exclude",
+      "name": "Webhook EXCLUDE",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-scope-exclude"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "scope-guard-input-exclude",
+      "name": "Prepare Guard Input EXCLUDE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "scope-run-guard-exclude",
+      "name": "Run Auth Guard EXCLUDE",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst guard = $('Run Auth Guard EXCLUDE').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request;\n\nconst userId = parseInt(body.user_id, 10);\nif (!Number.isFinite(userId) || userId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_USER_ID', message: 'Идентификатор сотрудника должен быть положительным целым числом' },\n    },\n  };\n}\nconst periodId = parseInt(body.period_id, 10);\nif (!Number.isFinite(periodId) || periodId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' },\n    },\n  };\n}\n// The note is the owner's words for WHY. The machine reason is always\n// 'excluded_by_admin'; the sentence that makes it auditable a year later lives\n// here.\nconst note = String(body.note || '').trim().slice(0, 500);\n// Explicit, opt-in, and never inferred from anything else in the request.\nconst confirmed = body.confirm_existing_evaluations === true\n  || body.confirm_existing_evaluations === 'true';\n\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    user_id: userId,\n    period_id: periodId,\n    note,\n    confirmed,\n    sql: `\n      SELECT\n        u.id AS target_id,\n        u.full_name AS target_name,\n        (u.terminated_at IS NOT NULL) AS target_terminated,\n        (SELECT p.id FROM performance_db.evaluation_periods p WHERE p.id = ${periodId}) AS period_id_found,\n        (SELECT p.name FROM performance_db.evaluation_periods p WHERE p.id = ${periodId}) AS period_name,\n        (SELECT p.status FROM performance_db.evaluation_periods p WHERE p.id = ${periodId}) AS period_status,\n        (SELECT epp.is_in_scope FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = ${periodId} AND epp.user_id = ${userId}) AS row_is_in_scope,\n        EXISTS (SELECT 1 FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = ${periodId} AND epp.user_id = ${userId}) AS row_exists,\n        (SELECT epp.exclusion_reason FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = ${periodId} AND epp.user_id = ${userId}) AS row_reason,\n        -- The GAVE / ABOUT split, counted separately, because the two halves\n        -- behave differently and the caller has to be told which is which\n        -- BEFORE confirming rather than after.\n        (SELECT count(*)::integer FROM performance_db.evaluations e\n          WHERE e.period_id = ${periodId} AND e.subject_id = ${userId}\n            AND e.is_self_evaluation = false) AS evaluations_received,\n        (SELECT count(*)::integer FROM performance_db.evaluations e\n          WHERE e.period_id = ${periodId} AND e.subject_id = ${userId}\n            AND e.is_self_evaluation = true) AS self_reviews,\n        (SELECT count(*)::integer FROM performance_db.evaluations e\n          WHERE e.period_id = ${periodId} AND e.evaluator_id = ${userId}\n            AND e.is_self_evaluation = false) AS evaluations_given,\n        (SELECT count(*)::integer FROM performance_db.score_corrections sc\n          WHERE sc.period_id = ${periodId} AND sc.subject_id = ${userId}) AS corrections_about,\n        -- Not a refusal: surfaced so the caller sees who is left without an\n        -- evaluator. An out-of-scope actor gets no task list, so every one of\n        -- these people would be evaluated by nobody until they are reassigned\n        -- or excluded too. Whether that is acceptable is the owner's call, not\n        -- this route's.\n        COALESCE((\n          SELECT json_agg(json_build_object('id', r.id, 'full_name', r.full_name) ORDER BY r.full_name)\n          FROM performance_db.users r\n          JOIN performance_db.evaluation_period_participants rp\n            ON rp.user_id = r.id AND rp.period_id = ${periodId} AND rp.is_in_scope = true\n          WHERE r.manager_id = ${userId} AND r.terminated_at IS NULL\n        ), '[]'::json) AS reports_in_scope\n      FROM performance_db.users u\n      WHERE u.id = ${userId}\n    `,\n  },\n};\n"
+      },
+      "id": "scope-exclude-validate",
+      "name": "Validate Exclude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS target_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "scope-exclude-check",
+      "name": "Load Exclude Target",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Validate Exclude').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.all().map(item => item.json).find(item => item.target_id !== undefined);\nif (!check) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'USER_NOT_FOUND', message: 'Сотрудник не найден' },\n    },\n  };\n}\nif (check.period_id_found === null || check.period_id_found === undefined) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' },\n    },\n  };\n}\n// A closed period is history and its period_results are already frozen. Nothing\n// in this feature may touch one, in either direction.\nif (String(check.period_status) === 'closed') {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'PERIOD_CLOSED',\n        message: `Период «${check.period_name}» закрыт: охват закрытого периода не меняется`,\n      },\n    },\n  };\n}\nconst rowExists = check.row_exists === true || check.row_exists === 't';\nif (!rowExists) {\n  // Participation rows are written once, when the period is created. A person\n  // added to the system afterwards has none — and is already invisible to every\n  // read surface. This route does not invent the row, because inventing it\n  // would make the person a participant of a period they were never in.\n  return {\n    json: {\n      http_status: 404,\n      body: {\n        success: false,\n        error: 'NOT_A_PARTICIPANT',\n        message: `У сотрудника нет строки участия в периоде «${check.period_name}» — он был заведён в систему после создания периода и уже вне охвата. Исключать нечего.`,\n      },\n    },\n  };\n}\nconst inScope = check.row_is_in_scope === true || check.row_is_in_scope === 't';\nif (!inScope) {\n  const reason = check.row_reason || 'не указана';\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'ALREADY_EXCLUDED',\n        message: `Сотрудник уже вне охвата периода «${check.period_name}» (причина: ${reason})`,\n        current_reason: check.row_reason || null,\n      },\n    },\n  };\n}\nlet reports = check.reports_in_scope;\nif (typeof reports === 'string') {\n  try { reports = JSON.parse(reports); } catch { reports = []; }\n}\nif (!Array.isArray(reports)) reports = [];\n\nconst received = Number(check.evaluations_received) || 0;\nconst selfReviews = Number(check.self_reviews) || 0;\nconst given = Number(check.evaluations_given) || 0;\nconst corrections = Number(check.corrections_about) || 0;\nconst total = received + selfReviews + given + corrections;\n\nif (total > 0 && !prev.confirmed) {\n  // The brief's one mandatory refusal. It states what happens to each half\n  // rather than deciding for the caller: nothing is deleted either way, the\n  // difference is only what stops counting FOR this person and what keeps\n  // counting FOR everybody else.\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'HAS_EVALUATIONS',\n        message: `В периоде «${check.period_name}» у сотрудника уже есть данные оценки. Ничего не будет удалено. Оценки, которые он ПОЛУЧИЛ (${received}) и его самооценка (${selfReviews}) останутся в базе и перестанут на него считаться: при закрытии периода он замёрзнет как «вне охвата, данных нет», без единой цифры. Оценки, которые он ПОСТАВИЛ другим (${given}), продолжат считаться этим другим полностью. Корректировок по нему: ${corrections}. Повторите запрос с confirm_existing_evaluations=true, если это то, чего вы хотите.`,\n        evaluations_received: received,\n        self_reviews: selfReviews,\n        evaluations_given: given,\n        corrections_about: corrections,\n        reports_in_scope: reports,\n      },\n    },\n  };\n}\n\nconst userId = Number(prev.user_id);\nconst periodId = Number(prev.period_id);\nconst actorId = Number(prev.actor_id);\nconst noteLiteral = prev.note ? `'${String(prev.note).replace(/'/g, \"''\")}'` : 'NULL';\n\n// One statement. Every precondition is re-asserted inside `target`, so a lost\n// race selects zero rows and both branches below it change zero rows — the\n// same one-gate rule the close, termination and additive-submit paths use.\nreturn {\n  json: {\n    ok: true,\n    user_id: userId,\n    period_id: periodId,\n    period_name: check.period_name,\n    full_name: check.target_name,\n    evaluations_received: received,\n    self_reviews: selfReviews,\n    evaluations_given: given,\n    corrections_about: corrections,\n    reports_in_scope: reports,\n    sql: `\nWITH target AS (\n  SELECT epp.period_id, epp.user_id\n  FROM performance_db.evaluation_period_participants epp\n  WHERE epp.period_id = ${periodId}\n    AND epp.user_id = ${userId}\n    AND epp.is_in_scope = true\n    AND EXISTS (\n      SELECT 1 FROM performance_db.evaluation_periods p\n      WHERE p.id = ${periodId} AND p.status <> 'closed'\n    )\n  FOR UPDATE OF epp\n),\nscoped_out AS (\n  UPDATE performance_db.evaluation_period_participants epp\n  SET is_in_scope = false,\n      exclusion_reason = 'excluded_by_admin',\n      updated_at = now()\n  WHERE (epp.period_id, epp.user_id) IN (SELECT period_id, user_id FROM target)\n  RETURNING epp.period_id\n),\nlogged AS (\n  INSERT INTO performance_db.period_scope_events\n    (period_id, user_id, event_type, reason, actor_id, note)\n  SELECT t.period_id, t.user_id, 'excluded', 'excluded_by_admin', ${actorId}, ${noteLiteral}\n  FROM target t\n  RETURNING id\n)\nSELECT\n  (SELECT count(*)::integer FROM scoped_out) AS changed,\n  (SELECT id FROM logged LIMIT 1) AS event_id\n    `,\n  },\n};\n"
+      },
+      "id": "scope-exclude-build",
+      "name": "Build Exclude SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS changed WHERE false' }}",
+        "options": {}
+      },
+      "id": "scope-exclude-execute",
+      "name": "Execute Exclude",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        750,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Build Exclude SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.changed !== undefined);\nif (!row || Number(row.changed) === 0) {\n  // The gate inside the statement refused after the pre-check passed: somebody\n  // else changed the row in between. Nothing was written.\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'SCOPE_CONFLICT',\n        message: 'Состояние участия изменилось во время операции — обновите страницу и повторите',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      user_id: Number(prev.user_id),\n      period_id: Number(prev.period_id),\n      period_name: prev.period_name,\n      full_name: prev.full_name,\n      exclusion_reason: 'excluded_by_admin',\n      event_id: row.event_id != null ? Number(row.event_id) : null,\n      evaluations_received: prev.evaluations_received,\n      self_reviews: prev.self_reviews,\n      evaluations_given: prev.evaluations_given,\n      corrections_about: prev.corrections_about,\n      reports_in_scope: prev.reports_in_scope,\n      message: 'Сотрудник выведен из охвата периода',\n    },\n  },\n};\n"
+      },
+      "id": "scope-exclude-format",
+      "name": "Format Exclude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "scope-respond-exclude",
+      "name": "Respond EXCLUDE",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/admin/include-participant",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "scope-webhook-include",
+      "name": "Webhook INCLUDE",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        300
+      ],
+      "webhookId": "epe-scope-include"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "scope-guard-input-include",
+      "name": "Prepare Guard Input INCLUDE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "scope-run-guard-include",
+      "name": "Run Auth Guard INCLUDE",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst guard = $('Run Auth Guard INCLUDE').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request;\n\nconst userId = parseInt(body.user_id, 10);\nif (!Number.isFinite(userId) || userId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_USER_ID', message: 'Идентификатор сотрудника должен быть положительным целым числом' },\n    },\n  };\n}\nconst periodId = parseInt(body.period_id, 10);\nif (!Number.isFinite(periodId) || periodId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' },\n    },\n  };\n}\nconst note = String(body.note || '').trim().slice(0, 500);\n\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    user_id: userId,\n    period_id: periodId,\n    note,\n    sql: `\n      SELECT\n        u.id AS target_id,\n        u.full_name AS target_name,\n        (SELECT p.id FROM performance_db.evaluation_periods p WHERE p.id = ${periodId}) AS period_id_found,\n        (SELECT p.name FROM performance_db.evaluation_periods p WHERE p.id = ${periodId}) AS period_name,\n        (SELECT p.status FROM performance_db.evaluation_periods p WHERE p.id = ${periodId}) AS period_status,\n        EXISTS (SELECT 1 FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = ${periodId} AND epp.user_id = ${userId}) AS row_exists,\n        (SELECT epp.is_in_scope FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = ${periodId} AND epp.user_id = ${userId}) AS row_is_in_scope,\n        (SELECT epp.exclusion_reason FROM performance_db.evaluation_period_participants epp\n          WHERE epp.period_id = ${periodId} AND epp.user_id = ${userId}) AS row_reason\n      FROM performance_db.users u\n      WHERE u.id = ${userId}\n    `,\n  },\n};\n"
+      },
+      "id": "scope-include-validate",
+      "name": "Validate Include",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS target_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "scope-include-check",
+      "name": "Load Include Target",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Validate Include').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.all().map(item => item.json).find(item => item.target_id !== undefined);\nif (!check) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'USER_NOT_FOUND', message: 'Сотрудник не найден' },\n    },\n  };\n}\nif (check.period_id_found === null || check.period_id_found === undefined) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'PERIOD_NOT_FOUND', message: 'Период не найден' },\n    },\n  };\n}\nif (String(check.period_status) === 'closed') {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'PERIOD_CLOSED',\n        message: `Период «${check.period_name}» закрыт: охват закрытого периода не меняется`,\n      },\n    },\n  };\n}\nif (!(check.row_exists === true || check.row_exists === 't')) {\n  return {\n    json: {\n      http_status: 404,\n      body: {\n        success: false,\n        error: 'NOT_A_PARTICIPANT',\n        message: `У сотрудника нет строки участия в периоде «${check.period_name}» — возвращать в охват нечего.`,\n      },\n    },\n  };\n}\n// The marker, and the whole reason the reverse action is exact: only rows this\n// feature wrote are flipped back. A row excluded for 'terminated' or for\n// 'hired_after_period_end' is left exactly as it is, so a person who is both\n// stays out for the other reason and the round trip is byte-exact.\nif (String(check.row_reason || '') !== 'excluded_by_admin') {\n  const inScope = check.row_is_in_scope === true || check.row_is_in_scope === 't';\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'NOT_EXCLUDED_BY_ADMIN',\n        message: inScope\n          ? `Сотрудник и так в охвате периода «${check.period_name}»`\n          : `Сотрудник вне охвата периода «${check.period_name}» по другой причине (${check.row_reason}) — этот маршрут её не отменяет`,\n        current_reason: check.row_reason || null,\n      },\n    },\n  };\n}\n\nconst userId = Number(prev.user_id);\nconst periodId = Number(prev.period_id);\nconst actorId = Number(prev.actor_id);\nconst noteLiteral = prev.note ? `'${String(prev.note).replace(/'/g, \"''\")}'` : 'NULL';\n\nreturn {\n  json: {\n    ok: true,\n    user_id: userId,\n    period_id: periodId,\n    period_name: check.period_name,\n    full_name: check.target_name,\n    sql: `\nWITH target AS (\n  SELECT epp.period_id, epp.user_id\n  FROM performance_db.evaluation_period_participants epp\n  WHERE epp.period_id = ${periodId}\n    AND epp.user_id = ${userId}\n    AND epp.is_in_scope = false\n    AND epp.exclusion_reason = 'excluded_by_admin'\n    AND EXISTS (\n      SELECT 1 FROM performance_db.evaluation_periods p\n      WHERE p.id = ${periodId} AND p.status <> 'closed'\n    )\n  FOR UPDATE OF epp\n),\nscoped_in AS (\n  UPDATE performance_db.evaluation_period_participants epp\n  SET is_in_scope = true,\n      exclusion_reason = NULL,\n      updated_at = now()\n  WHERE (epp.period_id, epp.user_id) IN (SELECT period_id, user_id FROM target)\n  RETURNING epp.period_id\n),\nlogged AS (\n  INSERT INTO performance_db.period_scope_events\n    (period_id, user_id, event_type, reason, actor_id, note)\n  SELECT t.period_id, t.user_id, 'included', NULL, ${actorId}, ${noteLiteral}\n  FROM target t\n  RETURNING id\n)\nSELECT\n  (SELECT count(*)::integer FROM scoped_in) AS changed,\n  (SELECT id FROM logged LIMIT 1) AS event_id\n    `,\n  },\n};\n"
+      },
+      "id": "scope-include-build",
+      "name": "Build Include SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS changed WHERE false' }}",
+        "options": {}
+      },
+      "id": "scope-include-execute",
+      "name": "Execute Include",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        750,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Build Include SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.changed !== undefined);\nif (!row || Number(row.changed) === 0) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'SCOPE_CONFLICT',\n        message: 'Состояние участия изменилось во время операции — обновите страницу и повторите',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      user_id: Number(prev.user_id),\n      period_id: Number(prev.period_id),\n      period_name: prev.period_name,\n      full_name: prev.full_name,\n      event_id: row.event_id != null ? Number(row.event_id) : null,\n      message: 'Сотрудник возвращён в охват периода',\n    },\n  },\n};\n"
+      },
+      "id": "scope-include-format",
+      "name": "Format Include Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "scope-respond-include",
+      "name": "Respond INCLUDE",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/admin/period-scope-events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "scope-webhook-history",
+      "name": "Webhook SCOPE HISTORY",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        600
+      ],
+      "webhookId": "epe-scope-events"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "scope-guard-input-history",
+      "name": "Prepare Guard Input SCOPE HISTORY",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "scope-run-guard-history",
+      "name": "Run Auth Guard SCOPE HISTORY",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst guard = $('Run Auth Guard SCOPE HISTORY').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst query = (guard.request && guard.request.query) || {};\nconst filters = [];\nconst rawUser = query.user_id;\nif (rawUser !== undefined && rawUser !== null && String(rawUser).trim() !== '') {\n  const userId = parseInt(rawUser, 10);\n  if (!Number.isFinite(userId) || userId < 1) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_USER_ID', message: 'Идентификатор сотрудника должен быть положительным целым числом' },\n      },\n    };\n  }\n  filters.push(`e.user_id = ${userId}`);\n}\nconst rawPeriod = query.period_id;\nif (rawPeriod !== undefined && rawPeriod !== null && String(rawPeriod).trim() !== '') {\n  const periodId = parseInt(rawPeriod, 10);\n  if (!Number.isFinite(periodId) || periodId < 1) {\n    return {\n      json: {\n        http_status: 422,\n        body: { success: false, error: 'INVALID_PERIOD_ID', message: 'Идентификатор периода должен быть положительным целым числом' },\n      },\n    };\n  }\n  filters.push(`e.period_id = ${periodId}`);\n}\nconst where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT\n        e.id, e.period_id, e.user_id, e.event_type, e.reason, e.actor_id,\n        to_char(e.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS occurred_at,\n        e.note,\n        u.full_name AS user_full_name,\n        a.full_name AS actor_full_name,\n        p.name AS period_name\n      FROM performance_db.period_scope_events e\n      JOIN performance_db.users u ON u.id = e.user_id\n      LEFT JOIN performance_db.users a ON a.id = e.actor_id\n      LEFT JOIN performance_db.evaluation_periods p ON p.id = e.period_id\n      ${where}\n      ORDER BY e.occurred_at DESC, e.id DESC\n    `,\n  },\n};\n"
+      },
+      "id": "scope-history-build",
+      "name": "Build Scope Events Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "scope-history-load",
+      "name": "Load Scope Events",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Build Scope Events Query').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst events = $input.all().map(item => item.json).filter(item => item.id !== undefined && item.id !== null);\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, events, total: events.length },\n  },\n};\n"
+      },
+      "id": "scope-history-format",
+      "name": "Format Scope Events Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "scope-respond-history",
+      "name": "Respond SCOPE HISTORY",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        600
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook EXCLUDE": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input EXCLUDE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input EXCLUDE": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard EXCLUDE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard EXCLUDE": {
+      "main": [
+        [
+          {
+            "node": "Validate Exclude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Exclude": {
+      "main": [
+        [
+          {
+            "node": "Load Exclude Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Exclude Target": {
+      "main": [
+        [
+          {
+            "node": "Build Exclude SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Exclude SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Exclude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Exclude": {
+      "main": [
+        [
+          {
+            "node": "Format Exclude Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Exclude Response": {
+      "main": [
+        [
+          {
+            "node": "Respond EXCLUDE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook INCLUDE": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input INCLUDE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input INCLUDE": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard INCLUDE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard INCLUDE": {
+      "main": [
+        [
+          {
+            "node": "Validate Include",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Include": {
+      "main": [
+        [
+          {
+            "node": "Load Include Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Include Target": {
+      "main": [
+        [
+          {
+            "node": "Build Include SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Include SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Include",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Include": {
+      "main": [
+        [
+          {
+            "node": "Format Include Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Include Response": {
+      "main": [
+        [
+          {
+            "node": "Respond INCLUDE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook SCOPE HISTORY": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input SCOPE HISTORY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input SCOPE HISTORY": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard SCOPE HISTORY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard SCOPE HISTORY": {
+      "main": [
+        [
+          {
+            "node": "Build Scope Events Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Scope Events Query": {
+      "main": [
+        [
+          {
+            "node": "Load Scope Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Scope Events": {
+      "main": [
+        [
+          {
+            "node": "Format Scope Events Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Scope Events Response": {
+      "main": [
+        [
+          {
+            "node": "Respond SCOPE HISTORY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "0ec55485-f5ff-4eaf-aee1-0a5bb27080f6",
+  "versionCounter": 3,
+  "triggerCount": 3,
+  "shared": [
+    {
+      "updatedAt": "2026-08-25T17:56:15.135Z",
+      "createdAt": "2026-08-25T17:56:15.135Z",
+      "role": "workflow:owner",
+      "workflowId": "8xK4EnDJrH1b1OJ7",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-25T15:32:29.030Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-25",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

@@ -1396,3 +1396,29 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 
 **Notes / Gotchas:**
 - Not committed. No login on live this pass — the sidebar itself was walked locally; production was checked as far as the login page and the bundle markers. H1 and the four data tables were not touched.
+
+---
+
+## 2026-08-25 — Mid-year hires: an employed person can be taken out of one period's scope (D-0825-10)
+
+**What was done:**
+- **Read-only first.** Every 2026 hire (13 people), every NULL/implausible `join_date`, and every person with no participants row, measured on live between 17:23Z and 17:35Z. Delivered as an owner-facing marking sheet in Russian: `docs/MID_YEAR_HIRES_MARKING_SHEET_2026-08-25.md`.
+- **The brief's premise had moved.** It says «two terminations, 85 in scope». At the first SELECT there were **three** — Halykberdi Orusov (39) was terminated at 17:11:54Z, twelve minutes earlier — so live reads **89 users / 3 terminated / 84 in scope**. Everything is reported against 84, not 85.
+- **Migration 016** — `performance_db.period_scope_events`, append-only, `period_id NOT NULL`, two CHECKs, three FKs without cascade. Applied to live 17:55Z, applied twice to prove idempotence. Deliberately **not** `employment_events`: these people are employed.
+- **One new workflow, `API: Manage Period Scope`** (`8xK4EnDJrH1b1OJ7`, 25 nodes, active, `updatedAt=2026-08-25T17:56:16.087Z`): `POST /api/admin/exclude-participant`, `POST /api/admin/include-participant`, `GET /api/admin/period-scope-events`, all admin-only. `exclusion_reason='excluded_by_admin'`, distinct from `terminated` and `hired_after_period_end`; each reverse action flips back only its own reason.
+- **No existing workflow was written.** The deploy script asserts its `UPDATES` list is empty and refuses to run if any period has been started. `API: Manage Periods` is deliberately unchanged — an excluded person enters H2 normally, unlike a leaver.
+- **No screen.** The checkout carries another session's uncommitted `src/components/Sidebar.jsx` (already live as release `20260825T170810Z`), and a frontend deploy tars the whole tree. No build, no deploy, no `deploy_epe_frontend.sh` run. Hand-run curl path in the report §7.
+
+**Results:**
+- Stand proof `backups/2026-08-25-midyear-scope/midyear_scope_proof.json`: **152 checks, 152 passed**. Two copies of one dump, control and treatment, both closed through the real `POST /api/periods/close`: **99 `period_results` rows on each side, rows that moved besides the excluded person's: `[]`**. Pool 410.842 → 302.518, difference **108.324** = the excluded person's index to four decimals. The manager they evaluated keeps `rating_upward` **6.33** on both sides — it would read 5.00 if the GAVE evaluation had been dropped.
+- The excluded person **keeps their login** (200 on `auth/login`, the session they already held is not revoked), **can still register** through the shared invite (200; under termination the same call is 400), still gets a password-reset link, and **not one column of their `users` row moves** — including `token_version`. Period 5 is untouched; only the named period changes.
+- Reverse action exact: the whole participants table compares equal to its pre-exclusion state. All 46 evaluation rows byte-identical across exclude → include → exclude.
+- Live after: **1 958 cells compared (89 × 22), zero changed**; six table fingerprints identical to the anchor; H1 active with `evaluation_started_at` NULL on all three periods; four data tables **0/0/0/0**; `period_scope_events` **0**; `auth_sessions` 14 → 14; only `plpgsql`; workflows 59 → 60, webhooks 45 → 48; `EPE: Auth Guard` still `2026-08-18T16:34:30.674Z`. `backups/2026-08-25-midyear-scope/live_verify.json`: **43 checks, 43 passed**.
+- Rollback anchor `epe_2026_premidyear_20260825T175516Z.dump`, md5 `d7b2260d479814734d671b603e5f3267`, 87 912 bytes, verified equal on the VPS and in `~/EPE_ROLLBACK/2026-08-25-midyear-scope/` outside the repo. **It supersedes every earlier anchor** — it is the only one taken after the 17:11Z termination.
+- **Nobody was excluded on live.** The list of names is the owner's and he has not given it yet.
+- Opened BUG-066 (a NULL `join_date` silently keeps a person in scope — one person, Cem Durukan 21), BUG-067 (a person added after period creation has no participants row and gets no frozen row at close — the one place where "no row" ≠ `is_in_scope=false`), BUG-068 (score correction never checks scope). The bugs.md open counter was stale at 22 against 24 actual rows; it now reads 27 and matches.
+
+**Notes / Gotchas:**
+- The stand is a restored copy of live, so it now carries the owner's three real `employment_events`. Two proof assertions that the table would be empty were **test** bugs, not build bugs, and are recorded in the report rather than quietly relaxed. A third compared the two stand copies on a fingerprint including `updated_at` — the two seeds run microseconds apart. Fixed, stand rebuilt, re-run clean.
+- `src/components/Sidebar.jsx` and the sidebar entry above in this file are **another session's work**, already deployed to live by that session. Not stashed, not reverted, not rebuilt, not redeployed; committed separately and labelled, because a silently dirty tree is what turned the 2026-08-22 parallel session into a live incident.
+- The second gate is **still unpressed**. No route that could press it was called.

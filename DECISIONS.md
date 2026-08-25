@@ -635,3 +635,28 @@ apart on 2026-08-25). Neither lock is ever broken automatically. The safety gate
 `grep -r` and now prove the tool works on the bundle before trusting a clean result, so they cannot
 pass in one terminal and fail in another, and cannot pass vacuously against an empty `dist` (BUG-040).
 Report: `docs/TEAM_PAGE_AND_DEPLOY_LOCK_2026-08-25.md`.
+
+### D-0825-10 — Scope of a period is editable by hand, employment is not the mechanism (engineering, 2026-08-25)
+**Decision:** an admin can take an **employed** person out of the scope of an existing period, and
+put them back, through two dedicated admin-only routes. The reason written on the participants row
+is `excluded_by_admin` — distinct by construction from `terminated` (a leaver) and from
+`hired_after_period_end` (computed once, at period creation). The action touches exactly one
+`(period, person)` row: no `users` column of any kind is written, no session is revoked, no reset
+token is burned, and the person's `can_evaluate` / `can_be_evaluated` policy flags (D-0821-4) stay
+the owner's. They keep their login, can still register through the shared invite, and enter H2
+normally when H2 is created — `API: Manage Periods` is deliberately unchanged, unlike D-0825-7,
+which scopes a leaver out of every future period as well. Each reverse action flips back only rows
+carrying its own reason, so termination and hand-exclusion can never undo each other.
+**Consequence:** money, and therefore a record. `performance_db.period_scope_events` (migration 016)
+is append-only and names the actor, the period, the event, the machine reason and the owner's words;
+`period_id` is NOT NULL there, because a scope change without a period means nothing. Excluding a
+person who already has evaluation rows in that period is **refused** until the caller confirms
+explicitly, and the refusal states the consequence rather than deciding it: nothing is deleted
+either way, evaluations they RECEIVED stop counting for them (they freeze at close as
+`is_in_scope=false, has_data=false` with every money column NULL), evaluations they GAVE keep
+counting in full for the people who received them, and the pool shrinks by exactly their share.
+Direct reports are reported, not refused — a manager who genuinely started in the second half of
+the year must be excludable, and who evaluates their reports afterwards is the owner's call.
+Closed periods are untouched in both directions.
+Report: `docs/MID_YEAR_HIRES_SCOPE_2026-08-25.md`; owner's marking sheet:
+`docs/MID_YEAR_HIRES_MARKING_SHEET_2026-08-25.md`.
