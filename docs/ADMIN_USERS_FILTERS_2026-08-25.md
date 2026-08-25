@@ -1,6 +1,7 @@
 # The /admin/users filter row: the predicate was fine, the choices were not (2026-08-25)
 
 **Brief:** ADMIN_USERS_FILTERS. **Decision:** D-0825-8.
+**Commit:** `2f96062`.
 
 **Outcome in one line: nothing in the filter logic was broken — every control
 already compared the right field to the right value and every combination
