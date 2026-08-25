@@ -1360,3 +1360,25 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - **A second session was editing and deploying this same checkout.** It shipped `20260825T160958Z` (UserTable density) at 16:10:06Z mid-brief, uncommitted. This session's build was redone on top of that file so the density change was not reverted, and their `UserTable.jsx` + PROGRESS entry are committed here, attributed. **BUG-062** filed: the deploy script has no lock and no check that `current` still points where the run started.
 - BUG-040 still open and now known to be intermittent per terminal: `rg` is a shell function here, so both gates fail closed and were run by hand with `grep`; the other session's note says its deploy passed because Cursor put a real `rg` on PATH. No shim installed.
 - Filed **BUG-063** (`/team` calls an undeclared `setLoadingSelfReviews` — pre-existing) and **BUG-064** (`UserModal` still offers «Tender», which the route 422s).
+
+---
+
+## 2026-08-25 — /team fixed on the manager-scoped route; concurrent deploys now refuse (live deploy)
+
+**What was done:**
+- **Answered the /team question before touching it.** Measured in a browser on a stand: `/team` **never threw for a manager** — `useUsers()` reads the admin-only `/api/admin-users-data`, the manager gets 403, `visibleUsers` is empty and the effect returns three lines before the undeclared `setLoadingSelfReviews`. She saw «У вас нет подчинённых в системе» while having 11 subordinates in scope. For an **admin** typing the URL it did throw, twice (caught in `try`, uncaught in `finally` → `Uncaught (in promise)`), and the page rendered anyway with every status column silently blank because the `Promise.all` never ran. So BUG-063 was a tidy-up; **BUG-012 was the launch blocker**, since «Список команды» is in every manager's sidebar.
+- Repointed `/team` at `GET /api/employees` via the new `useTeamRoster` hook: the server scopes it (`WHERE users.manager_id = actorId` joined to `is_in_scope = true`), so a terminated subordinate never arrives and the page cannot disagree with `/dashboard`. `loadStatuses` and the HR-only call are gone; flags come from the payload. eslint **19 → 15** errors; `npm test` 351/351.
+- **Stand walkthrough, campaign started on the stand:** Yelena Son logged in through the real form, `/team` showed exactly **11** of her 13 direct reports with Kuvvat Garayev and Murad Bayramov absent, she opened an evaluation form, scored all six criteria and submitted → «Итоговый балл: 7.50», the card became «Оценен вами», `/team` became «Оценено мной: 1». Stand DB: one `manager` evaluation, six score rows on criteria 3/4/8/12/13/14, `AVG = calculated_score = 7.50`. Console for the entire pass: **one** pre-login 401.
+- **BUG-062 fixed and demonstrated:** deploy B refused by the lock while A held it (exit 1, live unchanged); then `current` moved by a raw `ln -sfn` behind A's back and A refused at its flip with `CONFLICT expected=… actual=…`, leaving the other party's release live. **BUG-040 fixed:** gates use `grep -r` and prove the tool works on the bundle first, so they cannot pass in one terminal and fail in another, and cannot pass vacuously.
+- Frontend release **`20260825T165732Z`** (`index.html` Last-Modified Tue, 25 Aug 2026 16:57:41 GMT).
+
+**Results:**
+- A manager who logs in after the gate is pressed will see their real team. Before it is pressed they see a notice that says the evaluation has not started, instead of a false «нет подчинённых».
+- Two sessions can no longer overwrite each other's release without one of them being told.
+
+**Notes / Gotchas:**
+- **`/team` is empty on live until «Запустить оценку».** `JOIN active_period ap ON true` is an inner join and `active_period` is empty in the preparation window — by design (D-0822-1), now explained on screen.
+- `/team` for an **admin** now shows 5 direct reports, not the 30-person subtree. Deliberate; **BUG-065** records it.
+- **No live write of any kind**, not even a probe session: `auth_sessions` created after 16:00Z = 0. Catalogue, `score_coefficients` and `grades` md5-identical to the pre-session anchor, checked by computing the same fingerprints on live and on the stand restored from the 16:42Z dump.
+- Rollback anchor refreshed: `epe_2026_teampage_20260825_1642.dump`, md5 `5ecbf2c0c908340f4e28b63a36950129`, verified equal on the VPS and on the Mac, kept in `~/EPE_ROLLBACK/2026-08-25-teampage/` outside the repo.
+- Closed BUG-012, BUG-040, BUG-062, BUG-063. Opened BUG-065. Second gate not pressed; H1 in scope = 85.

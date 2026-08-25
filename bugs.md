@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 25 |
+| 🔴 Open | 22 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 37 |
+| 🟢 Closed | 41 |
 
 ---
 
@@ -153,7 +153,7 @@
 - Fix: bind both queries the same way check-* already do. Schedule with persist-period-results after launch.
 
 ### BUG-012: `/team` calls an admin-only API
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED (2026-08-25)
 - Severity: 📌 Medium
 - Location: `src/pages/TeamView.jsx` → `useUsers` → `GET /api/admin-users-data`; route is `ManagerRoute`.
 - Description: The page is shown to managers. The API guard is admin-only. Managers get an empty/error list. Pre-existing; reporting-surface brief hid dossier buttons but did not change the list endpoint.
@@ -161,6 +161,9 @@
 - Fix: either point the list at a manager-scoped employees read, or hide `/team` from managers until that exists.
 - H1 impact: managers use `/dashboard` for campaign tasks. `/team` is the leftover.
 
+- Fix (2026-08-25, D-0825-9): `/team` reads `GET /api/employees` through the new `src/hooks/useTeamRoster.js`. The route is actor-scoped and identity-bound — `WHERE users.manager_id = actorId`, joined to `evaluation_period_participants … is_in_scope = true` — so the server decides who the manager may see and a terminated subordinate never arrives. `TeamView` no longer imports `useUsers` and no longer walks the org tree.
+- Verification: on a throwaway stand restored from live with the campaign started, Yelena Son (manager, 13 direct reports of whom 2 terminated) logged in through the real form and saw exactly **11** subordinates, both terminated people absent by name and by e-mail, then submitted an evaluation that appeared as «Оценено мной: 1». Console for the whole pass: one pre-login 401 and nothing else. `docs/TEAM_PAGE_AND_DEPLOY_LOCK_2026-08-25.md` §3.
+- Behaviour change: `/team` is now direct reports only, not the recursive subtree, and it is empty for everybody until «Запустить оценку» is pressed — with a notice that says so. See BUG-065.
 ### BUG-016: npm production/dev advisories
 - Status: 🔴 OPEN
 - Severity: 📌 Medium
@@ -382,7 +385,7 @@
 - Source: verification gate `docs/GATE_LIFECYCLE_COEFF_2026-08-2x.md` item 7, comparing §10 against the two report files on disk and the git diff of a6ef553.
 
 ### BUG-040: `deploy_epe_frontend.sh` requires `rg` on PATH and fails closed without it
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED (2026-08-25)
 - Severity: 📝 Low
 - Location: `scripts/deploy_epe_frontend.sh` — the two safety gates (refuse if a legacy `:5678` URL remains; refuse if the `/webhook` base is absent) call `rg`.
 - Description: ripgrep is not installed on the delivery laptop, so the deploy refuses. On 2026-08-21 the gates were run by hand and the script re-run with a shell shim mapping `rg -q` to `grep -rqE`; gate semantics were preserved, not bypassed.
@@ -392,6 +395,9 @@
 
 ---
 
+- Fix (2026-08-25, D-0825-9): both gates use `grep -r`, which is POSIX and present on every machine this project runs on, and the script proves the tool works on the bundle before trusting a negative result — `test -s dist/index.html`, `command -v grep`, then `grep -r -q 'assets' dist/index.html`. That third check is the one that matters: without it a gate pointed at an empty or missing `dist` reports «legacy URL absent» and passes, and a vacuous pass reads exactly like a clean bundle. No shim was installed and none is needed.
+- Why it mattered more than it looked: the failure was asymmetric. A missing `rg` fails closed; a present `rg` passes. On 2026-08-25 one session's gates ran (Cursor had a real `rg` on PATH) and another's refused, from the same script and the same repository, and nothing recorded which had happened.
+- Verification: the deploy that shipped release `20260825T165732Z` printed `gates: legacy :5678 absent, /webhook base present` from the terminal where `bash -c 'command -v rg'` exits 1. `docs/TEAM_PAGE_AND_DEPLOY_LOCK_2026-08-25.md` §5.
 ### BUG-028: Stale top-level workflow export (evaluations-matrix)
 - Status: 🟢 CLOSED
 - Severity: 🟢 Low
@@ -532,7 +538,7 @@
 
 ### BUG-062: Two sessions can flip the live frontend symlink minutes apart, and nothing notices
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED (2026-08-25)
 - Severity: ⚠️ High
 - Location: `scripts/deploy_epe_frontend.sh` (no lock, no dirty-tree check, no commit stamp — see BUG-056); `/var/www/epe/current`.
 - Description: on 2026-08-25 a second agent session deployed release `20260825T160958Z` at 16:10:06Z while this session was mid-brief in the same checkout. This session had read `current` as `20260825T153640Z` at 16:03Z, built against that assumption, and only discovered the change because it captured `readlink current` again immediately before flipping the symlink. Had it flipped on the stale reading, the other session's live change would have been reverted silently.
@@ -541,9 +547,12 @@
 - Not done here: this brief's boundary was the frontend filter row; the deploy script was not modified. The collision was handled by hand — the release was uploaded, the symlink left alone, the build redone on top of what was actually live, and only then flipped.
 - Source: `docs/ADMIN_USERS_FILTERS_2026-08-25.md` §7.
 
+- Fix (2026-08-25, D-0825-9): two independent protections in `scripts/deploy_epe_frontend.sh`. **A lock** — atomic `mkdir` on `.epe-deploy.lock` locally and `/var/www/epe/.deploy.lock` on the host, both naming their holder, both released by an `EXIT` trap, neither ever broken automatically. **A compare-and-swap** — `current` is read before the build and re-read inside the same remote command that flips it, so nothing can move between the check and the swap; a mismatch prints `CONFLICT expected=… actual=…`, exits 1 and leaves the symlink alone. The lock catches a concurrent run of this script; the CAS catches what a lock cannot — an older copy of the script, a hand-made `ln -sfn`, or a deploy from another machine.
+- Verification (demonstrated, not asserted): deploy A was started with the delay-only test hook `EPE_DEPLOY_PAUSE_BEFORE_FLIP=90`; deploy B was refused by the lock, naming A's pid and start time, exit 1, live unchanged. Then `current` was moved by a raw `ln -sfn` to a byte-identical probe release — the public bundle hash never changed — and A refused at its flip with `CONFLICT expected=releases/20260825T162505Z actual=releases/20260825T000000Z-conflictprobe`, leaving `current` where the other party had put it. `docs/TEAM_PAGE_AND_DEPLOY_LOCK_2026-08-25.md` §4.
+- Still open next door: the release id is a timestamp and carries no commit (BUG-056), so the conflict message can say when the other build went live but not what it was.
 ### BUG-063: `/team` throws — `setLoadingSelfReviews` is called and never declared
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED (2026-08-25)
 - Severity: ⚠️ High
 - Location: `src/pages/TeamView.jsx:111` and `:136`. No matching `useState` anywhere in the file.
 - Description: `loadStatuses` calls `setLoadingSelfReviews(true)` before fetching and `setLoadingSelfReviews(false)` in its `finally`. The setter does not exist, so the first call raises `ReferenceError`. Pre-existing: `git show HEAD:src/pages/TeamView.jsx` carries both calls and no declaration, and `eslint` reports them as `no-undef` — two of the repo's 19-error baseline.
@@ -552,6 +561,10 @@
 - Not done here: `/team` is outside the ADMIN_USERS_FILTERS subject. This session touched `TeamView.jsx` only to pass the new `facets` / `activeFilterCount` props to `UserFilters` and to drop the now-unused `options`; it added no lint error and removed none.
 - Source: `docs/ADMIN_USERS_FILTERS_2026-08-25.md` §8.
 
+- Runtime verdict first (2026-08-25): **`/team` never threw for a manager.** `useUsers()` reads the admin-only `GET /api/admin-users-data`, a manager gets 403, `users` stays `[]`, and `loadStatuses` returns at `if (visibleUsers.length === 0) return;` — three lines before the undeclared setter. Proven in a browser on a stand: the manager saw «У вас нет подчинённых в системе» and a console carrying `403` + «Ошибка загрузки пользователей», with no `ReferenceError`. For an **admin** typing the URL it did throw, twice — once inside the `try` (caught and logged) and once in the `finally` (uncaught, surfacing as `Uncaught (in promise)` because `loadStatuses()` is called without `await` or `.catch`) — and the page rendered anyway, with `selfReviewsStatus` and `evaluationStatuses` never populated. The network log for that pass shows the `Promise.all` never ran: no request to `/api/hr/evaluation-status` at all. So the visible symptom was not a crash but status columns that read «nothing done» for everybody.
+- Severity, restated: a tidy-up, not a launch blocker. The launch blocker on this page was BUG-012, which is what a manager actually met.
+- Fix (2026-08-25, D-0825-9): `loadStatuses` is gone entirely, and the undeclared setter with it. The flags it was fetching now ride on `/api/employees` — `has_self_review` → Self, `evaluated_by_actor` → Рук. — which is where the manager dashboard has read them since BUG-034. `npx eslint src` drops 19 → 15 errors: two `no-undef` and the two dead handlers of the modals this change made unreachable.
+- Verification: on the fixed build an admin opening `/team` sees 5 direct reports and a console containing only the pre-login 401. `docs/TEAM_PAGE_AND_DEPLOY_LOCK_2026-08-25.md` §1.
 ### BUG-064: The user edit form still offers «Tender», which the write route refuses
 
 - Status: 🔴 OPEN
@@ -562,6 +575,16 @@
 - How to fix: remove the option from `UserModal`, or drive that select from `WORK_CATEGORY_LABELS` in `src/config/constants.js`, which already lists only `general` and `project`.
 - Not done here: the brief's subject was the filter row; `UserModal` is the edit path and was not touched.
 - Source: `docs/ADMIN_USERS_FILTERS_2026-08-25.md` §8.
+
+### BUG-065: `/team` no longer shows an admin the whole subtree, only direct reports
+
+- Status: 🔴 OPEN
+- Severity: 🟢 Low
+- Location: `src/hooks/useTeamRoster.js` → `GET /api/employees` (`scoped` CTE: `WHERE users.manager_id = ${actorId}`); `src/pages/TeamView.jsx`.
+- Description: until 2026-08-25 `/team` built its list by walking `manager_id` recursively through the admin roster, so an admin who typed the URL saw their whole subtree — 30 people for Alexander. The manager-scoped route returns direct reports only, so the same page now shows 5. For a manager nothing was lost: they never saw anything at all (BUG-012).
+- Why it matters: it does not, for the campaign — `/admin/users` is the full roster and is guarded for it, and `/team` is a manager's screen that happens to admit admins through `ManagerRoute`. It is recorded because it is a deliberate behaviour change, not an oversight, and because somebody will notice the number moved.
+- How to fix, if the owner wants the old view: a separate screen, or a `?subtree=1` parameter on a route that can prove the actor is above every person it returns. Not a change to `/api/employees`, whose whole value is that its scope is not negotiable by the client.
+- Source: `docs/TEAM_PAGE_AND_DEPLOY_LOCK_2026-08-25.md` §2 and §7.
 
 ## ✅ Closed
 

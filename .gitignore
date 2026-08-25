@@ -39,3 +39,4 @@ __pycache__/
 .claude/scratchpad.md
 .claude/sessions/
 .claude/scratchpad.md
+.epe-deploy.lock/

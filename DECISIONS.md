@@ -611,3 +611,27 @@ itself was already correct and is unchanged: role AND department AND manager AND
 search, in any order. Employment keeps `active` as its default and reset returns to it (D-0825-7).
 The rule is a frontend one; `API: Admin Get Users Data` still returns every row with no WHERE
 clause and was not touched. Report: `docs/ADMIN_USERS_FILTERS_2026-08-25.md`.
+
+### D-0825-9 — «Моя команда» is whatever the server says it is, and a deploy that started from a stale reading refuses (engineering, 2026-08-25)
+**Decision:** the manager-facing team list has one source, `GET /api/employees`, and the scope is the
+server's to decide — direct reports of the actor, in scope of the active period, only while the
+campaign is running. The client never assembles a team by walking the org tree, because a tree walked
+client-side has no way to know who is out of scope, who was terminated, or whether the campaign is
+open. Consequently `/team` and `/dashboard` answer to the same definition and cannot disagree, a
+terminated subordinate cannot appear on either, and both are empty until «Запустить оценку» is
+pressed — with a notice that says so rather than «У вас нет подчинённых в системе».
+**Consequence:** `/team` shows direct reports only, not the recursive subtree; the whole roster stays
+at `/admin/users`, where the guard for it already lives (BUG-065 records the change). The page no
+longer calls the admin-only `/api/admin-users-data` (BUG-012) nor the HR-only status route, and the
+undeclared `setLoadingSelfReviews` went with the fetch that carried it (BUG-063 — which, measured in a
+browser, never fired for a manager at all: the 403 stopped the effect three lines earlier).
+
+**Second half, the same principle applied to deploys:** a deploy may only replace the release it
+started from. `scripts/deploy_epe_frontend.sh` holds an exclusive lock locally and on the host, and
+flips the symlink with a compare-and-swap — `current` is read before the build and re-read inside the
+same remote command that flips it. A mismatch refuses and leaves the symlink alone, because the
+alternative is silently reverting whoever is live (BUG-062, after two sessions deployed eleven minutes
+apart on 2026-08-25). Neither lock is ever broken automatically. The safety gates moved from `rg` to
+`grep -r` and now prove the tool works on the bundle before trusting a clean result, so they cannot
+pass in one terminal and fail in another, and cannot pass vacuously against an empty `dist` (BUG-040).
+Report: `docs/TEAM_PAGE_AND_DEPLOY_LOCK_2026-08-25.md`.

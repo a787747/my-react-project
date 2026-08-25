@@ -252,9 +252,14 @@ const UserTable = ({
                   <td className="px-4 py-2">
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-1.5">
-                        <span className={`inline-flex w-fit items-center px-2 py-0 rounded text-xs font-medium capitalize border ${getRoleBadgeClass(user.role)}`}>
-                          {user.role === 'c_level' ? 'C-Level' : user.role}
-                        </span>
+                        {/* Роль есть не во всех источниках: /api/employees её не
+                            отдаёт, потому что для чтения собственной команды она
+                            не нужна. Пустой бейдж рисовать нечего. */}
+                        {user.role && (
+                          <span className={`inline-flex w-fit items-center px-2 py-0 rounded text-xs font-medium capitalize border ${getRoleBadgeClass(user.role)}`}>
+                            {user.role === 'c_level' ? 'C-Level' : user.role}
+                          </span>
+                        )}
                         {user.has_subordinates && (
                           <span 
                             title="Руководитель (есть подчиненные)"
