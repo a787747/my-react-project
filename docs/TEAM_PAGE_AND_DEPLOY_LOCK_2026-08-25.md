@@ -1,6 +1,7 @@
 # /team was never broken for a manager — it was empty; and two deploys can no longer race (2026-08-25)
 
 **Brief:** TEAM_PAGE_AND_DEPLOY_LOCK. **Decision:** D-0825-9.
+**Commit:** `ed390ac`.
 
 **Outcome in one line: the undeclared `setLoadingSelfReviews` never fired for a
 manager, because an admin-only API refused them three lines earlier and left the
