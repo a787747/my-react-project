@@ -1062,3 +1062,13 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 **Results:**
 - Report: `docs/CRITERIA_HR_REVIEW_2026-08-2x.md` (RU, EN executive summary; per-criterion sections; overlap matrix; rating guide; 39-row decision table R-01…R-44; verbatim appendix of all nine rows, 90 level texts and 90 coefficient rows with timestamp). md5 `285d1cf3238c0cfc69ee49bb8db945cc` for re-upload.
 - No bugs.md rows, no other repo changes (per the brief's boundary). Catalogue, coefficients, methodology, workflows untouched; decisions are the owner's, line by line.
+
+## 2026-08-25 — HR opinion: owner's line-by-line answers turned into a paste-ready 32-field edit package
+
+**What was done:**
+- Read-only continuation of the HR review: the owner answered its 11 theses line by line; this report converts each answer into one recommendation with final texts. Owner's decisions honoured: criterion-14 curve is his live tuning (excluded), criterion-1 substance is a C-level decision (language-only fixes kept), period wording = «полугодие».
+- Recommendations: keep all 9 criteria (no merges, no renames — overlap is wording, fixed by 7 surgical edits leaving criterion 14 the only home of beyond-role facts); drop «незаменим»/«лояльность»/«свой человек» anchors; criterion 14 level 2 loses «качественно» (quality is criterion 3's fact — double-punishment removed); criterion 13 re-anchored to project-load share with «аврал»/«рекордная длительность»/«совмещение ролей» deleted; upward and self-assessment honesty via instruction, «Жертва» label removed; norm declared = 6 (texts win, curves stay); quality/compliance and client outcomes embedded into criterion 3's description, peer help restored to 3-L7 (revision of the review's own R-05) — no new criteria before H1.
+- §9 = merged paste-ready package: 32 fields across all nine criteria, each field final and complete, to be entered by the owner in /admin before «Запустить оценку». Nothing was written to the system.
+
+**Results:**
+- Report: `docs/CRITERIA_HR_OPINION_2026-08-2x.md`, md5 `834a209319df8251a4614c155ba1122b` for re-upload; no other repo changes, no bugs.md rows.
