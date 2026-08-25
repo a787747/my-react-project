@@ -561,3 +561,23 @@ Any future results-release decision (HANDOVER §6) concerns manager → subordin
 **Context:** live had the whole Lab Solutions branch flat under Bayram Urayev (COO, id 18): Jahan Hojayeva was `role=employee` with zero direct reports despite the job title «Head of the Lab Solutions Division», and both Clinical Lab Solutions sub-department heads plus the two Special Lab Solution employees reported to the COO directly. The `departments` table has no parent column (`id, name, description` only), so department nesting is not expressible there — the evaluation hierarchy lives solely in `users.manager_id`.
 **Decision (Alexander):** the Lab Solutions Division is headed by Jahan Hojayeva (45) and structurally contains Special Lab Solution (no leader) and two Clinical Lab Solutions sub-departments, led by Nurmammet Hekimov (68) and Akmyrat Jumahanov (1). Applied as six `manager_id`/`role` edits: Hekimov and Jumahanov report to Hojayeva; Special Lab Solution's two people (Kostina 6, Muhammedov 55) report to Hojayeva because their sub-department has no leader; Muhammetberdi Garayev (53) joins Hekimov's sub-department; Hojayeva becomes `role=manager`. Hojayeva continues to report to Urayev. Nothing else about the 89 changed.
 **Consequence:** Hojayeva is now evaluated on criterion 2 «Качество управления и развитие команды» (applicability is gated on `has_subordinates`, not on role) — 7 criteria instead of 6, and the live distribution moves from 37/11/36/5 to **38 × 4, 11 × 5, 34 × 6, 6 × 7**. Hekimov, Jumahanov, Kostina and Muhammedov gain an upward channel they did not have (their previous manager was `c_level`, which the upward filter excludes) and Hojayeva gains four manager→subordinate tasks; Urayev drops from nine direct reports to four. The org-wide invariant `role=manager ⇔ has direct reports` is preserved (13 managers, zero exceptions).
+
+### D-0825-5 — Logistics reports to Jafarova; Egamberdyev returns to project (owner, 2026-08-25)
+**Decision (Alexander):** the logistics department reports to Rovshen Jafarova, titled Logistics
+Team Lead (Acting Head of Department), role manager, reporting to Alexander Petrosov (id 2).
+Kurbangeldyev (33) is a deliberate exception and keeps the manager set by the owner on
+2026-08-25. Ruslan Egamberdyev (74), moved to general on 2026-08-24 for a test, returns to
+project participant.
+**Consequence:** money. Jafarova gains criterion 2 «Качество управления» (weight 3.00) and the
+logistics staff gain an upward channel pointing at her instead of at no one; Egamberdyev's
+criteria count returns to its project value, roughly +47% on the bonus index at equal scores.
+Both changes are made before the second gate, so no evaluation rows are affected.
+
+### D-0825-6 — Six people are out of evaluation by design; C-level is not evaluated from below
+**Decision (Alexander):** three C-level (the read-only trio), the General Manager and two
+shareholders are in scope but are evaluated by no one. This is intended, not a coverage defect.
+The upward channel excludes subjects whose role is c_level or admin, so the ~24 people who report
+directly to C-level have no upward task. This too is intended for H1.
+**Consequence:** the evaluated population is 81, not 87 — campaign completion is measured against
+81. The six receive no evaluation rows and therefore no bonus index; the pool is distributed over
+the remaining people. Both facts belong in EVALUATION_METHODOLOGY §1 and §6.

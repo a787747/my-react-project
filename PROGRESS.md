@@ -1266,3 +1266,31 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - **Criterion 2 keys on `has_subordinates`, not on role** — confirmed again from the live `API: Get Employees` SQL. Setting someone's role to `manager` without giving them a subordinate changes nothing in their evaluation or their money.
 - **`API: Submit Self Review` requires role ∈ `employee`/`manager`/`hr`.** All six admin/c_level accounts get a role refusal before the `NO_GRADE_COEFFICIENT` 422 can fire, so the three grade-less C-level rows never reach it. All six are in H1 scope and produce and receive nothing — completion should be counted against 81, not 87.
 - **Six throwaway stands (`epe_orgrev_*`) were created and dropped**; `SELECT datname` after teardown shows only `epe_2026` and `postgres`. The pre-gate anchor in `/root/epe_stand_tmp` was deliberately left — it belongs to the smoke test that has not run.
+
+---
+
+## 2026-08-25 — Logistics under Jafarova; Egamberdyev back on project (live writes)
+
+**What was done:**
+- Applied the owner's decisions on the org sheet — D-0825-5 and D-0825-6, both appended verbatim to `DECISIONS.md`. Report `docs/ORG_FIX_LOGISTICS_2026-08-25.md`; executor `scripts/apply_logistics_and_project_return.py` (`--dry-run` runs every gate and prints the payloads without writing and without taking a dump).
+- **A fresh rollback anchor first.** `epe_2026_pregate_20260825T121617Z.dump` (12:16Z) predates the six Lab-Division writes and the owner's four browser edits, so restoring it would have undone all ten. New anchor `epe_2026_pregate_20260825T141806Z.dump`, **80 706 bytes, md5 `bdf13cfbaae9decf2e29a0e93495412d`**, on the VPS at `/root/epe_stand_tmp/` (600) and pulled to `~/EPE_ROLLBACK/2026-08-25-logistics/` — **outside the repository**. The old dump is left in place as history only.
+- **Eight `POST admin/save-user` calls, all 200**, 14:18:26–14:19:07Z: Dzhafarova (5) retitled «Logistics Team Lead (Acting Head of Department)» (role `manager` and manager 2 were already correct and were resent unchanged); ids 12, 13, 43, 60, 62, 84 moved to manager 5; Egamberdyev (74) `work_category` general → project.
+- Same discipline as D-0825-3: route only, never raw SQL; every payload the live row read fresh immediately before its own write; every stored field compared to the payload before the next call; `has_subordinates` left to `trg_update_has_subordinates`.
+
+**Results:**
+- **Independent drift check** — the anchor was restored into a throwaway DB and diffed against live: **9 changed cells out of 1 780** (89 people × 20 columns), exactly the intended ones plus `74.is_project_participant` which the route derives. Frozen columns untouched on all 89. `criteria` / `score_coefficients` / `grades` / `departments` / `evaluation_periods` / `evaluation_period_participants` md5-identical on both sides.
+- Invariants after: `role=manager ⇔ has direct reports` **0 exceptions** (13 managers); `has_subordinates` vs the graph **0 disagreements**; cycles **0**, max depth 5; people with no evaluator **0**; in scope but evaluated by nobody = **exactly the six** (2, 18, 21, 40, 47, 61); evaluated population **81**.
+- H1 still `active` / `is_active` / `evaluation_started_at` **NULL** — the second gate was not pressed; four data tables still 0/0/0/0; participants 89 / in scope 87; `auth_sessions` 13 → 13.
+- Criteria distribution **38/11/34/6 → 37 × 4, 11 × 5, 35 × 6, 6 × 7**; category split **49/40 → 48/41**. Exactly one person moved bucket — Egamberdyev, 4 → 6.
+- Jafarova: 1 → **7** manager tasks and 1 → **7** upward reviewers; her own criteria unchanged at five. In-scope people with no upward channel **24 → 18**. Mid-level corrector for the six movers: Durukan (21) → Petrosov (2). Petrosov's direct reports 12 → 6.
+- Egamberdyev's bonus index at equal scores, live weights and his real grade coefficient (S3, 1.40): at the norm (6) **69.72 → 102.31, +46.8 %**; the spread across levels 4–8 is +45.7 % … +55.8 %.
+- Read surface re-read afterwards: `GET /api/periods` 200 (87 / 89, `evaluation_started=false`), `GET /api/admin-users-data` 200 with all eleven inspected rows exactly as written, `GET /api/employees` 200 with `campaign_active=false` and an empty task list.
+
+**Notes / Gotchas:**
+- **The owner named «Rovshen Jafarova»; live has exactly one Jafarova and her `full_name` is «Alyona Dzhafarova» (id 5).** The run refuses to write unless the search returns exactly one Logistics-department match, and it did. The name field was **not** changed — the brief named `job_title`, `role` and `manager_id` only. Whether «Rovshen» is her real name is surfaced for the owner.
+- **Kurbangeldyev (33) is in department 11 IT, not 4 Logistics**, so the deliberate exception never bound — he was never a write candidate. His row was asserted identical before and after anyway.
+- **D-0825-5's consequence sentence is wrong on one point and it is recorded verbatim regardless.** Jafarova did **not** gain criterion 2: she has had two subordinates throughout, criterion 2 keys on `has_subordinates`, and her criteria set is `[2, 3, 4, 12, 14]` before and after. Her money did not move. What the change actually buys is the upward channel for seven logistics people and six new manager tasks for her. Corrected in `docs/ORG_FIX_LOGISTICS_2026-08-25.md` §5.1, not in the decision text.
+- **D-0825-6's «~24»** was true before this brief and is **18** after it; the «81» in the same decision is confirmed by live.
+- **«87 / 89»** is computed in LIVE `API: Manage Periods` → `Build Periods Query` (two `COUNT(*)` subqueries on `evaluation_period_participants`) and rendered at `src/pages/AdminPeriods.jsx:609-610`. Not changed — it measures period membership, not the evaluated population.
+- **A `dblink` extension was created on live `epe_2026` for the first diff attempt and immediately dropped**; `pg_extension` is back to `plpgsql` only. The diff was redone without it. Recorded because no instruction asked for it.
+- Throwaway DB `epe_logifix_20260825t1418z` created and dropped — only `epe_2026` and `postgres` remain. No stand container; no container restarted or stopped. BUG-059 stays open: these eight writes are dated only because the run recorded them.
