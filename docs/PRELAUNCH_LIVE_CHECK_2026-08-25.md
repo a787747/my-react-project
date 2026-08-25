@@ -444,3 +444,34 @@ a whole-file re-measurement, which this brief did not ask for.
 ---
 
 **Live readings in this report were taken between 2026-08-25T12:11:01Z and 12:16:17Z (server clock).**
+
+---
+
+## Postscript — §2 superseded in part, later the same day (D-0825-3)
+
+The readings above stand as taken; this note says what changed after them, rather than editing them.
+
+§2.4 stated that Hojayeva «contributes a self-review and nothing else» and §2 surfaced her title/role
+mismatch as an org-data question for the owner. The owner answered it in session: she **is** the head
+of the Lab Solutions Division, which contains Special Lab Solution (no leader) and two Clinical Lab
+Solutions sub-departments under Hekimov and Jumahanov. Live did not reflect that at all — the whole
+branch was flat under Bayram Urayev — and it was corrected at **12:41–12:42Z** through six
+`POST admin/save-user` calls (**D-0825-3**, `docs/LAB_DIVISION_HIERARCHY_2026-08-25.md`).
+
+What that supersedes here:
+
+- **§2.1** — Hojayeva (45) is now `role=manager`, `has_subordinates=t`, with four direct reports
+  (1, 6, 55, 68). Hekimov (68) and Jumahanov (1) now report to 45, not 18; Hekimov has four reports,
+  Garayev (53) having joined them.
+- **§2.4** — she is no longer self-review-only: she has four manager→subordinate tasks and is now an
+  upward subject for those four. **The Hekimov ↔ Ruhlyadko pair the smoke test rests on is
+  untouched.**
+- **§2, second bullet** — the «cheapest addition is Bayram Urayev» suggestion is moot; the second
+  manager→subordinate pair now exists inside the division.
+- **§5.1** — the criteria distribution moved again, by one person: **38 × 4, 11 × 5, 34 × 6, 6 × 7**.
+  The 49 general / 40 project split is unchanged (no classification was touched).
+
+Everything else in this report — the gate still unpressed, the catalogue byte-identity, the four zero
+row counts, registered = 2, invite token id 4, the backup status, and the §3 rollback anchor — was
+re-read after the change and is unchanged. The anchor in particular predates it, which is the point
+of having taken it.

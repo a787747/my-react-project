@@ -1219,3 +1219,25 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - **Two blockers before any live smoke test:** none of the three is registered, and the only route-based registration path emails a code to a real employee mailbox — hard constraint 5 / D-0820-8, forbidden since 2026-08-20. And submit is 409 until the gate is pressed, so manager→subordinate and upward are post-gate by construction. Both are Alexander's calls.
 - **Surfaced, not resolved:** Hojayeva's title reads «Head of the Lab Solutions Division» while she is `role=employee`, `has_subordinates=f`, sole member of department 1 — so no criterion 2 and no upward review of her. Org data, not code. Three world-readable EPE artefacts still in VPS `/tmp` (**BUG-058**). HANDOVER left unedited on purpose: its provenance header claims a single 2026-08-24 re-measurement pass, and patching two numbers inside it would make the header false for the rest.
 - The pre-gate dump deliberately stays in `/root/epe_stand_tmp` past this brief's teardown — it is the smoke test's rollback anchor. Whoever runs that test removes it.
+
+## 2026-08-25 — Lab Solutions Division attached to its actual head on live (D-0825-3)
+
+**What was done:**
+- Owner statement in session: Jahan Hojayeva heads the Lab Solutions Division, which contains Special Lab Solution (no leader) and two Clinical Lab Solutions sub-departments under Nurmammet Hekimov and Akmyrat Jumahanov. **Live did not reflect any of it** — the whole branch was flat under Bayram Urayev (COO) and Hojayeva was `role=employee` with zero direct reports.
+- `performance_db.departments` is `id, name, description` only — **no parent column**, so department nesting is unstorable there. The evaluation hierarchy lives solely in `users.manager_id`, which is where the fix went.
+- Six writes through `POST /webhook/admin/save-user`, never raw SQL on `users`: Hojayeva `role` employee→manager; Hekimov (68), Jumahanov (1), Kostina (6), Muhammedov (55) → manager_id 45; Garayev (53) → manager_id 68. Hojayeva keeps reporting to Urayev.
+- Two ambiguities were put to the owner rather than guessed and answered in session: Special Lab Solution's two people go to Hojayeva (no leader in that sub-department), Garayev joins Hekimov.
+- Executor: `scripts/apply_lab_division_hierarchy.py` (has `--dry-run`, which runs every gate and prints the payloads without writing). Report `docs/LAB_DIVISION_HIERARCHY_2026-08-25.md`, decision row D-0825-3.
+
+**Results:**
+- All six calls **200**, every stored row compared field-by-field to its payload before the next call. Proof `backups/2026-08-25-lab-division/lab_division_proof.json`, `failures: []`.
+- **Zero drift outside the six intended fields** across all 89 users and every column; the nine frozen columns (salary, join_date, password_hash, can_evaluate/can_be_evaluated, token_version, created_at, employment_type) untouched on all 89.
+- Invariants after: `has_subordinates` vs the graph — **0 disagreements**; `role=manager ⇔ has direct reports` — **0 exceptions** (13 managers); people with no evaluator — **0**; management-chain cycles — **0**, max depth 4.
+- H1 untouched: `active` / `is_active` / `evaluation_started_at` **still NULL**; the four data tables still 0; `auth_sessions` 13→13 (probe session deleted in a `finally`); registered still 2.
+- Criteria distribution moved by exactly one person — Hojayeva 6→7: **38 × 4, 11 × 5, 34 × 6, 6 × 7**.
+
+**Notes / Gotchas:**
+- **`admin/save-user` is a full-row UPDATE with dangerous defaults** — `body.role || 'employee'` and `body.work_category || 'general'`. An omitted `role` silently demotes a manager; an omitted `work_category` silently reclassifies a project participant, dropping two criteria and changing their bonus. Every payload here was the live row read fresh immediately before its own write, all nine writable columns resent, one field replaced. Anyone touching this route must do the same.
+- **`has_subordinates` must not be written by hand.** `trg_update_has_subordinates` (`AFTER INSERT OR DELETE OR UPDATE OF manager_id`) recomputes it on both the old and the new manager. The run asserts the trigger's result instead of setting the value.
+- **What was actually broken, in H1 terms:** Hojayeva was not scored on criterion 2 at all (applicability is gated on `has_subordinates`, not on role), and five people had no upward channel because their manager was `c_level`, which the upward filter excludes. Both are fixed by the six edits.
+- The smoke-test pair Hekimov ↔ Ruhlyadko is untouched. `docs/PRELAUNCH_LIVE_CHECK_2026-08-25.md` gained a postscript naming exactly which of its §2 statements this supersedes; its readings were left as taken.
