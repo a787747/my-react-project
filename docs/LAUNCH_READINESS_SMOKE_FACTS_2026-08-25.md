@@ -601,3 +601,9 @@ dead cleanup button is still reachable in the shipped bundle.
   row.
 
 No recommendation is made about pressing «Запустить оценку». That decision is Alexander's.
+
+---
+
+**This report's commit:** `0f36bdb3e341e4d3b3a816e96a169cb88dd3b4f3` on branch `claude/launch-readiness-smoke-facts-laz4i7`.
+The line above was added in the immediately following commit on the same branch, which changes
+nothing else in this file.
