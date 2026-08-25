@@ -1241,3 +1241,28 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - **`has_subordinates` must not be written by hand.** `trg_update_has_subordinates` (`AFTER INSERT OR DELETE OR UPDATE OF manager_id`) recomputes it on both the old and the new manager. The run asserts the trigger's result instead of setting the value.
 - **What was actually broken, in H1 terms:** Hojayeva was not scored on criterion 2 at all (applicability is gated on `has_subordinates`, not on role), and five people had no upward channel because their manager was `c_level`, which the upward filter excludes. Both are fixed by the six edits.
 - The smoke-test pair Hekimov ↔ Ruhlyadko is untouched. `docs/PRELAUNCH_LIVE_CHECK_2026-08-25.md` gained a postscript naming exactly which of its §2 statements this supersedes; its readings were left as taken.
+
+---
+
+## 2026-08-25 — Org-structure review sheet for the owner (read-only; live)
+
+**What was done:**
+- The Lab Solutions defect was found by accident. This brief asks whether there are more like it. The database cannot answer that — it is internally consistent and can only be wrong against the real company — so the deliverable is a sheet the owner marks up: `docs/ORG_REVIEW_H1_2026-08-25.md`, in Russian, readable without a glossary.
+- Live access had to be established, not assumed: the first probes failed (ICMP 100 % loss, TCP 22/80/443 all timing out to `92.51.45.147`, while `1.1.1.1:443` and `8.8.8.8:53` answered). It cleared on retry; a tunnel came up and `docker exec postgres_n8n psql -U admin -d epe_2026` answered at 13:18:37Z. No repository inference was substituted for a live reading.
+- The sheet carries all 89 people as a tree by manager — every person appears exactly once, in their manager's table — with id, name, title, department, role, category, criteria count, and the named evaluator on each of the four channels, plus two empty tick-boxes per row («☐ рук.?» / «☐ проект?»).
+- Anomalies: 17 items, each one line plus why it may matter, surfaced and not resolved.
+- Classification stated as money, with the diff done against the retained dumps.
+
+**Results:**
+- Live at 2026-08-25 13:19–13:22Z: 89 users; **49 general / 40 project** (`is_project_participant` agrees on all 89); criteria per person **38 × 4, 11 × 5, 34 × 6, 6 × 7**; 87 in H1 scope; **81** with a manager channel, **13** evaluated from below, **81** able to self-review, **6** whom nobody evaluates.
+- The 48/41-vs-49/40 question in HANDOVER §7 is answered by name: **Ruslan Egamberdyyev (74), project → general, 2026-08-24 19:11:42 UTC**. The date is exact, not a window: the 24 Aug and 25 Aug cron dumps bracket the change, and the Caddy log holds exactly one successful `save-user` in that bracket.
+- Full-column diff of all 89 users, all 19 non-password columns, from the oldest retained cron dump (2026-08-21T11:45:01Z) to live: **exactly 10 changed cells across 7 people**. Two earlier classification moves — Kulmamedova (16), Annameredov (20) — recovered from the 2026-08-20T13:42:34Z ad-hoc dump; both datable only to a 22-hour window.
+- Money made concrete from live weights and level coefficients: at score 6 everywhere and grade coefficient 1.00 the bonus index is **49.80 / 71.40 / 73.08 / 94.68** for the 4 / 5 / 6 / 7-criteria profiles — general→project is about **+47 %**.
+- End-of-session re-read at 13:39:37Z: H1 still `active` / not started, four data tables still 0, 9 criteria, 90 coefficients, 49/40 unchanged. Nothing drifted during the session.
+
+**Notes / Gotchas:**
+- **The accepted Lab Division report no longer matches live, and this is filed as BUG-059.** Ten `save-user` calls landed today: six from the script at 12:41:52–12:42:22Z (documented) and **four from a browser at 12:52:31–12:56:27Z that no report records**. They moved Garayev (53) from Hekimov (68) to Hojayeva (45) — contradicting `LAB_DIVISION_HIERARCHY_2026-08-25.md` §2 write #6, §3 and §4 — and Kurbangeldiyev (33) from Gulberdiyeva (47) to Petrosov (2). Neither the data nor the earlier report was touched here; both are surfaced.
+- **`users` has no `updated_at` and the write route keeps no log.** Every date in §4 of the sheet came from restoring dumps and cross-referencing a Caddy log that retains ~2 days. Cron dumps of `epe_2026` retain 5 stems; anything before 2026-08-20 is unrecoverable.
+- **Criterion 2 keys on `has_subordinates`, not on role** — confirmed again from the live `API: Get Employees` SQL. Setting someone's role to `manager` without giving them a subordinate changes nothing in their evaluation or their money.
+- **`API: Submit Self Review` requires role ∈ `employee`/`manager`/`hr`.** All six admin/c_level accounts get a role refusal before the `NO_GRADE_COEFFICIENT` 422 can fire, so the three grade-less C-level rows never reach it. All six are in H1 scope and produce and receive nothing — completion should be counted against 81, not 87.
+- **Six throwaway stands (`epe_orgrev_*`) were created and dropped**; `SELECT datname` after teardown shows only `epe_2026` and `postgres`. The pre-gate anchor in `/root/epe_stand_tmp` was deliberately left — it belongs to the smoke test that has not run.

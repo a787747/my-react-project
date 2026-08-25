@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 21 |
+| 🔴 Open | 22 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 37 |
 
@@ -496,6 +496,17 @@
 - How to fix: `rm -rf /tmp/epe-health-body /tmp/epe-n8n-before-recreate.json /tmp/epe-docs-hygiene` from a session authorised to write. Confirm nothing else matches `/tmp/*epe*` afterwards.
 - Not done here: `docs/PRELAUNCH_LIVE_CHECK_2026-08-25.md` was a read-only brief; its boundary was «surface, do not resolve».
 - Source: `docs/PRELAUNCH_LIVE_CHECK_2026-08-25.md` §5.2.
+
+### BUG-059: User-row edits leave no trace, and two of them silently invalidated an accepted report
+
+- Status: 🔴 OPEN
+- Severity: ⚠️ High
+- Location: `performance_db.users` (no `updated_at`, no history table); LIVE `API: Admin Save User (GUI Mode)` (writes nothing to an audit trail); `docs/LAB_DIVISION_HIERARCHY_2026-08-25.md` §2 write #6, §3, §4.
+- Description: `performance_db.users` has 20 columns and none of them records when or by whom a row last changed, and the only write route keeps no log. On 2026-08-25 the Caddy access log shows ten `POST /webhook/admin/save-user` calls: six from `Python-urllib/3.12` at 12:41:52–12:42:22 UTC (the D-0825-3 script, fully documented) and **four from a Mac browser at 12:52:31–12:56:27 UTC that no report records**. A full-column diff of all 89 users against the 2026-08-25T00:20:01Z cron dump shows exactly what those four did: `53 Muhammetberdi Garayev` moved from manager 68 to **45**, and `33 Eziz Kurbangeldiyev` moved from manager 47 to **2**. The first contradicts an accepted report: `LAB_DIVISION_HIERARCHY_2026-08-25.md` states write #6 as `53 → 68`, its §3 tree puts Garayev under Hekimov, and its §4 verification table asserts `Hekimov reports [20, 53, 56, 85]` / `Hojayeva reports [1, 6, 55, 68]`. Live at 2026-08-25 13:39 UTC reads `Hekimov [20, 56, 85]` and `Hojayeva [1, 6, 53, 55, 68]`. The report was true when written; it is false now, and nothing in the system says so.
+- Why it matters: two separate costs. (1) Any report that quotes a user row is unfalsifiable after the fact — the only way this session could date a change at all was to restore five cron dumps and cross-reference a Caddy log that retains two days. Classification changes older than 2026-08-23 can now be dated only to a 22-hour window, and anything before 2026-08-20 cannot be recovered at all. (2) Classification is a money input (criteria count drives bonus share, HANDOVER §4), so an undated, unattributed change to `work_category` moves someone's share of the pool with no record of who moved it.
+- How to fix: the durable fix is an audit row per user write (actor from the guard identity, user id, old value, new value, timestamp) — the same gap already noted for coefficient writes in HANDOVER §7. The cheap interim is an `updated_at` column with a trigger, which at least dates a change even if it cannot attribute it. Separately, `docs/LAB_DIVISION_HIERARCHY_2026-08-25.md` needs a postscript recording the 12:52–12:56 edits, in the same style as the postscript `PRELAUNCH_LIVE_CHECK_2026-08-25.md` already carries.
+- Not done here: `docs/ORG_REVIEW_H1_2026-08-25.md` was a read-only brief with the boundary «surface, do not resolve»; neither the data nor the earlier report was touched. Whether Garayev belongs under Hekimov or under Hojayeva is an org-data question for the owner, and it is A1 in the review sheet.
+- Source: `docs/ORG_REVIEW_H1_2026-08-25.md` §3 A1/A2 and §4.3.
 
 ## ✅ Closed
 
