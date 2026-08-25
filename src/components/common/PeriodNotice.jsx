@@ -16,13 +16,15 @@ const PeriodNotice = ({ notice }) => {
         </div>
         <div className="flex-1 min-w-0">
           {notice.showTitle && notice.title && (
-            <h2 className="text-xl font-bold text-slate-900 mb-2">{notice.title}</h2>
+            <h2 className="text-xl md:text-xl font-bold text-slate-900 mb-2 leading-normal">
+              {notice.title}
+            </h2>
           )}
-          <p className="text-slate-700 leading-relaxed mb-3">{notice.body}</p>
+          <p className="text-sm text-slate-700 leading-normal mb-3">{notice.body}</p>
           {notice.showScope && notice.scope && (
-            <p className="text-slate-700 leading-relaxed mb-3">{notice.scope}</p>
+            <p className="text-sm text-slate-700 leading-normal mb-3">{notice.scope}</p>
           )}
-          <p className="text-sm font-medium text-slate-800">{notice.stateLine}</p>
+          <p className="text-sm font-medium text-slate-800 leading-normal">{notice.stateLine}</p>
         </div>
       </div>
     </div>

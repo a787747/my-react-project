@@ -23,34 +23,32 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
 
 const VERBATIM_RULES = [
-  '1. Оцениваете период, не человека. Только факты H1 2026: не должность, не стаж, не прошлый год, не потенциал. Последний месяц не важнее первых пяти.',
-  '2. Норма — это 6. По критериям 3, 4, 8, 10, 12, 13 (и 2 для руководителей) уровень 6 = «выполняет ожидания, нареканий нет». Это хорошая оценка, а не «серединка»; 5 — «в целом справляется, требует внимания». Не бойтесь ставить 6 большинству.',
-  '3. Критерий 14: норма — 2, и это не упрёк. 2 = «делал своё, сверхзадач не возникало» — состояние большинства. Выше 2 — только за конкретный взятый сверх роли факт. Критерий 13 — шкала объёма, а не качества: 2–3 у консультанта — это факт малого объёма, не плохая работа.',
-  '4. Один факт оплачивается один раз. Свой объём в проекте → 13. Чужая работа или участок, взятые и сделанные → 14 (даже у проектного). Помощь и взаимодействие в проекте → 8; принятая ответственность за участок → 14. Качество своей функции → 3; удобство работы с вами руководителя → 4. Изучил новое → 12; отвечал за новое → 14.',
-  '5. Крайние оценки — только с фактом. Ставите 1–2 или 9–10 — назовите конкретный факт в комментарии. Без факта такая оценка не переживёт калибровку.',
-  '6. Чего не оцениваем: лояльность, похожесть на себя, часы и переработки, «своего человека», обещания. Оцениваем результат и наблюдаемое поведение.',
-  '7. Оцениваете своего руководителя (критерий 2): ставьте только по тому, что видели сами — постановка задач, объяснение «зачем», обратная связь, атмосфера, помощь при проблемах. Не гадайте про «кадровый резерв» и «школу кадров» — это видно только сверху.',
-  '8. Самооценка (3, 4, 12): оцените, как по фактам периода оценил бы вас руководитель. Расхождение с его оценкой — не ошибка и не наказание, а материал для разговора.',
-  '9. C-level (1 и 10): по 1 оценивайте фактическую роль периода, как сказано в описании критерия, а не строчку в штатном расписании. По 10 перед оценкой ниже 6 «потому что не знаю человека» — выполните текст критерия: спросите тех, кто с ним работает. Сверьте оценки между собой.',
-  '10. Описания уровней — архетипы. Выбирайте доминирующий паттерн периода, а не худший эпизод и не среднее арифметическое. Если подходят два уровня — берите тот, чьё «ядро» точнее описывает главный факт периода.',
+  '1. Оцениваете факты по критериям за этот период. Только факты первого полугодия 2026: не должность, не стаж, не прошлый год, не потенциал, не дружбу, не общее впечатление. Последний месяц не важнее первых пяти.',
+  '2. Норма — это 6. Уровень 6 = «выполняет ожидания, нареканий нет». Это хорошая оценка, а не «серединка»; 5 — «в целом справляется, требует внимания». Не бойтесь ставить 6 большинству.',
+  '3. Критерий «Ответственность сверх роли»: норма — 2, и это не упрёк. 2 = «делал своё, сверхзадач не возникало» — состояние большинства. Выше 2 — только за конкретный взятый сверх роли факт. Критерий «Объем проектной работы и загрузка» — шкала объёма, а не качества: 2–3 у консультанта — это факт малого объёма, не плохая работа.',
+  '4. Крайние оценки — только с фактом. Ставите 1–2 или 9–10 — назовите конкретный факт в комментарии. Без факта такая оценка не переживёт калибровку.',
+  '5. Чего не оцениваем: лояльность, похожесть на себя, часы и переработки, «своего человека», обещания, намерения. Оцениваем результат и наблюдаемое поведение.',
+  '6. Оценка руководителя — возможность дать ему объективную обратную связь для развития. Критерий «Качество управления и развитие команды». Цель — помочь руководителю расти. Ставьте по тому, что видели сами: постановка задач, объяснение «зачем», обратная связь, атмосфера, помощь при проблемах, поддержка в исполнении, но не работа за вас.',
+  '7. Самооценка: оцените, как по фактам периода оценил бы вас руководитель. Расхождение с его оценкой — не ошибка и не наказание, а материал для разговора. Эта оценка важна ещё и для того, чтобы вы понимали, как вас оценивают.',
+  '8. Описания уровней — обычное поведение, не разовый случай. Оценивайте то, как человек работал обычно в течение периода, а не один удачный или неудачный эпизод. Если подходят два уровня — берите тот, чьё «ядро» точнее описывает типичное поведение.',
 ];
 
-test('rating guide title and ten rules are verbatim', () => {
-  assert.equal(RATING_GUIDE_TITLE, 'Как ставить оценки — 10 правил H1');
-  assert.equal(RATING_GUIDE_RULES.length, 10);
+test('rating guide title and eight rules are verbatim', () => {
+  assert.equal(RATING_GUIDE_TITLE, 'Как ставить оценки — 8 правил H1');
+  assert.equal(RATING_GUIDE_RULES.length, 8);
   RATING_GUIDE_RULES.forEach((rule, index) => {
     assert.equal(formatRatingGuideRule(rule), VERBATIM_RULES[index]);
   });
 });
 
-test('employee subset is rules 1, 7 and 8 only', () => {
-  assert.deepEqual(EMPLOYEE_GUIDE_RULE_NUMBERS, [1, 7, 8]);
+test('employee subset is rules 1, 6 and 7 only', () => {
+  assert.deepEqual(EMPLOYEE_GUIDE_RULE_NUMBERS, [1, 6, 7]);
   const employee = getRatingGuideRules('employee');
-  assert.deepEqual(employee.map((r) => r.n), [1, 7, 8]);
+  assert.deepEqual(employee.map((r) => r.n), [1, 6, 7]);
   assert.equal(employee.length, 3);
 });
 
-test('Welcome manager track mounts the full guide; employee track mounts 1/7/8', () => {
+test('Welcome manager track mounts the full guide; employee track mounts 1/6/7', () => {
   const welcome = read('src/pages/Welcome.jsx');
   const managerIdx = welcome.indexOf('Процесс оценки (для менеджеров с подчиненными)');
   const employeeIdx = welcome.indexOf('Процесс оценки (для сотрудников без подчиненных)');
@@ -64,12 +62,40 @@ test('Welcome manager track mounts the full guide; employee track mounts 1/7/8',
   assert.doesNotMatch(employeeBlock, /variant="full"/);
 });
 
+test('Welcome and criteria cards share one title/body type scale', () => {
+  const overview = read('src/components/profile/CriteriaOverview.jsx');
+  const welcome = read('src/pages/Welcome.jsx');
+  const period = read('src/components/common/PeriodNotice.jsx');
+  assert.match(overview, /text-base font-semibold text-gray-900 mb-1 leading-normal/);
+  assert.match(overview, /text-sm text-gray-600 mb-2 leading-normal/);
+  assert.match(welcome, /text-base font-semibold text-brand-900 mb-1 leading-normal/);
+  assert.match(welcome, /text-sm text-brand-800 leading-normal/);
+  assert.match(welcome, /text-sm text-slate-700 leading-normal mb-3/);
+  assert.match(period, /text-xl md:text-xl font-bold text-slate-900 mb-2 leading-normal/);
+  assert.match(period, /text-sm text-slate-700 leading-normal mb-3/);
+  assert.doesNotMatch(welcome, /leading-relaxed/);
+  assert.doesNotMatch(period, /leading-relaxed/);
+});
+
+test('Welcome extra-criteria card describes project criteria, not management', () => {
+  const welcome = read('src/pages/Welcome.jsx');
+  const extraIdx = welcome.indexOf('Дополнительные критерии');
+  const extra = welcome.slice(extraIdx);
+  assert.match(extra, /Взаимодействие и надежность в проекте/);
+  assert.match(extra, /вклад в общий результат, а не только выполнение своей функции/);
+  assert.match(extra, /Объем проектной работы и загрузка/);
+  assert.match(extra, /долю рабочего времени, занятую проектом/);
+  assert.match(extra, /не ограничивался рутинной работой/);
+  assert.doesNotMatch(extra, /только у участников проектов/);
+  assert.doesNotMatch(extra, /Качество управления и развитие команды/);
+});
+
 test('manager evaluation form reaches the full guide in one click', () => {
   const modal = read('src/components/EvaluationModal.jsx');
   assert.match(modal, /<RatingGuide variant="full" collapsible defaultOpen=\{false\} \/>/);
 });
 
-test('employee upward and self-assessment surfaces show rules 1, 7 and 8', () => {
+test('employee upward and self-assessment surfaces show the employee guide', () => {
   assert.match(read('src/pages/ManagerEvaluation.jsx'), /<RatingGuide variant="employee" \/>/);
   assert.match(read('src/pages/SelfReview.jsx'), /<RatingGuide variant="employee" \/>/);
   assert.match(read('src/components/self-review/SelfReviewModal.jsx'), /<RatingGuide variant="employee" \/>/);

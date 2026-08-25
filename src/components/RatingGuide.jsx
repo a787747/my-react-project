@@ -10,6 +10,13 @@ import {
   getRatingGuideRules,
 } from '../content/ratingGuideH1';
 
+/** Display-only: keep words, put each "A → B." sentence on its own line. */
+const bodyLines = (body) => {
+  if (!body.includes('→')) return [body];
+  const lines = body.split(/(?<=\.)\s+/).filter(Boolean);
+  return lines.length > 1 ? lines : [body];
+};
+
 const RatingGuide = ({
   variant = 'full',
   collapsible = false,
@@ -25,12 +32,12 @@ const RatingGuide = ({
         <BookOpen className="w-5 h-5 text-brand-600" />
       </div>
       <div className="min-w-0">
-        <h2 className="text-xl font-bold text-slate-900">
+        <h2 className="text-xl md:text-xl font-bold text-slate-900 leading-normal">
           {RATING_GUIDE_TITLE}
         </h2>
         {variant === 'employee' && (
-          <p className="text-sm text-slate-500 mt-0.5">
-            Правила 1, 7 и 8 — для оценки руководителя и самооценки
+          <p className="text-sm text-slate-500 mt-0.5 leading-normal">
+            Правила 1, 6 и 7 — для оценки руководителя и самооценки
           </p>
         )}
       </div>
@@ -62,15 +69,39 @@ const RatingGuide = ({
       )}
 
       {showBody && (
-        <ol className="px-5 pb-5 pt-4 space-y-3 list-none">
-          {rules.map((rule) => (
-            <li key={rule.n} className="text-sm text-slate-800 leading-relaxed">
-              <span className="font-semibold text-slate-900">
-                {rule.n}. {rule.lead}
-              </span>{' '}
-              {rule.body}
-            </li>
-          ))}
+        <ol className="px-5 pb-5 pt-4 space-y-4 list-none">
+          {rules.map((rule) => {
+            const lines = bodyLines(rule.body);
+            const colonLead = rule.lead.endsWith(':');
+            return (
+              <li key={rule.n} className="flex gap-2.5 text-sm leading-normal">
+                <span className="font-semibold text-slate-900 tabular-nums w-7 shrink-0 text-right">
+                  {rule.n}.
+                </span>
+                <div className="min-w-0 flex-1">
+                  {colonLead ? (
+                    <p className="text-slate-700">
+                      <span className="font-semibold text-slate-900">{rule.lead}</span>{' '}
+                      {rule.body}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="font-semibold text-slate-900">{rule.lead}</p>
+                      {lines.length === 1 ? (
+                        <p className="mt-0.5 text-slate-700">{lines[0]}</p>
+                      ) : (
+                        <ul className="mt-1 space-y-0.5 text-slate-700 list-none">
+                          {lines.map((line) => (
+                            <li key={line}>{line}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ol>
       )}
     </div>

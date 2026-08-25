@@ -1113,3 +1113,61 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 **Results:**
 - Report: `docs/CATALOGUE_FIX2_H1_2026-08-25.md`. Decision D-0825-2. HANDOVER §3 catalogue bullet updated to the new after snapshot; §10 counters untouched.
 - Surfaced, not resolved: `src/pages/GuidePreview.jsx` (DEV-only fixture, not in the production bundle) still quotes «(Нижняя граница нормы)» on criterion 3 level 6.
+
+## 2026-08-25 — Rating guide markup: leads on their own line, rule 4 as a list
+
+**What was done:**
+- Markup only in `src/components/RatingGuide.jsx`. Words in `ratingGuideH1.js` unchanged (verbatim tests still pass).
+- Each rule is a hanging number + bold lead; body sits under the lead. Rules whose lead ends with `:` (6–9) stay one sentence so the body does not start lowercase on a new line.
+- Rule 4's five `→` sentences are stacked, not one paragraph.
+- Checked locally on `/__guide-preview`: manager (10), employee (1/7/8), collapsed form opens with the same layout. `npm test` tests/ratingGuideAndZones.test.js: 13/13.
+- Deploy: release **`20260825T083035Z`**; previous **`20260825T065554Z`** retained. No DB write, no mail, no workflow.
+
+## 2026-08-25 — Rating guide: drop rules 4 and 9; rewrite manager-feedback and usual-behaviour
+
+**What was done:**
+- Owner edit of the in-product guide. Title now «8 правил H1». Removed «Один факт оплачивается один раз» and the C-level pair. Remaining rules renumbered 1–8.
+- Rule 6 (was 7): оценка руководителя — возможность дать объективную обратную связь для его развития.
+- Rule 8 (was 10): описания уровней — обычное поведение за период, не разовый случай.
+- Employee subset is now rules 1, 6 and 7. Tests updated; 13/13 on `tests/ratingGuideAndZones.test.js`.
+- Deploy: release **`20260825T084142Z`**.
+
+## 2026-08-25 — Rating guide: owner final wording; extra-criteria card is project-only
+
+**What was done:**
+- Eight rules replaced with the owner's final text (grammar only: «не в общем» → «не общее впечатление»; «больше важна» → «важна ещё и»; criterion titles in «ёлочки»).
+- Welcome «Дополнительные критерии»: management box removed; card now names the two project criteria (8 and 13) and that they apply only to project participants.
+- Tests: 35/35 on the guide + Welcome copy files.
+- Deploy: release **`20260825T100801Z`** (first attempt timed out on SSH; retry succeeded).
+
+## 2026-08-25 — Welcome extra-criteria: both project descriptions, owner wording
+
+**What was done:**
+- «Дополнительные критерии» now lists both project criteria with the live catalogue descriptions (interaction; volume/load). One-line note: only project participants.
+- Deploy: release **`20260825T105418Z`**.
+
+## 2026-08-25 — Extra-criteria intro: not formal project membership, but non-routine contribution
+
+**What was done:**
+- Welcome intro now: «учитываются у сотрудников, чей вклад в проектную деятельность не ограничивался рутинной работой».
+- Deploy: release **`20260825T110537Z`**.
+
+## 2026-08-25 — Welcome typography: one size and line-height across cards
+
+**What was done:**
+- Frontend only. No DB write, no mail, no workflow.
+- Welcome cards and `CriteriaOverview` now share one scale: titles `16px / 24px` (`text-base`, semibold), body `14px / 21px` (`text-sm` + `leading-normal` = 1.5). Extra-criteria titles were `14px`; «Обращение» body was `16px` with `leading-relaxed`.
+- `h2`/`h3` on Welcome locked with matching `md:` sizes so the global heading scale cannot enlarge them on desktop.
+- Tests: 36/36 on the Welcome/guide/period-notice files (new type-scale assertion included).
+
+**Results:**
+- Deploy: release **`20260825T114906Z`**; previous **`20260825T110537Z`** retained. Live `index.html` Last-Modified Tue, 25 Aug 2026 11:49:13 GMT. Served `Welcome-kCiqvpSe.js` has `leading-normal` (43) and no `leading-relaxed`.
+
+## 2026-08-25 — Period notice type scale matches «Обращение»
+
+**What was done:**
+- `PeriodNotice` body was `16px` + `leading-relaxed`; «Обращение к сотрудникам» was already `14px` / 1.5. Same two cards on Welcome now share heading `20px` (locked at `md`) and body `14px` / 1.5.
+- Tests: 25/25 on the guide + period-notice files.
+
+**Results:**
+- Deploy: release **`20260825T115748Z`**; previous **`20260825T114906Z`** retained.
