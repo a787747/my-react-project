@@ -1072,3 +1072,16 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 
 **Results:**
 - Report: `docs/CRITERIA_HR_OPINION_2026-08-2x.md`, md5 `834a209319df8251a4614c155ba1122b` for re-upload; no other repo changes, no bugs.md rows.
+
+## 2026-08-25 — Catalogue wording: 20 text fields written on live (D-0825-1)
+
+**What was done:**
+- Dated `pg_dump -Fc` of `epe_2026` before the first write: VPS `/root/epe_stand_tmp/epe_2026_20260825_062455.dump` (80 654 B, then removed); local `backups/2026-08-25-catalogue-fix/` (gitignored). No dump in `/tmp`.
+- Eight `POST /manage-criteria {action:'save'}` as admin (marked probe session `caf10000-2026-0825-8000-000000000001`, deleted; `auth_sessions` 12 → 12). Each row read fresh from live immediately before its write. All eight returned **200**. No raw SQL on `criteria`.
+- Exactly 20 text fields now equal the brief strings character-for-character. The other **88** text fields (title + description + levels 1–10 across 9 rows, minus the 20) and every non-text column (90 values: id, category, weight, audience, flags, `score_definitions`, `level_0_desc`) are identical to the before snapshot. Titles, audiences, flags, weights, coefficients and the criteria count unchanged.
+- Before snapshot **equals** the HR-review appendix of 2026-08-24 19:22:58Z (0 text / 0 meta diffs). After snapshot committed. `GET /api/criteria` (forms' read route) 200, new texts for criteria 3 / 13 / 14.
+- Live after: H1 id 2 `active` / `evaluation_started_at` NULL; four data tables 0/0/0/0. No workflow change, no deploy, no mail, no coefficient write.
+
+**Results:**
+- Report: `docs/CATALOGUE_FIX_H1_2026-08-25.md`. Snapshots: `docs/catalogue/H1-2026_catalogue_before_20260825T062507Z.md`, `docs/catalogue/H1-2026_catalogue_after_20260825T062601Z.md`. Decision D-0825-1. HANDOVER §3 catalogue bullet updated; §10 counters untouched.
+- Surfaced: `performance_db.criteria` has no `updated_at` column — write times recorded from `clock_timestamp()` after each 200. Route SET-list rewrites the whole row; unchanged values were sent from the fresh read and came back identical. No cache of old texts on `GET /api/criteria`.

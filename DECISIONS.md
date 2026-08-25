@@ -543,3 +543,12 @@ C-level менеджеры.» and, on the manager track, «Оценки от п�
 (no manager-role surface carries upward scores, comments or aggregates for any subject;
 subject-facing reads strip score and comment fields and evaluator identity on upward rows).
 Any future results-release decision (HANDOVER §6) concerns manager → subordinate results only.
+
+---
+
+## 2026-08-25 decisions
+
+### D-0825-1 — Catalogue wording revised before the H1 start: 20 fields (owner, 2026-08-25; supersedes D-0820-19 for wording)
+**Context:** CRITERIA_HR_REVIEW and CRITERIA_HR_OPINION (2026-08-24) proposed 33 wording changes; the owner selected the five groups with money or fairness consequences — 20 fields — for H1 and deferred the remaining 13 (language only) to H2.
+**Decision (Alexander):** (1) criterion 13 re-anchored from time-on-site to project-load share (description, levels 4–10); (2) beyond-role facts are paid only under criterion 14 — removed from 3 (description, level 7), 4 (description, level 6), 8 (description, level 10) and 13 (level 9); (3) criterion 14 level 2 no longer conditions the normal state on «качественно»; (4) top anchors of 2, 4 and 10 no longer reward loyalty, indispensability or «свой человек»; (5) criterion 3 level 10 and criterion 12 level 8 refer to the half-year. Titles, audiences, flags, weights, coefficients and the criteria count are unchanged.
+**Consequence:** verbatim before/after snapshots are the H1-2026 catalogue version (docs/catalogue/); ratings on the re-anchored levels are not directly comparable with 2025 (methodology §11 series-break note, carried by the architect); the 13 deferred fields go to the H2 wording pass.
