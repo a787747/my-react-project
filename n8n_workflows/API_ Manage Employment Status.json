@@ -1,0 +1,724 @@
+{
+  "updatedAt": "2026-08-25T15:34:52.162Z",
+  "createdAt": "2026-08-25T15:34:51.415Z",
+  "id": "vZwDA0aDZqIoCmoW",
+  "name": "API: Manage Employment Status",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/admin/terminate-employee",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "employment-webhook-terminate",
+      "name": "Webhook TERMINATE",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-employment-terminate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "employment-guard-input-terminate",
+      "name": "Prepare Guard Input TERMINATE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "employment-run-guard-terminate",
+      "name": "Run Auth Guard TERMINATE",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard TERMINATE').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request;\n\nconst userId = parseInt(body.user_id, 10);\nif (!Number.isFinite(userId) || userId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_USER_ID', message: 'Идентификатор сотрудника должен быть положительным целым числом' },\n    },\n  };\n}\n// The owner supplies the last working day. It is a separate fact from \"when\n// somebody clicked\": the date decides which period the person dropped out of,\n// and the click time is only the audit stamp.\nconst rawDate = String(body.termination_date || '').trim();\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(rawDate)) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_TERMINATION_DATE', message: 'Укажите дату увольнения в формате ГГГГ-ММ-ДД' },\n    },\n  };\n}\nconst parsed = new Date(`${rawDate}T00:00:00Z`);\nif (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== rawDate) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_TERMINATION_DATE', message: 'Такой даты не существует' },\n    },\n  };\n}\n// Terminating yourself locks the only admin out of the product with no route\n// back in — reinstatement is admin-only. Refused by name rather than left to\n// the owner to discover.\nif (userId === actorId) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'CANNOT_TERMINATE_SELF', message: 'Нельзя уволить самого себя' },\n    },\n  };\n}\nconst note = String(body.note || '').trim().slice(0, 500);\n\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    user_id: userId,\n    termination_date: rawDate,\n    note,\n    sql: `\n      SELECT\n        t.id AS target_id,\n        t.full_name AS target_name,\n        -- Reported for the response and for the operator's log. There is no\n        -- LAST_ADMIN branch: the route is admin-only, so the only way to reach\n        -- zero live admins is an admin terminating themselves, which\n        -- CANNOT_TERMINATE_SELF already refuses. A second guard here would be\n        -- unreachable code that reads as a guarantee.\n        t.role::text AS target_role,\n        (t.terminated_at IS NOT NULL) AS already_terminated,\n        t.has_subordinates,\n        -- The refusal is decided on the GRAPH, not on the has_subordinates\n        -- flag: trg_update_has_subordinates only fires on INSERT / DELETE /\n        -- UPDATE OF manager_id, so the flag is a cache. Terminated reports do\n        -- not count — they are forgotten too, so nobody is orphaned by them.\n        COALESCE((\n          SELECT json_agg(json_build_object('id', r.id, 'full_name', r.full_name) ORDER BY r.full_name)\n          FROM performance_db.users r\n          WHERE r.manager_id = t.id AND r.terminated_at IS NULL\n        ), '[]'::json) AS active_reports,\n        (SELECT cp.id FROM performance_db.evaluation_periods cp\n          WHERE cp.is_active = true AND cp.status = 'active'\n            AND cp.period_type <> 'annual'\n            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child\n                            WHERE child.parent_period_id = cp.id)\n          LIMIT 1) AS active_period_id\n      FROM performance_db.users t\n      WHERE t.id = ${userId}\n    `,\n  },\n};"
+      },
+      "id": "employment-terminate-validate",
+      "name": "Validate Terminate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS target_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "employment-terminate-check",
+      "name": "Load Terminate Target",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Terminate').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.all().map(item => item.json).find(item => item.target_id !== undefined);\nif (!check) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'USER_NOT_FOUND', message: 'Сотрудник не найден' },\n    },\n  };\n}\nif (check.already_terminated === true || check.already_terminated === 't') {\n  return {\n    json: {\n      http_status: 409,\n      body: { success: false, error: 'ALREADY_TERMINATED', message: 'Сотрудник уже отмечен как уволенный' },\n    },\n  };\n}\nlet reports = check.active_reports;\nif (typeof reports === 'string') {\n  try { reports = JSON.parse(reports); } catch { reports = []; }\n}\nif (!Array.isArray(reports)) reports = [];\nif (reports.length) {\n  // The message the owner reads. It names the people, because \"reassign first\"\n  // is useless without knowing whom. A terminated manager would leave every\n  // one of these evaluated by nobody: an out-of-scope actor gets no task list.\n  const names = reports.map(r => r.full_name).join(', ');\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'HAS_DIRECT_REPORTS',\n        message: `Нельзя уволить: у сотрудника есть прямые подчинённые (${reports.length}) — ${names}. Сначала переназначьте их другому руководителю.`,\n        reports,\n      },\n    },\n  };\n}\nconst userId = Number(prev.user_id);\nconst actorId = Number(prev.actor_id);\nconst terminationDate = String(prev.termination_date);\nconst noteLiteral = prev.note ? `'${String(prev.note).replace(/'/g, \"''\")}'` : 'NULL';\nconst periodLiteral = check.active_period_id === null || check.active_period_id === undefined\n  ? 'NULL'\n  : String(Number(check.active_period_id));\n\n// One statement. Every precondition is re-asserted inside `target`, so a lost\n// race selects zero rows and every branch below it changes zero rows —\n// the BUG-041 rule: one gate for every data-modifying branch.\nreturn {\n  json: {\n    ok: true,\n    user_id: userId,\n    sql: `\nWITH target AS (\n  SELECT u.id, u.full_name\n  FROM performance_db.users u\n  WHERE u.id = ${userId}\n    AND u.terminated_at IS NULL\n    AND NOT EXISTS (\n      SELECT 1 FROM performance_db.users r\n      WHERE r.manager_id = u.id AND r.terminated_at IS NULL\n    )\n  FOR UPDATE OF u\n),\nmarked AS (\n  UPDATE performance_db.users u\n  SET terminated_at = now(),\n      termination_date = '${terminationDate}'::date,\n      -- The guard joins auth_sessions ON token_version = users.token_version,\n      -- so the bump alone makes every live JWT unusable on the next request.\n      token_version = u.token_version + 1\n  WHERE u.id IN (SELECT id FROM target)\n  RETURNING u.id, u.full_name, u.token_version\n),\nrevoked AS (\n  UPDATE performance_db.auth_sessions s\n  SET revoked_at = now()\n  WHERE s.user_id IN (SELECT id FROM target) AND s.revoked_at IS NULL\n  RETURNING s.jti\n),\nburned AS (\n  -- An outstanding reset link would otherwise let the person set a new\n  -- password. Login refuses them anyway, but the link is closed at the source.\n  UPDATE performance_db.password_reset_tokens t\n  SET used_at = now()\n  WHERE t.user_id IN (SELECT id FROM target) AND t.used_at IS NULL\n  RETURNING t.id\n),\nscoped_out AS (\n  -- Only rows that are currently IN scope, and only periods that are not\n  -- closed. A person already excluded for another reason (hired_after_period_end)\n  -- keeps that reason, so reinstatement cannot wrongly put them back in scope;\n  -- a closed period and the 2025 archive are never touched.\n  UPDATE performance_db.evaluation_period_participants epp\n  SET is_in_scope = false,\n      exclusion_reason = 'terminated',\n      updated_at = now()\n  WHERE epp.user_id IN (SELECT id FROM target)\n    AND epp.is_in_scope = true\n    AND epp.period_id IN (\n      SELECT p.id FROM performance_db.evaluation_periods p WHERE p.status <> 'closed'\n    )\n  RETURNING epp.period_id\n),\nlogged AS (\n  INSERT INTO performance_db.employment_events\n    (user_id, event_type, effective_date, period_id, actor_id, note)\n  SELECT t.id, 'terminated', '${terminationDate}'::date, ${periodLiteral}, ${actorId}, ${noteLiteral}\n  FROM target t\n  RETURNING id, occurred_at\n)\nSELECT\n  (SELECT count(*)::integer FROM marked) AS marked,\n  (SELECT full_name FROM marked LIMIT 1) AS full_name,\n  (SELECT count(*)::integer FROM revoked) AS sessions_revoked,\n  (SELECT count(*)::integer FROM burned) AS reset_tokens_invalidated,\n  (SELECT COALESCE(json_agg(period_id ORDER BY period_id), '[]'::json) FROM scoped_out) AS scoped_out_period_ids,\n  (SELECT count(*)::integer FROM logged) AS events_logged,\n  (SELECT id FROM logged LIMIT 1) AS event_id\n    `,\n  },\n};"
+      },
+      "id": "employment-terminate-build",
+      "name": "Build Terminate SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS marked WHERE false' }}",
+        "options": {}
+      },
+      "id": "employment-terminate-execute",
+      "name": "Execute Terminate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        750,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Terminate SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.marked !== undefined);\nif (!row || Number(row.marked) === 0) {\n  // The gate inside the statement refused after the pre-check passed: somebody\n  // else changed the row in between. Nothing was written.\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'TERMINATE_CONFLICT',\n        message: 'Состояние сотрудника изменилось во время операции — обновите страницу и повторите',\n      },\n    },\n  };\n}\nlet periodIds = row.scoped_out_period_ids;\nif (typeof periodIds === 'string') {\n  try { periodIds = JSON.parse(periodIds); } catch { periodIds = []; }\n}\nif (!Array.isArray(periodIds)) periodIds = [];\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      user_id: Number(prev.user_id),\n      full_name: row.full_name,\n      event_id: row.event_id != null ? Number(row.event_id) : null,\n      sessions_revoked: Number(row.sessions_revoked) || 0,\n      reset_tokens_invalidated: Number(row.reset_tokens_invalidated) || 0,\n      scoped_out_period_ids: periodIds.map(Number),\n      message: 'Сотрудник отмечен как уволенный',\n    },\n  },\n};"
+      },
+      "id": "employment-terminate-format",
+      "name": "Format Terminate Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "employment-respond-terminate",
+      "name": "Respond TERMINATE",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/admin/reinstate-employee",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "employment-webhook-reinstate",
+      "name": "Webhook REINSTATE",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        300
+      ],
+      "webhookId": "epe-employment-reinstate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "employment-guard-input-reinstate",
+      "name": "Prepare Guard Input REINSTATE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "employment-run-guard-reinstate",
+      "name": "Run Auth Guard REINSTATE",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard REINSTATE').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request;\nconst userId = parseInt(body.user_id, 10);\nif (!Number.isFinite(userId) || userId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_USER_ID', message: 'Идентификатор сотрудника должен быть положительным целым числом' },\n    },\n  };\n}\nconst note = String(body.note || '').trim().slice(0, 500);\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    user_id: userId,\n    note,\n    sql: `\n      SELECT\n        t.id AS target_id,\n        t.full_name AS target_name,\n        (t.terminated_at IS NOT NULL) AS is_terminated,\n        (SELECT cp.id FROM performance_db.evaluation_periods cp\n          WHERE cp.is_active = true AND cp.status = 'active'\n            AND cp.period_type <> 'annual'\n            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child\n                            WHERE child.parent_period_id = cp.id)\n          LIMIT 1) AS active_period_id\n      FROM performance_db.users t\n      WHERE t.id = ${userId}\n    `,\n  },\n};"
+      },
+      "id": "employment-reinstate-validate",
+      "name": "Validate Reinstate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS target_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "employment-reinstate-check",
+      "name": "Load Reinstate Target",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Reinstate').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.all().map(item => item.json).find(item => item.target_id !== undefined);\nif (!check) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'USER_NOT_FOUND', message: 'Сотрудник не найден' },\n    },\n  };\n}\nif (!(check.is_terminated === true || check.is_terminated === 't')) {\n  return {\n    json: {\n      http_status: 409,\n      body: { success: false, error: 'NOT_TERMINATED', message: 'Сотрудник не отмечен как уволенный' },\n    },\n  };\n}\nconst userId = Number(prev.user_id);\nconst actorId = Number(prev.actor_id);\nconst noteLiteral = prev.note ? `'${String(prev.note).replace(/'/g, \"''\")}'` : 'NULL';\nconst periodLiteral = check.active_period_id === null || check.active_period_id === undefined\n  ? 'NULL'\n  : String(Number(check.active_period_id));\n\n// token_version is deliberately NOT rolled back: revoking a session is a\n// one-way security action, and reinstatement is not a reason to resurrect a\n// token that was already handed out. The person simply logs in again.\nreturn {\n  json: {\n    ok: true,\n    user_id: userId,\n    sql: `\nWITH target AS (\n  SELECT u.id, u.full_name\n  FROM performance_db.users u\n  WHERE u.id = ${userId} AND u.terminated_at IS NOT NULL\n  FOR UPDATE OF u\n),\nrestored AS (\n  UPDATE performance_db.users u\n  SET terminated_at = NULL, termination_date = NULL\n  WHERE u.id IN (SELECT id FROM target)\n  RETURNING u.id, u.full_name\n),\nscoped_in AS (\n  -- Only the rows this feature excluded. exclusion_reason = 'terminated' is the\n  -- marker; a row excluded for hired_after_period_end is left exactly as it is,\n  -- so the round trip is exact for a person who is both.\n  UPDATE performance_db.evaluation_period_participants epp\n  SET is_in_scope = true,\n      exclusion_reason = NULL,\n      updated_at = now()\n  WHERE epp.user_id IN (SELECT id FROM target)\n    AND epp.exclusion_reason = 'terminated'\n    AND epp.period_id IN (\n      SELECT p.id FROM performance_db.evaluation_periods p WHERE p.status <> 'closed'\n    )\n  RETURNING epp.period_id\n),\nlogged AS (\n  INSERT INTO performance_db.employment_events\n    (user_id, event_type, effective_date, period_id, actor_id, note)\n  SELECT t.id, 'reinstated', NULL, ${periodLiteral}, ${actorId}, ${noteLiteral}\n  FROM target t\n  RETURNING id\n)\nSELECT\n  (SELECT count(*)::integer FROM restored) AS restored,\n  (SELECT full_name FROM restored LIMIT 1) AS full_name,\n  (SELECT COALESCE(json_agg(period_id ORDER BY period_id), '[]'::json) FROM scoped_in) AS scoped_in_period_ids,\n  (SELECT count(*)::integer FROM logged) AS events_logged,\n  (SELECT id FROM logged LIMIT 1) AS event_id\n    `,\n  },\n};"
+      },
+      "id": "employment-reinstate-build",
+      "name": "Build Reinstate SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS restored WHERE false' }}",
+        "options": {}
+      },
+      "id": "employment-reinstate-execute",
+      "name": "Execute Reinstate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        750,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Reinstate SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.restored !== undefined);\nif (!row || Number(row.restored) === 0) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'REINSTATE_CONFLICT',\n        message: 'Состояние сотрудника изменилось во время операции — обновите страницу и повторите',\n      },\n    },\n  };\n}\nlet periodIds = row.scoped_in_period_ids;\nif (typeof periodIds === 'string') {\n  try { periodIds = JSON.parse(periodIds); } catch { periodIds = []; }\n}\nif (!Array.isArray(periodIds)) periodIds = [];\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      user_id: Number(prev.user_id),\n      full_name: row.full_name,\n      event_id: row.event_id != null ? Number(row.event_id) : null,\n      scoped_in_period_ids: periodIds.map(Number),\n      message: 'Сотрудник восстановлен',\n    },\n  },\n};"
+      },
+      "id": "employment-reinstate-format",
+      "name": "Format Reinstate Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "employment-respond-reinstate",
+      "name": "Respond REINSTATE",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/admin/employment-events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "employment-webhook-history",
+      "name": "Webhook HISTORY",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        600
+      ],
+      "webhookId": "epe-employment-events"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "employment-guard-input-history",
+      "name": "Prepare Guard Input HISTORY",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "employment-run-guard-history",
+      "name": "Run Auth Guard HISTORY",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard HISTORY').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst request = guard.request || {};\nconst query = request.query || {};\nconst parsed = parseInt(query.user_id ?? query.userId, 10);\nconst userFilter = Number.isFinite(parsed) && parsed > 0\n  ? `WHERE e.user_id = ${parsed}`\n  : '';\n// The termination event has to stay readable after the period closes, so this\n// route reads employment_events directly and never depends on the person still\n// being out of scope, or on the period still being open.\nreturn {\n  json: {\n    ok: true,\n    sql: `\n      SELECT\n        e.id,\n        e.user_id,\n        u.full_name,\n        e.event_type,\n        to_char(e.effective_date, 'YYYY-MM-DD') AS effective_date,\n        e.period_id,\n        p.name AS period_name,\n        e.actor_id,\n        a.full_name AS actor_name,\n        to_char(e.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS occurred_at,\n        e.note\n      FROM performance_db.employment_events e\n      JOIN performance_db.users u ON u.id = e.user_id\n      JOIN performance_db.users a ON a.id = e.actor_id\n      LEFT JOIN performance_db.evaluation_periods p ON p.id = e.period_id\n      ${userFilter}\n      ORDER BY e.occurred_at DESC, e.id DESC\n      LIMIT 500\n    `,\n  },\n};"
+      },
+      "id": "employment-history-build",
+      "name": "Build Events Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS id WHERE false' }}",
+        "options": {}
+      },
+      "id": "employment-history-load",
+      "name": "Load Events",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard HISTORY').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst events = $input.all().map(item => item.json).filter(item => item.id !== undefined);\nreturn {\n  json: {\n    http_status: 200,\n    body: { success: true, events },\n  },\n};"
+      },
+      "id": "employment-history-format",
+      "name": "Format Events Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "employment-respond-history",
+      "name": "Respond HISTORY",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        600
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook TERMINATE": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input TERMINATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input TERMINATE": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard TERMINATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard TERMINATE": {
+      "main": [
+        [
+          {
+            "node": "Validate Terminate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Terminate": {
+      "main": [
+        [
+          {
+            "node": "Load Terminate Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Terminate Target": {
+      "main": [
+        [
+          {
+            "node": "Build Terminate SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Terminate SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Terminate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Terminate": {
+      "main": [
+        [
+          {
+            "node": "Format Terminate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Terminate Response": {
+      "main": [
+        [
+          {
+            "node": "Respond TERMINATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook REINSTATE": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input REINSTATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input REINSTATE": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard REINSTATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard REINSTATE": {
+      "main": [
+        [
+          {
+            "node": "Validate Reinstate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Reinstate": {
+      "main": [
+        [
+          {
+            "node": "Load Reinstate Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Reinstate Target": {
+      "main": [
+        [
+          {
+            "node": "Build Reinstate SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reinstate SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Reinstate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Reinstate": {
+      "main": [
+        [
+          {
+            "node": "Format Reinstate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Reinstate Response": {
+      "main": [
+        [
+          {
+            "node": "Respond REINSTATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook HISTORY": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input HISTORY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input HISTORY": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard HISTORY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard HISTORY": {
+      "main": [
+        [
+          {
+            "node": "Build Events Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Events Query": {
+      "main": [
+        [
+          {
+            "node": "Load Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Events": {
+      "main": [
+        [
+          {
+            "node": "Format Events Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Events Response": {
+      "main": [
+        [
+          {
+            "node": "Respond HISTORY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "e37d1e90-fa6b-402b-9445-31c54f35f408",
+  "versionCounter": 3,
+  "triggerCount": 3,
+  "shared": [
+    {
+      "updatedAt": "2026-08-25T15:34:51.415Z",
+      "createdAt": "2026-08-25T15:34:51.415Z",
+      "role": "workflow:owner",
+      "workflowId": "vZwDA0aDZqIoCmoW",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-08-25T15:32:29.030Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-08-25",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

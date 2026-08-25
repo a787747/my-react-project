@@ -508,6 +508,28 @@
 - Not done here: `docs/ORG_REVIEW_H1_2026-08-25.md` was a read-only brief with the boundary «surface, do not resolve»; neither the data nor the earlier report was touched. Whether Garayev belongs under Hekimov or under Hojayeva is an org-data question for the owner, and it is A1 in the review sheet.
 - Source: `docs/ORG_REVIEW_H1_2026-08-25.md` §3 A1/A2 and §4.3.
 
+### BUG-060: A terminated person still occupies a row in the admin money matrix
+
+- Status: 🔴 OPEN
+- Severity: 🟡 Medium
+- Location: LIVE `API: evaluations-matrix` → `Build Matrix Query`; `src/hooks/useEvaluationsMatrix.js`, `src/hooks/useFinalScoresMatrix.js`, `src/utils/matrixUtils.js` (`filterEmployees` has no scope or employment predicate).
+- Description: the matrix query selects every `u.role != 'admin'` and `LEFT JOIN`s `evaluation_period_participants`. It *emits* `COALESCE(epp.is_in_scope, false) AS is_in_scope` per person but never filters on it, and it does not read `users.terminated_at` at all. After D-0825-7 a terminated person therefore still appears as a row in Матрица оценок, Итоговые баллы and Калькуляция бонусов, with empty cells — the same way Esenova (31) and Balova (35) already do because they are out of H1 scope by hire date.
+- Why it matters: cosmetic rather than money, and the distinction is the point. The pool is computed at close from `period_results`, where a terminated person freezes as `is_in_scope=false, has_data=false` with every rating and both money columns NULL (`docs/TERMINATED_EMPLOYEES_2026-08-25.md` §3.1 measures this on a stand: pool 410.842 → 302.518, the difference equal to the excluded person's index to four decimals). The C-level write star is already hidden, because `canReceiveCLevel` reads `is_in_scope && can_be_evaluated`. So no number is wrong; the screen is just noisier than D-0825-7's «appears in no list» implies.
+- How to fix: needs an owner decision before code. Filtering the matrix on `terminated_at IS NULL` hides former employees but leaves out-of-scope-by-hire-date people visible; filtering on `is_in_scope` hides both. The two populations are different — one has left the company, the other is employed and simply outside this period — and which of them an admin should still see on a money screen is a product question.
+- Not done here: the TERMINATED_EMPLOYEES brief's boundary was «anything this brief does not resolve: surface — do not resolve», and it did not enumerate the money matrix among the surfaces that must lose the person. No matrix workflow was touched.
+- Source: `docs/TERMINATED_EMPLOYEES_2026-08-25.md` §5.1.
+
+### BUG-061: `admin/save-user` will accept a terminated person as somebody's manager
+
+- Status: 🔴 OPEN
+- Severity: 🟡 Medium
+- Location: LIVE `API: Admin Save User (GUI Mode)` → `Validate User Data` / `Build User Upsert` (no validation of `manager_id` against `users.terminated_at`).
+- Description: since D-0825-7 the admin screen no longer offers a terminated person in the «Руководитель» dropdown — `API: Admin Get Users Data` filters `options.managers` on `!u.terminated_at`. The write route itself has no such check: it accepts any `manager_id` that satisfies the foreign key. A script, the Excel import, or a hand-made request can still point a live employee at a terminated manager.
+- Why it matters: that employee would then be evaluated by nobody. A terminated actor is out of scope, so `API: Get Employees` returns them an empty task list (`COALESCE((SELECT is_in_scope FROM actor_scope), false)`), and `API: Submit Evaluation` refuses the manager channel with 403 `SCOPE_MISMATCH`. The subordinate keeps a `manager_id` that looks correct on every screen and produces no manager evaluation — and a missing `rating_manager` means a missing `final_rating` and a missing `bonus_index` at close. It is the same failure mode as the Hojayeva anomaly, arriving from the other direction.
+- How to fix: a 422 in `Validate User Data` when the requested `manager_id` names a person with `terminated_at IS NOT NULL`. Cheap in isolation; the reason it was not done here is that `admin/save-user` is a full-row overwrite with `body.role || 'employee'` and `body.work_category || 'general'` defaults, i.e. the most dangerous write path in the system, and the UI already prevents the case.
+- Not done here: no change was made to `admin/save-user` in the TERMINATED_EMPLOYEES brief. The client-side guard shipped; the server-side one did not.
+- Source: `docs/TERMINATED_EMPLOYEES_2026-08-25.md` §5.2.
+
 ## ✅ Closed
 
 ### BUG-007: Out-of-scope employees remain in manager task lists

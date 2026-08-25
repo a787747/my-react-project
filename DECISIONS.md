@@ -581,3 +581,16 @@ directly to C-level have no upward task. This too is intended for H1.
 **Consequence:** the evaluated population is 81, not 87 — campaign completion is measured against
 81. The six receive no evaluation rows and therefore no bonus index; the pool is distributed over
 the remaining people. Both facts belong in EVALUATION_METHODOLOGY §1 and §6.
+
+### D-0825-7 — Terminated employees are forgotten by the product and kept by the database (owner, 2026-08-25)
+**Decision (Alexander):** a terminated employee disappears from every list, task and calculation.
+They are not evaluated, they do not evaluate, and they take no share of the bonus pool for the
+period — including when they already have evaluation rows from earlier in that period. The state
+is set from /admin/users, is reversible, and is refused while the person still has direct reports.
+Evaluations the person GAVE remain in force, because they belong to the people still employed;
+evaluations ABOUT them are excluded.
+**Consequence:** money. Excluding a person mid-period redistributes the pool among the rest, so
+the termination event carries a date and an author and must remain readable after the period
+closes. No evaluation row is ever deleted and nothing is recomputed — the database keeps the full
+record so the pool size at calculation time stays reconstructible. Closed periods and the 2025
+archive are untouched.

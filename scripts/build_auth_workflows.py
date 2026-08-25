@@ -128,6 +128,7 @@ SELECT
   u.can_evaluate,
   u.can_be_evaluated,
   u.token_version,
+  u.terminated_at,
   attempts.failed_count,
   attempts.window_started_at,
   attempts.locked_until
@@ -178,10 +179,17 @@ function verifyScrypt(password, stored) {
 }
 
 const passwordMatches = verifyScrypt(input.password, row.password_hash);
+// A terminated employee cannot mint a session (D-0825-7). The scrypt
+// verification above still runs, and the refusal is the SAME generic 401 the
+// wrong-password path returns: whether an account exists, and whether it has
+// been terminated, must not be distinguishable from outside. The state is
+// reversible, so this is a gate, not a tombstone.
+const isTerminated = row.terminated_at !== null && row.terminated_at !== undefined;
 const authenticated = Boolean(
   input.input_valid
   && row.id
   && !isLocked
+  && !isTerminated
   && passwordMatches
 );
 
@@ -285,6 +293,7 @@ const {
   window_started_at,
   locked_until,
   token_version,
+  terminated_at,
   ...safeUser
 } = row;
 
@@ -463,6 +472,12 @@ JOIN performance_db.email_verification_codes codes
   AND codes.is_verified = true
 WHERE lower(users.email) = lower('{{ $json.safe_email }}')
   AND users.password_hash IS NULL
+  -- D-0825-7: the shared invite (id 4, reusable until 2026-09-18) is the one
+  -- door a terminated employee could still walk through — they never
+  -- registered, so there is no password to refuse and no session to revoke.
+  -- Closing it here makes the invite link inert for them; the caller gets the
+  -- same generic "link or code is invalid" 400 as any other failure.
+  AND users.terminated_at IS NULL
 ORDER BY codes.verified_at DESC NULLS LAST
 LIMIT 1
 """.strip()
@@ -685,6 +700,11 @@ SELECT
 FROM input
 LEFT JOIN performance_db.users users
   ON lower(users.email) = input.email
+  -- D-0825-7: no reset link for a terminated employee. The join simply fails
+  -- to match, user_id stays NULL, should_send stays false, and the caller gets
+  -- the same generic 200 as an unknown address — the enumeration guard is
+  -- unchanged.
+  AND users.terminated_at IS NULL
 LEFT JOIN LATERAL (
   SELECT created_at
   FROM performance_db.password_reset_tokens

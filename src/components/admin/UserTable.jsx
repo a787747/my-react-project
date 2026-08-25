@@ -16,10 +16,12 @@
  * - showThreeColumns: boolean - показывать ли 3 колонки статусов (Self, Сотрудники, Manager)
  * - showEvaluationStatus: boolean - колонка кружков; AdminUsers hides it (BUG-034)
  * - sortField / sortDirection / onSort: клиентская сортировка (опционально; без onSort заголовки статичны)
+ * - onEmploymentChange: function(user, 'terminate'|'reinstate') - увольнение/восстановление (D-0825-7).
+ *   Без него кнопка не рендерится: страницы, кроме AdminUsers, это не показывают.
  */
 
 import React from 'react';
-import { Pencil, Mail, Users, CheckCircle, Circle, Clock, Crown, Star, Eye, UserCheck, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
+import { Pencil, Mail, Users, CheckCircle, Circle, Clock, Crown, Star, Eye, UserCheck, UserMinus, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
 
 const SortIcon = ({ field, sortField, sortDirection }) => {
   if (sortField !== field) {
@@ -62,9 +64,11 @@ const UserTable = ({
   showEvaluationStatus = true,
   sortField = null,
   sortDirection = 'asc',
-  onSort
+  onSort,
+  onEmploymentChange
 }) => {
   const sortable = typeof onSort === 'function';
+  const canChangeEmployment = typeof onEmploymentChange === 'function';
   
   // Получение данных самооценки для пользователя
   const getSelfReviewData = (userId) => {
@@ -203,9 +207,11 @@ const UserTable = ({
           <tbody className="divide-y divide-gray-50">
             {users.length > 0 ? (
               users.map((user) => (
-                <tr 
-                  key={user.id} 
-                  className={`hover:bg-gray-50 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
+                <tr
+                  key={user.id}
+                  className={`hover:bg-gray-50 transition-colors ${onRowClick ? 'cursor-pointer' : ''} ${
+                    user.terminated_at ? 'bg-gray-50/70 text-gray-500' : ''
+                  }`}
                   onClick={onRowClick ? () => onRowClick(user) : undefined}
                 >
                   {/* Сотрудник */}
@@ -220,15 +226,26 @@ const UserTable = ({
                           <Mail className="w-3 h-3 flex-shrink-0" /> 
                           <span className="truncate">{user.email}</span>
                         </div>
-                        {user.is_registered != null && (
-                          <div className={`mt-1 inline-flex w-fit items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${
-                            user.is_registered
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-gray-50 text-gray-500 border-gray-200'
-                          }`}>
-                            {user.is_registered ? 'Зарегистрирован' : 'Не зарегистрирован'}
-                          </div>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1">
+                          {user.is_registered != null && (
+                            <div className={`mt-1 inline-flex w-fit items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                              user.is_registered
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-gray-50 text-gray-500 border-gray-200'
+                            }`}>
+                              {user.is_registered ? 'Зарегистрирован' : 'Не зарегистрирован'}
+                            </div>
+                          )}
+                          {user.terminated_at && (
+                            <div
+                              title="Уволен: вне списков, задач и расчёта премии. Оценки в базе сохранены."
+                              className="mt-1 inline-flex w-fit items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-red-50 text-red-700 border-red-200"
+                            >
+                              <UserMinus className="w-3 h-3" />
+                              Уволен{user.termination_date ? ` ${user.termination_date}` : ''}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -377,16 +394,45 @@ const UserTable = ({
                   {/* Действия */}
                   {canEdit && (
                     <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEdit(user);
-                        }}
-                        className="text-gray-400 hover:text-indigo-600 p-2 rounded-lg hover:bg-indigo-50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                        aria-label={`Редактировать ${user.full_name}`}
-                      >
-                        <Pencil className="w-5 h-5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEdit(user);
+                          }}
+                          className="text-gray-400 hover:text-indigo-600 p-2 rounded-lg hover:bg-indigo-50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                          aria-label={`Редактировать ${user.full_name}`}
+                        >
+                          <Pencil className="w-5 h-5" />
+                        </button>
+                        {canChangeEmployment && (
+                          user.terminated_at ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEmploymentChange(user, 'reinstate');
+                              }}
+                              className="text-gray-400 hover:text-emerald-600 p-2 rounded-lg hover:bg-emerald-50 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                              aria-label={`Восстановить ${user.full_name}`}
+                              title="Восстановить сотрудника"
+                            >
+                              <UserCheck className="w-5 h-5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEmploymentChange(user, 'terminate');
+                              }}
+                              className="text-gray-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-200"
+                              aria-label={`Отметить увольнение: ${user.full_name}`}
+                              title="Отметить увольнение"
+                            >
+                              <UserMinus className="w-5 h-5" />
+                            </button>
+                          )
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>

@@ -23,7 +23,7 @@ import { Users, Plus, Info, Upload } from 'lucide-react';
 
 // Компоненты
 import { Toast, LoadingSpinner, Pagination } from '../components/common';
-import { UserTable, UserFilters, UserModal, UserImportModal } from '../components/admin';
+import { UserTable, UserFilters, UserModal, UserImportModal, EmploymentStatusModal } from '../components/admin';
 
 // Хуки
 import { useUsers } from '../hooks/useUsers';
@@ -61,12 +61,14 @@ const AdminUsers = ({ user }) => {
   const canEdit = isFullAccess;
 
   // Хук для работы с пользователями
-  const { 
-    users, 
-    options, 
-    loading, 
-    saving, 
+  const {
+    users,
+    options,
+    loading,
+    saving,
     saveUser,
+    terminateUser,
+    reinstateUser,
     importUsers
   } = useUsers();
 
@@ -93,6 +95,13 @@ const AdminUsers = ({ user }) => {
     return subordinates;
   }, [users, user?.id, isFullAccess]);
 
+  // Численность: рабочий список против уволенных (D-0825-7).
+  // «Всего» больше не показывается — оно смешивало две разные величины.
+  const headcount = useMemo(() => {
+    const terminated = visibleUsers.filter(u => u.terminated_at).length;
+    return { active: visibleUsers.length - terminated, terminated };
+  }, [visibleUsers]);
+
   // Хук для фильтрации
   const {
     filters,
@@ -116,6 +125,11 @@ const AdminUsers = ({ user }) => {
 
   // Состояние модального окна импорта
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  // Состояние окна увольнения / восстановления (D-0825-7)
+  const [employmentTarget, setEmploymentTarget] = useState(null);
+  const [employmentMode, setEmploymentMode] = useState('terminate');
+  const [employmentError, setEmploymentError] = useState(null);
 
   // Состояние уведомлений
   const [toast, setToast] = useState(null);
@@ -159,6 +173,46 @@ const AdminUsers = ({ user }) => {
     }
   };
 
+  // Увольнение / восстановление (D-0825-7).
+  // Ошибка сервера (например «есть прямые подчинённые») остаётся в окне, а не
+  // уходит в toast: она объясняет, что именно нужно сделать до повтора.
+  const handleOpenEmployment = (targetUser, mode) => {
+    if (!canEdit) return;
+    setEmploymentTarget(targetUser);
+    setEmploymentMode(mode);
+    setEmploymentError(null);
+  };
+
+  const handleCloseEmployment = () => {
+    setEmploymentTarget(null);
+    setEmploymentError(null);
+  };
+
+  const handleConfirmEmployment = async ({ terminationDate, note }) => {
+    if (!employmentTarget) return;
+    const scrollY = window.scrollY;
+    const result = employmentMode === 'terminate'
+      ? await terminateUser(employmentTarget.id, terminationDate, note)
+      : await reinstateUser(employmentTarget.id, note);
+
+    if (result.success) {
+      showToast(
+        employmentMode === 'terminate'
+          ? `${employmentTarget.full_name}: увольнение отмечено`
+          : `${employmentTarget.full_name}: сотрудник восстановлен`,
+        'success'
+      );
+      handleCloseEmployment();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo(0, scrollY);
+        });
+      });
+    } else {
+      setEmploymentError(result.error || 'Не удалось изменить статус');
+    }
+  };
+
   // Импорт пользователей из файла
   const handleImport = async (usersData) => {
     const result = await importUsers(usersData);
@@ -195,8 +249,8 @@ const AdminUsers = ({ user }) => {
             {isFullAccess ? 'Сотрудники' : 'Моя команда'}
           </h1>
           <p className="text-gray-500">
-            {isFullAccess 
-              ? `Всего: ${users.length} | Найдено: `
+            {isFullAccess
+              ? `Работают: ${headcount.active}${headcount.terminated ? ` | Уволены: ${headcount.terminated}` : ''} | Найдено: `
               : `Подчинённых: ${visibleUsers.length} | Найдено: `
             }
             <span className="text-indigo-600 font-bold">{filteredUsers.length}</span>
@@ -255,6 +309,7 @@ const AdminUsers = ({ user }) => {
         sortField={sortField}
         sortDirection={sortDirection}
         onSort={handleSort}
+        onEmploymentChange={canEdit ? handleOpenEmployment : undefined}
       />
 
       {/* Пагинация */}
@@ -275,6 +330,17 @@ const AdminUsers = ({ user }) => {
         currentUserRole={user?.role}
         onClose={handleCloseModal}
         onSave={handleSave}
+      />
+
+      {/* Увольнение / восстановление */}
+      <EmploymentStatusModal
+        isOpen={Boolean(employmentTarget) && canEdit}
+        mode={employmentMode}
+        user={employmentTarget}
+        saving={saving}
+        error={employmentError}
+        onClose={handleCloseEmployment}
+        onConfirm={handleConfirmEmployment}
       />
 
       {/* Модальное окно импорта/экспорта */}

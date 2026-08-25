@@ -32,7 +32,7 @@ const UserFilters = ({
       </div>
       
       {/* Сетка фильтров */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
         {/* Поиск */}
         <div className="lg:col-span-1 relative">
           <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
@@ -99,8 +99,20 @@ const UserFilters = ({
           <option value="tender">Tender</option>
         </select>
 
+        {/* Статус занятости — по умолчанию «Работают» (D-0825-7) */}
+        <select
+          className="w-full p-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 bg-white transition-all"
+          value={filters.employment}
+          onChange={(e) => onFilterChange('employment', e.target.value)}
+          aria-label="Фильтр по статусу занятости"
+        >
+          <option value="active">Работают</option>
+          <option value="terminated">Уволены</option>
+          <option value="all">Все (вкл. уволенных)</option>
+        </select>
+
         {/* Кнопка сброса */}
-        <button 
+        <button
           onClick={onReset}
           className="flex items-center justify-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-dashed border-gray-300 hover:border-red-200 focus:outline-none focus:ring-2 focus:ring-red-200"
           aria-label="Сбросить фильтры"

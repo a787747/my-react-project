@@ -77,6 +77,45 @@ export const useUsers = () => {
     }
   }, [fetchData]);
 
+  // Увольнение (D-0825-7). Состояние, не удаление: ни одна строка оценок не
+  // трогается, ничего не пересчитывается. Сервер отказывает, если у сотрудника
+  // остались прямые подчинённые, и его сообщение показывается как есть.
+  const terminateUser = useCallback(async (userId, terminationDate, note = '') => {
+    try {
+      setSaving(true);
+      const { data } = await apiClient.post(API_ENDPOINTS.ADMIN_TERMINATE_EMPLOYEE, {
+        user_id: userId,
+        termination_date: terminationDate,
+        note
+      });
+      await fetchData({ silent: true });
+      return { success: true, data };
+    } catch (err) {
+      logger.error('Ошибка увольнения:', err);
+      return { success: false, error: err.userMessage || 'Не удалось отметить увольнение' };
+    } finally {
+      setSaving(false);
+    }
+  }, [fetchData]);
+
+  // Восстановление — обратная операция того же маршрута.
+  const reinstateUser = useCallback(async (userId, note = '') => {
+    try {
+      setSaving(true);
+      const { data } = await apiClient.post(API_ENDPOINTS.ADMIN_REINSTATE_EMPLOYEE, {
+        user_id: userId,
+        note
+      });
+      await fetchData({ silent: true });
+      return { success: true, data };
+    } catch (err) {
+      logger.error('Ошибка восстановления:', err);
+      return { success: false, error: err.userMessage || 'Не удалось восстановить сотрудника' };
+    } finally {
+      setSaving(false);
+    }
+  }, [fetchData]);
+
   // Массовый импорт пользователей
   const importUsers = useCallback(async (usersData) => {
     try {
@@ -179,6 +218,8 @@ export const useUsers = () => {
     error,
     fetchData,
     saveUser,
+    terminateUser,
+    reinstateUser,
     importUsers
   };
 };

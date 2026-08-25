@@ -27,13 +27,18 @@ import { useState, useEffect, useMemo } from 'react';
 import { UI_CONFIG } from '../config/constants';
 import { sortUsers } from '../utils/userSort';
 
-// Начальные значения фильтров
+// Начальные значения фильтров.
+// employment по умолчанию 'active': уволенные скрыты из рабочего списка
+// (D-0825-7), но остаются в базе и доступны через фильтр «Уволены» / «Все».
+// Это единственный фильтр со значением по умолчанию, отличным от «все», —
+// поэтому сброс возвращает именно 'active', а не 'all'.
 const initialFilters = {
   search: '',
   role: 'all',
   department_id: 'all',
   manager_id: 'all',
-  work_category: 'all'
+  work_category: 'all',
+  employment: 'active'
 };
 
 export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PAGE) => {
@@ -56,8 +61,13 @@ export const useUserFilters = (users = [], itemsPerPage = UI_CONFIG.ITEMS_PER_PA
   // Фильтрация пользователей
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
+      // Статус занятости — до всех остальных фильтров
+      const isTerminated = Boolean(user.terminated_at);
+      if (filters.employment === 'active' && isTerminated) return false;
+      if (filters.employment === 'terminated' && !isTerminated) return false;
+
       // Поиск по имени и email
-      const searchMatch = 
+      const searchMatch =
         user.full_name?.toLowerCase().includes(filters.search.toLowerCase()) ||
         user.email?.toLowerCase().includes(filters.search.toLowerCase());
       if (!searchMatch) return false;

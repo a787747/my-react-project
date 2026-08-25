@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-19T08:40:16.486Z",
+  "updatedAt": "2026-08-25T15:34:45.316Z",
   "createdAt": "2025-12-06T16:55:10.673Z",
   "id": "AwID96McjHKyk8WI",
   "name": "API: Admin Get Users Data",
@@ -53,7 +53,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    users_sql: `\n      SELECT\n        u.id, u.full_name, u.email, u.role, u.work_category, u.is_project_participant,\n        u.job_title, u.manager_id, u.department_id, u.grade_id, u.has_subordinates,\n        d.name AS department_name,\n        g.code AS grade_name,\n        m.full_name AS manager_name,\n        COALESCE(\n          (SELECT CASE WHEN e.status = 'completed' THEN true ELSE false END\n           FROM performance_db.evaluations e\n           WHERE e.subject_id = u.id\n             AND e.is_self_evaluation = true\n             AND e.period_id = (\n               SELECT id FROM performance_db.evaluation_periods\n               WHERE is_active = true AND status = 'active' LIMIT 1\n             )\n           LIMIT 1),\n          false\n        ) AS self_review_done,\n        (SELECT e.status\n         FROM performance_db.evaluations e\n         WHERE e.subject_id = u.id\n           AND e.is_self_evaluation = false\n           AND e.period_id = (\n             SELECT id FROM performance_db.evaluation_periods\n             WHERE is_active = true AND status = 'active' LIMIT 1\n           )\n         LIMIT 1\n        ) AS manager_review_status\n      FROM performance_db.users u\n      LEFT JOIN performance_db.departments d ON d.id = u.department_id\n      LEFT JOIN performance_db.grades g ON g.id = u.grade_id\n      LEFT JOIN performance_db.users m ON m.id = u.manager_id\n      ORDER BY u.id DESC\n    `,\n    depts_sql: `SELECT id, name FROM performance_db.departments ORDER BY name`,\n    grades_sql: `SELECT id, code, coefficient FROM performance_db.grades ORDER BY code`,\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nreturn {\n  json: {\n    ok: true,\n    users_sql: `\n      SELECT\n        u.id, u.full_name, u.email, u.role, u.work_category, u.is_project_participant,\n        u.job_title, u.manager_id, u.department_id, u.grade_id, u.has_subordinates,\n        (u.password_hash IS NOT NULL) AS is_registered,\n        -- D-0825-7. Both are text, never a date object: a date column crossing\n        -- the n8n Postgres node is UTC-serialised and can shift a calendar day\n        -- (BUG-031). The page filters on terminated_at being non-null and shows\n        -- termination_date verbatim.\n        to_char(u.terminated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS terminated_at,\n        to_char(u.termination_date, 'YYYY-MM-DD') AS termination_date,\n        d.name AS department_name,\n        g.code AS grade_name,\n        m.full_name AS manager_name,\n        COALESCE(\n          (SELECT CASE WHEN e.status = 'completed' THEN true ELSE false END\n           FROM performance_db.evaluations e\n           WHERE e.subject_id = u.id\n             AND e.is_self_evaluation = true\n             AND e.period_id = (\n               SELECT id FROM performance_db.evaluation_periods\n               WHERE is_active = true AND status = 'active' LIMIT 1\n             )\n           LIMIT 1),\n          false\n        ) AS self_review_done,\n        (SELECT e.status\n         FROM performance_db.evaluations e\n         WHERE e.subject_id = u.id\n           AND e.is_self_evaluation = false\n           AND e.period_id = (\n             SELECT id FROM performance_db.evaluation_periods\n             WHERE is_active = true AND status = 'active' LIMIT 1\n           )\n         LIMIT 1\n        ) AS manager_review_status\n      FROM performance_db.users u\n      LEFT JOIN performance_db.departments d ON d.id = u.department_id\n      LEFT JOIN performance_db.grades g ON g.id = u.grade_id\n      LEFT JOIN performance_db.users m ON m.id = u.manager_id\n      ORDER BY u.id DESC\n    `,\n    depts_sql: `SELECT id, name FROM performance_db.departments ORDER BY name`,\n    grades_sql: `SELECT id, code, coefficient FROM performance_db.grades ORDER BY code`,\n  },\n};"
       },
       "id": "adminusers-build",
       "name": "Build Users Query",
@@ -174,7 +174,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Read from Postgres result nodes, not the relay Code nodes that only carry SQL strings.\nconst rawUsers = $('Query Users').all().map(i => i.json);\nconst rawDepts = $('Query Depts').all().map(i => i.json);\nconst rawGrades = $('Query Grades').all().map(i => i.json);\n\nfunction dedup(arr) {\n  const seen = new Map();\n  arr.forEach(item => { if (item.id) seen.set(item.id, item); });\n  return Array.from(seen.values());\n}\n\nconst users = dedup(rawUsers);\nconst departments = dedup(rawDepts);\nconst grades = dedup(rawGrades);\nconst managers = users\n  .filter(u => u.role !== 'employee')\n  .map(u => ({ id: u.id, name: u.full_name }));\n\nreturn {\n  json: {\n    http_status: 200,\n    body: { users, options: { departments, grades, managers } },\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Read from Postgres result nodes, not the relay Code nodes that only carry SQL strings.\nconst rawUsers = $('Query Users').all().map(i => i.json);\nconst rawDepts = $('Query Depts').all().map(i => i.json);\nconst rawGrades = $('Query Grades').all().map(i => i.json);\n\nfunction dedup(arr) {\n  const seen = new Map();\n  arr.forEach(item => { if (item.id) seen.set(item.id, item); });\n  return Array.from(seen.values());\n}\n\nconst users = dedup(rawUsers);\nconst departments = dedup(rawDepts);\nconst grades = dedup(rawGrades);\n// A terminated person is never offered as somebody's manager (D-0825-7):\n// pointing a live employee at them would leave that employee evaluated by\n// nobody, because a terminated manager is out of scope and gets no task list.\n// The users array itself is NOT filtered — the page needs the terminated rows\n// to show them behind its filter and to offer reinstatement.\nconst managers = users\n  .filter(u => u.role !== 'employee' && !u.terminated_at)\n  .map(u => ({ id: u.id, name: u.full_name }));\n\nreturn {\n  json: {\n    http_status: 200,\n    body: { users, options: { departments, grades, managers } },\n  },\n};"
       },
       "id": "adminusers-merge",
       "name": "Merge and Format",
@@ -339,8 +339,8 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "ed76c904-7bfe-465f-82ec-774f016b1bb9",
-  "versionCounter": 56,
+  "versionId": "9177ced9-929a-453f-8ab7-35da2ac3bef4",
+  "versionCounter": 60,
   "triggerCount": 1,
   "shared": [
     {
@@ -364,7 +364,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-19T05:33:45.123Z",
+              "updatedAt": "2026-08-25T15:32:29.030Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -391,7 +391,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-19",
+              "lastActiveAt": "2026-08-25",
               "isPending": false
             }
           }

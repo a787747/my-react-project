@@ -4,8 +4,20 @@
     {
       "name": "epe-hier-vite",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "VITE_DEV_API_PROXY=http://127.0.0.1:25679 npm run dev -- --port 5299 --strictPort"],
+      "runtimeArgs": [
+        "-c",
+        "VITE_DEV_API_PROXY=http://127.0.0.1:25679 npm run dev -- --port 5299 --strictPort"
+      ],
       "port": 5299
+    },
+    {
+      "name": "epe-term-vite",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "VITE_DEV_API_PROXY=http://127.0.0.1:25679 npm run dev -- --port 5399 --strictPort"
+      ],
+      "port": 5399
     }
   ]
 }

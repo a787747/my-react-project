@@ -10,6 +10,7 @@ export { default as UserTable } from './UserTable';
 export { default as UserFilters } from './UserFilters';
 export { default as UserModal } from './UserModal';
 export { default as UserImportModal } from './UserImportModal';
+export { default as EmploymentStatusModal } from './EmploymentStatusModal';
 
 // Компоненты для управления критериями
 export { default as CriteriaTable } from './CriteriaTable';

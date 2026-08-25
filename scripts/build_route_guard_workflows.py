@@ -2855,6 +2855,12 @@ return {
         u.id, u.full_name, u.email, u.role, u.work_category, u.is_project_participant,
         u.job_title, u.manager_id, u.department_id, u.grade_id, u.has_subordinates,
         (u.password_hash IS NOT NULL) AS is_registered,
+        -- D-0825-7. Both are text, never a date object: a date column crossing
+        -- the n8n Postgres node is UTC-serialised and can shift a calendar day
+        -- (BUG-031). The page filters on terminated_at being non-null and shows
+        -- termination_date verbatim.
+        to_char(u.terminated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS terminated_at,
+        to_char(u.termination_date, 'YYYY-MM-DD') AS termination_date,
         d.name AS department_name,
         g.code AS grade_name,
         m.full_name AS manager_name,
@@ -2940,8 +2946,13 @@ function dedup(arr) {
 const users = dedup(rawUsers);
 const departments = dedup(rawDepts);
 const grades = dedup(rawGrades);
+// A terminated person is never offered as somebody's manager (D-0825-7):
+// pointing a live employee at them would leave that employee evaluated by
+// nobody, because a terminated manager is out of scope and gets no task list.
+// The users array itself is NOT filtered — the page needs the terminated rows
+// to show them behind its filter and to offer reinstatement.
 const managers = users
-  .filter(u => u.role !== 'employee')
+  .filter(u => u.role !== 'employee' && !u.terminated_at)
   .map(u => ({ id: u.id, name: u.full_name }));
 
 return {
@@ -3453,11 +3464,18 @@ participants AS (
   SELECT
     np.id,
     u.id,
+    -- D-0825-7: a terminated employee is out of scope for every period created
+    -- after their termination, and the reason says so. Without this clause the
+    -- CROSS JOIN would put them back in scope the moment H2 is created and
+    -- silently return them to the bonus pool. Termination wins over the
+    -- hire-date rule, so the reason names the state that actually excluded them.
     CASE
+      WHEN u.terminated_at IS NOT NULL THEN false
       WHEN u.join_date IS NOT NULL AND u.join_date > '${endDate}'::date THEN false
       ELSE true
     END,
     CASE
+      WHEN u.terminated_at IS NOT NULL THEN 'terminated'
       WHEN u.join_date IS NOT NULL AND u.join_date > '${endDate}'::date THEN 'hired_after_period_end'
       ELSE NULL
     END
@@ -4950,6 +4968,632 @@ def build_manage_periods(credential_id: str, guard_workflow_id: str) -> dict[str
     return workflow("API: Manage Periods", nodes_list, connections)
 
 
+# ── 18. Employment status — terminate / reinstate an employee (D-0825-7) ──────
+#
+# The owner's decision: a terminated employee disappears from every list, task
+# and calculation; they are not evaluated, they do not evaluate, and they take
+# no share of the bonus pool for the period. The state is reversible and is
+# refused while the person still has direct reports. Evaluations they GAVE stay
+# in force — deleting them would silently change the results of people who are
+# still employed.
+#
+# Nothing here deletes anything. Exclusion is achieved by two existing
+# mechanisms plus one new state:
+#   * users.terminated_at / termination_date (migration 015) — the person-level
+#     state. Read by the admin list, by login, by registration and by the
+#     password-reset request.
+#   * evaluation_period_participants.is_in_scope = false with
+#     exclusion_reason = 'terminated' — the per-period money record. This is the
+#     SAME machinery that already takes Esenova and Balova out of H1, and it is
+#     what every task, submit, completion counter and close-time computation
+#     already reads. Nothing new had to be taught to those paths.
+#   * token_version + 1 and auth_sessions.revoked_at — the session kill. The
+#     guard joins auth_sessions on token_version = users.token_version, so the
+#     bump alone invalidates every live JWT; revoked_at is the second lock.
+#
+# Deliberately NOT touched: can_evaluate / can_be_evaluated. Those are the
+# owner's standing policy flags for the read-only C-level trio (D-0821-4).
+# Overwriting them here would make reinstatement lossy — after a round trip you
+# could no longer tell a read-only C-level from a former employee.
+
+EMPLOYMENT_TERMINATE_VALIDATE = """
+const guard = $('Run Auth Guard TERMINATE').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const actorId = Number(guard.identity.id);
+const body = guard.request.body || guard.request;
+
+const userId = parseInt(body.user_id, 10);
+if (!Number.isFinite(userId) || userId < 1) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'INVALID_USER_ID', message: 'Идентификатор сотрудника должен быть положительным целым числом' },
+    },
+  };
+}
+// The owner supplies the last working day. It is a separate fact from "when
+// somebody clicked": the date decides which period the person dropped out of,
+// and the click time is only the audit stamp.
+const rawDate = String(body.termination_date || '').trim();
+if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(rawDate)) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'INVALID_TERMINATION_DATE', message: 'Укажите дату увольнения в формате ГГГГ-ММ-ДД' },
+    },
+  };
+}
+const parsed = new Date(`${rawDate}T00:00:00Z`);
+if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== rawDate) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'INVALID_TERMINATION_DATE', message: 'Такой даты не существует' },
+    },
+  };
+}
+// Terminating yourself locks the only admin out of the product with no route
+// back in — reinstatement is admin-only. Refused by name rather than left to
+// the owner to discover.
+if (userId === actorId) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'CANNOT_TERMINATE_SELF', message: 'Нельзя уволить самого себя' },
+    },
+  };
+}
+const note = String(body.note || '').trim().slice(0, 500);
+
+return {
+  json: {
+    ok: true,
+    actor_id: actorId,
+    user_id: userId,
+    termination_date: rawDate,
+    note,
+    sql: `
+      SELECT
+        t.id AS target_id,
+        t.full_name AS target_name,
+        -- Reported for the response and for the operator's log. There is no
+        -- LAST_ADMIN branch: the route is admin-only, so the only way to reach
+        -- zero live admins is an admin terminating themselves, which
+        -- CANNOT_TERMINATE_SELF already refuses. A second guard here would be
+        -- unreachable code that reads as a guarantee.
+        t.role::text AS target_role,
+        (t.terminated_at IS NOT NULL) AS already_terminated,
+        t.has_subordinates,
+        -- The refusal is decided on the GRAPH, not on the has_subordinates
+        -- flag: trg_update_has_subordinates only fires on INSERT / DELETE /
+        -- UPDATE OF manager_id, so the flag is a cache. Terminated reports do
+        -- not count — they are forgotten too, so nobody is orphaned by them.
+        COALESCE((
+          SELECT json_agg(json_build_object('id', r.id, 'full_name', r.full_name) ORDER BY r.full_name)
+          FROM performance_db.users r
+          WHERE r.manager_id = t.id AND r.terminated_at IS NULL
+        ), '[]'::json) AS active_reports,
+        (SELECT cp.id FROM performance_db.evaluation_periods cp
+          WHERE cp.is_active = true AND cp.status = 'active'
+            AND cp.period_type <> 'annual'
+            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                            WHERE child.parent_period_id = cp.id)
+          LIMIT 1) AS active_period_id
+      FROM performance_db.users t
+      WHERE t.id = ${userId}
+    `,
+  },
+};
+""".strip()
+
+EMPLOYMENT_TERMINATE_BUILD = """
+const prev = $('Validate Terminate').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const check = $input.all().map(item => item.json).find(item => item.target_id !== undefined);
+if (!check) {
+  return {
+    json: {
+      http_status: 404,
+      body: { success: false, error: 'USER_NOT_FOUND', message: 'Сотрудник не найден' },
+    },
+  };
+}
+if (check.already_terminated === true || check.already_terminated === 't') {
+  return {
+    json: {
+      http_status: 409,
+      body: { success: false, error: 'ALREADY_TERMINATED', message: 'Сотрудник уже отмечен как уволенный' },
+    },
+  };
+}
+let reports = check.active_reports;
+if (typeof reports === 'string') {
+  try { reports = JSON.parse(reports); } catch { reports = []; }
+}
+if (!Array.isArray(reports)) reports = [];
+if (reports.length) {
+  // The message the owner reads. It names the people, because "reassign first"
+  // is useless without knowing whom. A terminated manager would leave every
+  // one of these evaluated by nobody: an out-of-scope actor gets no task list.
+  const names = reports.map(r => r.full_name).join(', ');
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'HAS_DIRECT_REPORTS',
+        message: `Нельзя уволить: у сотрудника есть прямые подчинённые (${reports.length}) — ${names}. Сначала переназначьте их другому руководителю.`,
+        reports,
+      },
+    },
+  };
+}
+const userId = Number(prev.user_id);
+const actorId = Number(prev.actor_id);
+const terminationDate = String(prev.termination_date);
+const noteLiteral = prev.note ? `'${String(prev.note).replace(/'/g, "''")}'` : 'NULL';
+const periodLiteral = check.active_period_id === null || check.active_period_id === undefined
+  ? 'NULL'
+  : String(Number(check.active_period_id));
+
+// One statement. Every precondition is re-asserted inside `target`, so a lost
+// race selects zero rows and every branch below it changes zero rows —
+// the BUG-041 rule: one gate for every data-modifying branch.
+return {
+  json: {
+    ok: true,
+    user_id: userId,
+    sql: `
+WITH target AS (
+  SELECT u.id, u.full_name
+  FROM performance_db.users u
+  WHERE u.id = ${userId}
+    AND u.terminated_at IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM performance_db.users r
+      WHERE r.manager_id = u.id AND r.terminated_at IS NULL
+    )
+  FOR UPDATE OF u
+),
+marked AS (
+  UPDATE performance_db.users u
+  SET terminated_at = now(),
+      termination_date = '${terminationDate}'::date,
+      -- The guard joins auth_sessions ON token_version = users.token_version,
+      -- so the bump alone makes every live JWT unusable on the next request.
+      token_version = u.token_version + 1
+  WHERE u.id IN (SELECT id FROM target)
+  RETURNING u.id, u.full_name, u.token_version
+),
+revoked AS (
+  UPDATE performance_db.auth_sessions s
+  SET revoked_at = now()
+  WHERE s.user_id IN (SELECT id FROM target) AND s.revoked_at IS NULL
+  RETURNING s.jti
+),
+burned AS (
+  -- An outstanding reset link would otherwise let the person set a new
+  -- password. Login refuses them anyway, but the link is closed at the source.
+  UPDATE performance_db.password_reset_tokens t
+  SET used_at = now()
+  WHERE t.user_id IN (SELECT id FROM target) AND t.used_at IS NULL
+  RETURNING t.id
+),
+scoped_out AS (
+  -- Only rows that are currently IN scope, and only periods that are not
+  -- closed. A person already excluded for another reason (hired_after_period_end)
+  -- keeps that reason, so reinstatement cannot wrongly put them back in scope;
+  -- a closed period and the 2025 archive are never touched.
+  UPDATE performance_db.evaluation_period_participants epp
+  SET is_in_scope = false,
+      exclusion_reason = 'terminated',
+      updated_at = now()
+  WHERE epp.user_id IN (SELECT id FROM target)
+    AND epp.is_in_scope = true
+    AND epp.period_id IN (
+      SELECT p.id FROM performance_db.evaluation_periods p WHERE p.status <> 'closed'
+    )
+  RETURNING epp.period_id
+),
+logged AS (
+  INSERT INTO performance_db.employment_events
+    (user_id, event_type, effective_date, period_id, actor_id, note)
+  SELECT t.id, 'terminated', '${terminationDate}'::date, ${periodLiteral}, ${actorId}, ${noteLiteral}
+  FROM target t
+  RETURNING id, occurred_at
+)
+SELECT
+  (SELECT count(*)::integer FROM marked) AS marked,
+  (SELECT full_name FROM marked LIMIT 1) AS full_name,
+  (SELECT count(*)::integer FROM revoked) AS sessions_revoked,
+  (SELECT count(*)::integer FROM burned) AS reset_tokens_invalidated,
+  (SELECT COALESCE(json_agg(period_id ORDER BY period_id), '[]'::json) FROM scoped_out) AS scoped_out_period_ids,
+  (SELECT count(*)::integer FROM logged) AS events_logged,
+  (SELECT id FROM logged LIMIT 1) AS event_id
+    `,
+  },
+};
+""".strip()
+
+EMPLOYMENT_TERMINATE_FORMAT = """
+const prev = $('Build Terminate SQL').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.marked !== undefined);
+if (!row || Number(row.marked) === 0) {
+  // The gate inside the statement refused after the pre-check passed: somebody
+  // else changed the row in between. Nothing was written.
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'TERMINATE_CONFLICT',
+        message: 'Состояние сотрудника изменилось во время операции — обновите страницу и повторите',
+      },
+    },
+  };
+}
+let periodIds = row.scoped_out_period_ids;
+if (typeof periodIds === 'string') {
+  try { periodIds = JSON.parse(periodIds); } catch { periodIds = []; }
+}
+if (!Array.isArray(periodIds)) periodIds = [];
+return {
+  json: {
+    http_status: 200,
+    body: {
+      success: true,
+      user_id: Number(prev.user_id),
+      full_name: row.full_name,
+      event_id: row.event_id != null ? Number(row.event_id) : null,
+      sessions_revoked: Number(row.sessions_revoked) || 0,
+      reset_tokens_invalidated: Number(row.reset_tokens_invalidated) || 0,
+      scoped_out_period_ids: periodIds.map(Number),
+      message: 'Сотрудник отмечен как уволенный',
+    },
+  },
+};
+""".strip()
+
+EMPLOYMENT_REINSTATE_VALIDATE = """
+const guard = $('Run Auth Guard REINSTATE').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const actorId = Number(guard.identity.id);
+const body = guard.request.body || guard.request;
+const userId = parseInt(body.user_id, 10);
+if (!Number.isFinite(userId) || userId < 1) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'INVALID_USER_ID', message: 'Идентификатор сотрудника должен быть положительным целым числом' },
+    },
+  };
+}
+const note = String(body.note || '').trim().slice(0, 500);
+return {
+  json: {
+    ok: true,
+    actor_id: actorId,
+    user_id: userId,
+    note,
+    sql: `
+      SELECT
+        t.id AS target_id,
+        t.full_name AS target_name,
+        (t.terminated_at IS NOT NULL) AS is_terminated,
+        (SELECT cp.id FROM performance_db.evaluation_periods cp
+          WHERE cp.is_active = true AND cp.status = 'active'
+            AND cp.period_type <> 'annual'
+            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                            WHERE child.parent_period_id = cp.id)
+          LIMIT 1) AS active_period_id
+      FROM performance_db.users t
+      WHERE t.id = ${userId}
+    `,
+  },
+};
+""".strip()
+
+EMPLOYMENT_REINSTATE_BUILD = """
+const prev = $('Validate Reinstate').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const check = $input.all().map(item => item.json).find(item => item.target_id !== undefined);
+if (!check) {
+  return {
+    json: {
+      http_status: 404,
+      body: { success: false, error: 'USER_NOT_FOUND', message: 'Сотрудник не найден' },
+    },
+  };
+}
+if (!(check.is_terminated === true || check.is_terminated === 't')) {
+  return {
+    json: {
+      http_status: 409,
+      body: { success: false, error: 'NOT_TERMINATED', message: 'Сотрудник не отмечен как уволенный' },
+    },
+  };
+}
+const userId = Number(prev.user_id);
+const actorId = Number(prev.actor_id);
+const noteLiteral = prev.note ? `'${String(prev.note).replace(/'/g, "''")}'` : 'NULL';
+const periodLiteral = check.active_period_id === null || check.active_period_id === undefined
+  ? 'NULL'
+  : String(Number(check.active_period_id));
+
+// token_version is deliberately NOT rolled back: revoking a session is a
+// one-way security action, and reinstatement is not a reason to resurrect a
+// token that was already handed out. The person simply logs in again.
+return {
+  json: {
+    ok: true,
+    user_id: userId,
+    sql: `
+WITH target AS (
+  SELECT u.id, u.full_name
+  FROM performance_db.users u
+  WHERE u.id = ${userId} AND u.terminated_at IS NOT NULL
+  FOR UPDATE OF u
+),
+restored AS (
+  UPDATE performance_db.users u
+  SET terminated_at = NULL, termination_date = NULL
+  WHERE u.id IN (SELECT id FROM target)
+  RETURNING u.id, u.full_name
+),
+scoped_in AS (
+  -- Only the rows this feature excluded. exclusion_reason = 'terminated' is the
+  -- marker; a row excluded for hired_after_period_end is left exactly as it is,
+  -- so the round trip is exact for a person who is both.
+  UPDATE performance_db.evaluation_period_participants epp
+  SET is_in_scope = true,
+      exclusion_reason = NULL,
+      updated_at = now()
+  WHERE epp.user_id IN (SELECT id FROM target)
+    AND epp.exclusion_reason = 'terminated'
+    AND epp.period_id IN (
+      SELECT p.id FROM performance_db.evaluation_periods p WHERE p.status <> 'closed'
+    )
+  RETURNING epp.period_id
+),
+logged AS (
+  INSERT INTO performance_db.employment_events
+    (user_id, event_type, effective_date, period_id, actor_id, note)
+  SELECT t.id, 'reinstated', NULL, ${periodLiteral}, ${actorId}, ${noteLiteral}
+  FROM target t
+  RETURNING id
+)
+SELECT
+  (SELECT count(*)::integer FROM restored) AS restored,
+  (SELECT full_name FROM restored LIMIT 1) AS full_name,
+  (SELECT COALESCE(json_agg(period_id ORDER BY period_id), '[]'::json) FROM scoped_in) AS scoped_in_period_ids,
+  (SELECT count(*)::integer FROM logged) AS events_logged,
+  (SELECT id FROM logged LIMIT 1) AS event_id
+    `,
+  },
+};
+""".strip()
+
+EMPLOYMENT_REINSTATE_FORMAT = """
+const prev = $('Build Reinstate SQL').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.restored !== undefined);
+if (!row || Number(row.restored) === 0) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'REINSTATE_CONFLICT',
+        message: 'Состояние сотрудника изменилось во время операции — обновите страницу и повторите',
+      },
+    },
+  };
+}
+let periodIds = row.scoped_in_period_ids;
+if (typeof periodIds === 'string') {
+  try { periodIds = JSON.parse(periodIds); } catch { periodIds = []; }
+}
+if (!Array.isArray(periodIds)) periodIds = [];
+return {
+  json: {
+    http_status: 200,
+    body: {
+      success: true,
+      user_id: Number(prev.user_id),
+      full_name: row.full_name,
+      event_id: row.event_id != null ? Number(row.event_id) : null,
+      scoped_in_period_ids: periodIds.map(Number),
+      message: 'Сотрудник восстановлен',
+    },
+  },
+};
+""".strip()
+
+EMPLOYMENT_HISTORY_BUILD = """
+const guard = $('Run Auth Guard HISTORY').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const request = guard.request || {};
+const query = request.query || {};
+const parsed = parseInt(query.user_id ?? query.userId, 10);
+const userFilter = Number.isFinite(parsed) && parsed > 0
+  ? `WHERE e.user_id = ${parsed}`
+  : '';
+// The termination event has to stay readable after the period closes, so this
+// route reads employment_events directly and never depends on the person still
+// being out of scope, or on the period still being open.
+return {
+  json: {
+    ok: true,
+    sql: `
+      SELECT
+        e.id,
+        e.user_id,
+        u.full_name,
+        e.event_type,
+        to_char(e.effective_date, 'YYYY-MM-DD') AS effective_date,
+        e.period_id,
+        p.name AS period_name,
+        e.actor_id,
+        a.full_name AS actor_name,
+        to_char(e.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS occurred_at,
+        e.note
+      FROM performance_db.employment_events e
+      JOIN performance_db.users u ON u.id = e.user_id
+      JOIN performance_db.users a ON a.id = e.actor_id
+      LEFT JOIN performance_db.evaluation_periods p ON p.id = e.period_id
+      ${userFilter}
+      ORDER BY e.occurred_at DESC, e.id DESC
+      LIMIT 500
+    `,
+  },
+};
+""".strip()
+
+EMPLOYMENT_HISTORY_FORMAT = """
+const guard = $('Run Auth Guard HISTORY').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const events = $input.all().map(item => item.json).filter(item => item.id !== undefined);
+return {
+  json: {
+    http_status: 200,
+    body: { success: true, events },
+  },
+};
+""".strip()
+
+
+def build_manage_employment(credential_id: str, guard_workflow_id: str) -> dict[str, Any]:
+    def pg(node_id: str, name: str, position: list[int], empty_column: str) -> dict[str, Any]:
+        return node(
+            node_id, name, "n8n-nodes-base.postgres", position,
+            {"operation": "executeQuery",
+             "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS "
+                      + empty_column + " WHERE false' }}",
+             "options": {}},
+            type_version=2.6,
+            credentials=postgres_credentials(credential_id), always_output=True)
+
+    nodes_list = [
+        # TERMINATE
+        node("employment-webhook-terminate", "Webhook TERMINATE", "n8n-nodes-base.webhook",
+             [-700, 0],
+             {"httpMethod": "POST", "path": "api/admin/terminate-employee",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-employment-terminate"),
+        node("employment-guard-input-terminate", "Prepare Guard Input TERMINATE",
+             "n8n-nodes-base.code", [-480, 0], {"jsCode": guard_input_js(["admin"])}),
+        run_guard_node("employment-run-guard-terminate", "Run Auth Guard TERMINATE",
+                       [-250, 0], guard_workflow_id),
+        node("employment-terminate-validate", "Validate Terminate", "n8n-nodes-base.code",
+             [0, 0], {"jsCode": EMPLOYMENT_TERMINATE_VALIDATE}),
+        pg("employment-terminate-check", "Load Terminate Target", [250, 0], "target_id"),
+        node("employment-terminate-build", "Build Terminate SQL", "n8n-nodes-base.code",
+             [500, 0], {"jsCode": EMPLOYMENT_TERMINATE_BUILD}),
+        pg("employment-terminate-execute", "Execute Terminate", [750, 0], "marked"),
+        node("employment-terminate-format", "Format Terminate Response", "n8n-nodes-base.code",
+             [1000, 0], {"jsCode": EMPLOYMENT_TERMINATE_FORMAT}),
+        respond_node("employment-respond-terminate", "Respond TERMINATE", [1240, 0]),
+        # REINSTATE
+        node("employment-webhook-reinstate", "Webhook REINSTATE", "n8n-nodes-base.webhook",
+             [-700, 300],
+             {"httpMethod": "POST", "path": "api/admin/reinstate-employee",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-employment-reinstate"),
+        node("employment-guard-input-reinstate", "Prepare Guard Input REINSTATE",
+             "n8n-nodes-base.code", [-480, 300], {"jsCode": guard_input_js(["admin"])}),
+        run_guard_node("employment-run-guard-reinstate", "Run Auth Guard REINSTATE",
+                       [-250, 300], guard_workflow_id),
+        node("employment-reinstate-validate", "Validate Reinstate", "n8n-nodes-base.code",
+             [0, 300], {"jsCode": EMPLOYMENT_REINSTATE_VALIDATE}),
+        pg("employment-reinstate-check", "Load Reinstate Target", [250, 300], "target_id"),
+        node("employment-reinstate-build", "Build Reinstate SQL", "n8n-nodes-base.code",
+             [500, 300], {"jsCode": EMPLOYMENT_REINSTATE_BUILD}),
+        pg("employment-reinstate-execute", "Execute Reinstate", [750, 300], "restored"),
+        node("employment-reinstate-format", "Format Reinstate Response", "n8n-nodes-base.code",
+             [1000, 300], {"jsCode": EMPLOYMENT_REINSTATE_FORMAT}),
+        respond_node("employment-respond-reinstate", "Respond REINSTATE", [1240, 300]),
+        # HISTORY — the record, readable after the period closes
+        node("employment-webhook-history", "Webhook HISTORY", "n8n-nodes-base.webhook",
+             [-700, 600],
+             {"httpMethod": "GET", "path": "api/admin/employment-events",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-employment-events"),
+        node("employment-guard-input-history", "Prepare Guard Input HISTORY",
+             "n8n-nodes-base.code", [-480, 600], {"jsCode": guard_input_js(["admin"])}),
+        run_guard_node("employment-run-guard-history", "Run Auth Guard HISTORY",
+                       [-250, 600], guard_workflow_id),
+        node("employment-history-build", "Build Events Query", "n8n-nodes-base.code",
+             [0, 600], {"jsCode": EMPLOYMENT_HISTORY_BUILD}),
+        pg("employment-history-load", "Load Events", [250, 600], "id"),
+        node("employment-history-format", "Format Events Response", "n8n-nodes-base.code",
+             [500, 600], {"jsCode": EMPLOYMENT_HISTORY_FORMAT}),
+        respond_node("employment-respond-history", "Respond HISTORY", [740, 600]),
+    ]
+    connections = {
+        "Webhook TERMINATE": connect("Prepare Guard Input TERMINATE"),
+        "Prepare Guard Input TERMINATE": connect("Run Auth Guard TERMINATE"),
+        "Run Auth Guard TERMINATE": connect("Validate Terminate"),
+        "Validate Terminate": connect("Load Terminate Target"),
+        "Load Terminate Target": connect("Build Terminate SQL"),
+        "Build Terminate SQL": connect("Execute Terminate"),
+        "Execute Terminate": connect("Format Terminate Response"),
+        "Format Terminate Response": connect("Respond TERMINATE"),
+        "Webhook REINSTATE": connect("Prepare Guard Input REINSTATE"),
+        "Prepare Guard Input REINSTATE": connect("Run Auth Guard REINSTATE"),
+        "Run Auth Guard REINSTATE": connect("Validate Reinstate"),
+        "Validate Reinstate": connect("Load Reinstate Target"),
+        "Load Reinstate Target": connect("Build Reinstate SQL"),
+        "Build Reinstate SQL": connect("Execute Reinstate"),
+        "Execute Reinstate": connect("Format Reinstate Response"),
+        "Format Reinstate Response": connect("Respond REINSTATE"),
+        "Webhook HISTORY": connect("Prepare Guard Input HISTORY"),
+        "Prepare Guard Input HISTORY": connect("Run Auth Guard HISTORY"),
+        "Run Auth Guard HISTORY": connect("Build Events Query"),
+        "Build Events Query": connect("Load Events"),
+        "Load Events": connect("Format Events Response"),
+        "Format Events Response": connect("Respond HISTORY"),
+    }
+    return workflow("API: Manage Employment Status", nodes_list, connections)
+
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -4996,6 +5640,7 @@ def main() -> None:
         "admin-users-data.json": build_admin_users_data(cred, guard),
         "save-user.json": build_save_user(cred, guard),
         "manage-periods.json": build_manage_periods(cred, guard),
+        "manage-employment.json": build_manage_employment(cred, guard),
     }
 
     for filename, payload in workflows.items():
