@@ -739,3 +739,12 @@ What this does **not** cover:
 `backups/2026-08-25-midyear-scope/` holds `midyear_scope_proof.json` and
 `live_verify.json`. It is deliberately **not** tracked — `backups/` is gitignored
 because those files carry personal data.
+
+---
+
+**This report, the D-0825-10 row, the three bug rows, migration 016, the
+executor scripts and the refreshed workflow export landed on `main` as commit
+`489224c`.** The other session's already-live sidebar change was committed
+immediately before it, on its own, as `a3326ab`. The proof files under
+`backups/2026-08-25-midyear-scope/` are deliberately **not** tracked —
+`backups/` is gitignored because those files carry personal data.
