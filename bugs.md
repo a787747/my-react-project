@@ -3,8 +3,8 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 31 |
-| 🟡 In Progress | 0 |
+| 🔴 Open | 30 |
+| 🟡 In Progress | 2 |
 | 🟢 Closed | 45 |
 
 ---
@@ -286,12 +286,13 @@
 - Fix: if wanted later, sweep `epe:evaluation-draft:*` at login for keys that are not the current user, or on logout for all three forms.
 
 ### BUG-013: Typed `/admin` is still `AdminRoute` for HR
-- Status: 🔴 OPEN
+- Status: 🟡 IN PROGRESS (2026-08-26 — fixed on branch, not yet deployed)
 - Severity: 📝 Low
 - Location: `src/App.jsx` path `/admin` → `AdminRoute` → `AdminSettings`; `canAccessAdminPanel` includes `hr`.
 - Description: Sidebar hides «Критерии» from HR. A typed URL opens the criteria catalogue shell. The API is admin-only (403). Company-wide numbers are not returned.
 - Why it matters: HR sees a frozen/error catalogue, not results. Reporting-surface brief left this on purpose.
 - Fix: wrap `/admin` in an admin-only route, or keep as-is.
+- Fix (2026-08-26, ROLE_ACCESS_HR_CLEVEL, D-0826-6): `/admin` is now `ReportingRoute` — HR is redirected to `/hr/dashboard`, c_level reads the catalogue (read-only, server refuses its writes by role), and a failed load names its reason instead of the empty shell. Pinned in `tests/roleAccessHrClevel.test.js`. Closes when verified on the running system (report §5).
 
 ### BUG-014: No off-host backup copy
 - Status: 🔴 OPEN
@@ -352,7 +353,7 @@
 
 ### BUG-042: `useScoreCalculation` still substitutes an empty coefficient set on failure
 
-- Status: 🔴 OPEN
+- Status: 🟡 IN PROGRESS (2026-08-26 — fixed on branch, not yet deployed)
 - Severity: 📌 Medium (admin-only screen since 2026-08-22, and the number is a what-if rather than a payout — but it is the same silent-degradation shape as [BUG-030])
 - Location: `src/hooks/useScoreCalculation.js:79-80` — `apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS).catch(() => ({ data: { data: [] } }))` and `apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA).catch(() => ({ data: { options: { grades: [] } } }))`, consumed by `src/pages/AdminScoreCalculator.jsx` (`/admin/score-calculator`).
 - Description: the money screens were fixed on 2026-08-21 ([BUG-030]) by moving `useFinalScoresMatrix` to `Promise.allSettled` with an explicit error card, and `useScoreCoefficients` got the same treatment on 2026-08-22. The score calculator was in neither pass: a 401, a 500 or a network blip on either call still resolves to an empty array, `weight` falls back to `1.0` per criterion and every grade coefficient to `1.0`, and the calculator renders a full, plausible, **unweighted** breakdown with no error — including the per-criterion `оценка×коэффициент×вес` strings, which will read `×1.0×1.0`.
@@ -361,6 +362,7 @@
 - How to fix: the [BUG-030] pattern — `Promise.allSettled`, classify each rejection, clear `employees`/`matrixData`/`criteriaWithCoefficients`, and return an error card with retry before any table renders. `src/hooks/useScoreCoefficients.js` (2026-08-22) is the smaller worked example.
 - H1 impact: none while nobody uses the calculator; it reads the active period, and there is none today.
 - Source: found while making the coefficient screens admin-only in `docs/LIFECYCLE_COEFF_2026-08-2x.md`; the same `.catch`-to-empty family the brief was asked to close in `useScoreCoefficients` only.
+- Fix (2026-08-26, ROLE_ACCESS_HR_CLEVEL): the [BUG-030] pattern applied — `Promise.allSettled`, per-request classification, numbers cleared and an error card with retry before any table renders. Became mandatory the moment `/admin/score-calculator` opened to c_level read access (D-0826-6): before this fix a c_level visitor on the undeployed backend would have seen exactly the silent ×1.0 table. Pinned in `tests/roleAccessHrClevel.test.js`. Closes when verified on the running system.
 
 ### BUG-043: with no active period, `/api/employees` reports the annual container as the current period
 
@@ -828,3 +830,12 @@
 - Why it matters: not an H1 correctness defect. It becomes page latency on a larger employee or period history and makes the whole admin roster wait before one card can open.
 - How to fix: pre-aggregate `(user_id, period_scopes)` in one CTE or `LEFT JOIN LATERAL`, then join it to users; preserve rows with no participant entry and periods with no active status.
 - Source: `docs/HIRE_DATE_AND_SCOPE_TOGGLE_2026-08-26.md` §8, post-build code review.
+
+### BUG-077: The tracked generator-output snapshots are stale (subdirectory instance of the BUG-045 family)
+- Status: 🔴 OPEN
+- Severity: 🔵 Low (repo hygiene — live is unaffected; the generators, which are the deploy source, are current)
+- Location: `n8n_workflows/route_guard_h1/` and `n8n_workflows/route_guard_deferred/` — tracked snapshots of the builders' output.
+- Description: regenerating both directories at HEAD (2026-08-26, ROLE_ACCESS_HR_CLEVEL) showed `route_guard_deferred/evaluations-matrix.json`, `route_guard_h1/manage-periods.json` and `route_guard_h1/save-user.json` stale against their own generators — the 2026-08-26 05:16Z/08:52Z rewrites refreshed the top-level `API_ *.json` exports but not these snapshots — and `manage-employment.json` / `manage-period-scope.json` were never committed at all. The ROLE_ACCESS commit regenerated only its own four files and reverted the other three rather than adopt unrelated churn.
+- Why it matters: a snapshot that silently lags its generator is the BUG-045 trap one directory deeper — anyone diffing the tracked JSON to answer "what does this route require" reads yesterday's guard.
+- How to fix: regenerate both directories in a hygiene commit of their own (canonical ids `VNbfkY8IKbEzn88B` / `L0Zr7nVa8O5YWXd3`), add the two missing files, and decide whether a test should pin snapshots == generators (the deferred/h1 test suites already regenerate to a temp dir, so the tracked copies may instead be deleted as redundant — owner's call).
+- Source: `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §4.4.

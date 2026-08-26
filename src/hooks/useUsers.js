@@ -47,7 +47,9 @@ export const useUsers = () => {
       });
     } catch (err) {
       logger.error('Ошибка загрузки пользователей:', err);
-      setError('Не удалось загрузить список пользователей');
+      // err.userMessage несёт причину с сервера («Доступ запрещен…» на 403);
+      // экран обязан назвать её, а не показать пустой список.
+      setError(err.userMessage || 'Не удалось загрузить список пользователей');
     } finally {
       if (!silent) setLoading(false);
     }

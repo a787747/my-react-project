@@ -2462,9 +2462,13 @@ def build_hr_evaluation_status(credential_id: str, guard_workflow_id: str) -> di
 
 # ── 12. GET api/score-coefficients — API: Get Score Coefficients ──────────────
 # Response: {success: true, data: [{id, title, weight, is_active, score_coefficients: {"1":x,...}}]}
-# ADMIN ONLY (D-0822-2). Until 2026-08-22 this route was authenticated-only and
-# every employee read the whole weight + level-coefficient table while filling in
-# a self-review. The weighted self-review value is now computed on the server.
+# ADMIN + C_LEVEL, read only (ROLE_ACCESS_HR_CLEVEL, 2026-08-26). D-0822-2 made
+# this admin-only after every employee read the whole weight + level-coefficient
+# table while filling in a self-review; the weighted self-review value is now
+# computed on the server, and that stays. C-level is added back as a READER
+# because the owner granted C-level the money-read screens (/admin/final-scores,
+# /admin/score-calculator), both of which consume this route. HR and every other
+# role still get 403; the POST save route below remains admin-only.
 
 SCORE_COEFF_BUILD = """
 const guard = $('Run Auth Guard').first().json;
@@ -2539,7 +2543,7 @@ def build_score_coefficients(credential_id: str, guard_workflow_id: str) -> dict
               "responseMode": "responseNode", "options": {}},
              type_version=2.1, webhook_id="epe-score-coefficients-get"),
         node("scorecoeff-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
-             [-480, 0], {"jsCode": guard_input_js(["admin"])}),
+             [-480, 0], {"jsCode": guard_input_js(["admin", "c_level"])}),
         run_guard_node("scorecoeff-run-guard", "Run Auth Guard", [-250, 0], guard_workflow_id),
         node("scorecoeff-build", "Build Coefficients Query", "n8n-nodes-base.code",
              [0, 0], {"jsCode": SCORE_COEFF_BUILD}),
@@ -2906,6 +2910,13 @@ def build_create_invite(credential_id: str, guard_workflow_id: str) -> dict[str,
 # ── 15. GET api/admin-users-data — API: Admin Get Users Data ──────────────────
 # Response: {users: AdminUser[], options: {departments, grades, managers}}
 # Users include is_project_participant. Sequential multi-query + merge.
+# Readers: admin + hr + c_level (ROLE_ACCESS_HR_CLEVEL, 2026-08-26) — this is
+# the feed of the «Сотрудники» roster, which HR and C-level open read-only.
+# The users SQL selects no compensation column (salary_current/salary_proposed
+# never leave the database on this route, any role). The one money input in the
+# payload is options.grades[].coefficient: admin and c_level keep it (the money
+# screens they may read consume it via this route), HR receives grades as
+# {id, code} only — D-0822-2 still holds for HR. Every write stays admin-only.
 
 ADMIN_USERS_BUILD_QUERY = """
 const guard = $('Run Auth Guard').first().json;
@@ -3058,7 +3069,13 @@ function dedup(arr) {
 
 const users = dedup(rawUsers);
 const departments = dedup(rawDepts);
-const grades = dedup(rawGrades);
+// Grade coefficients are a money input (D-0822-2). Admin and c_level read them
+// here because the money screens they may open feed from this route; HR reads
+// this roster but never a money input, so HR gets {id, code} only.
+const actorRole = String(guard.identity.role || '');
+const grades = dedup(rawGrades).map(g =>
+  actorRole === 'hr' ? { id: g.id, code: g.code } : g
+);
 // A terminated person is never offered as somebody's manager (D-0825-7):
 // pointing a live employee at them would leave that employee evaluated by
 // nobody, because a terminated manager is out of scope and gets no task list.
@@ -3084,7 +3101,7 @@ def build_admin_users_data(credential_id: str, guard_workflow_id: str) -> dict[s
               "responseMode": "responseNode", "options": {}},
              type_version=2.1, webhook_id="epe-admin-users-data"),
         node("adminusers-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
-             [-480, 0], {"jsCode": guard_input_js(["admin"])}),
+             [-480, 0], {"jsCode": guard_input_js(["admin", "hr", "c_level"])}),
         run_guard_node("adminusers-run-guard", "Run Auth Guard", [-250, 0], guard_workflow_id),
         node("adminusers-build", "Build Users Query", "n8n-nodes-base.code",
              [0, 0], {"jsCode": ADMIN_USERS_BUILD_QUERY}),

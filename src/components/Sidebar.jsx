@@ -240,17 +240,14 @@ const Sidebar = ({ user }) => {
             <NavItem to="/analytics" icon={BarChart3} label="Дашборд" onClick={closeMobileMenu} />
             <NavItem to="/admin/all-evaluations" icon={TrendingUp} label="Все оценки" onClick={closeMobileMenu} />
             <NavItem to="/admin/evaluations-matrix" icon={Grid3x3} label="Матрица оценок" onClick={closeMobileMenu} />
-            {/* Money screens read weights, level and grade coefficients: admin only (D-0822-2) */}
+            {/* Read-only money screens: admin + c_level (ROLE_ACCESS_HR_CLEVEL,
+                2026-08-26). The budget screen spends money and stays admin-only. */}
+            <NavItem to="/admin/final-scores" icon={Award} label="Итоговые баллы" onClick={closeMobileMenu} />
             {safeUser.role === 'admin' && (
-              <>
-                <NavItem to="/admin/final-scores" icon={Award} label="Итоговые баллы" onClick={closeMobileMenu} />
-                <NavItem to="/admin/bonus-calculation" icon={Coins} label="Калькуляция бонусов" onClick={closeMobileMenu} />
-              </>
+              <NavItem to="/admin/bonus-calculation" icon={Coins} label="Калькуляция бонусов" onClick={closeMobileMenu} />
             )}
             <NavItem to="/admin/annual-rollup" icon={CalendarRange} label="Годовые итоги" onClick={closeMobileMenu} />
-            {safeUser.role === 'admin' && (
-              <NavItem to="/admin/score-calculator" icon={Calculator} label="Калькуляция баллов" onClick={closeMobileMenu} />
-            )}
+            <NavItem to="/admin/score-calculator" icon={Calculator} label="Калькуляция баллов" onClick={closeMobileMenu} />
           </NavGroup>
         )}
 
@@ -259,11 +256,12 @@ const Sidebar = ({ user }) => {
           <NavGroup title="Администрирование" icon={Settings} groupId="admin" openGroupId={openGroupId} onToggle={setOpenGroupId}>
             <NavItem to="/admin/users" icon={Users} label="Сотрудники" onClick={closeMobileMenu} />
             {safeUser.role === 'admin' && (
-              <>
-                <NavItem to="/admin/periods" icon={Calendar} label="Периоды" onClick={closeMobileMenu} />
-                <NavItem to="/admin" icon={Settings} label="Критерии" onClick={closeMobileMenu} end />
-                <NavItem to="/admin/scoring" icon={Calculator} label="Коэффициенты" onClick={closeMobileMenu} />
-              </>
+              <NavItem to="/admin/periods" icon={Calendar} label="Периоды" onClick={closeMobileMenu} />
+            )}
+            {/* Критерии: admin edits, c_level reads (ROLE_ACCESS_HR_CLEVEL) */}
+            <NavItem to="/admin" icon={Settings} label="Критерии" onClick={closeMobileMenu} end />
+            {safeUser.role === 'admin' && (
+              <NavItem to="/admin/scoring" icon={Calculator} label="Коэффициенты" onClick={closeMobileMenu} />
             )}
           </NavGroup>
         )}

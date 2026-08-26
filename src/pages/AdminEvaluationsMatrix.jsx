@@ -45,6 +45,7 @@ const AdminEvaluationsMatrix = ({ user }) => {
     period,
     campaignActive,
     loading,
+    error,
     filters,
     filterOptions,
     filteredEmployees,
@@ -54,7 +55,8 @@ const AdminEvaluationsMatrix = ({ user }) => {
     clearFilters,
     setSorting,
     submitCLevelEvaluation,
-    submitScoreCorrection
+    submitScoreCorrection,
+    fetchData
   } = useEvaluationsMatrix();
 
   const [periodCatalog, setPeriodCatalog] = useState([]);
@@ -176,6 +178,25 @@ const AdminEvaluationsMatrix = ({ user }) => {
   // Состояние загрузки
   if (loading) {
     return <LoadingSpinner text="Загрузка матрицы оценок..." />;
+  }
+
+  // Матрица не загрузилась — называем причину, а не рисуем пустую таблицу.
+  if (error) {
+    return (
+      <div className="p-8 bg-gray-50 min-h-screen">
+        <div className="max-w-xl mx-auto mt-16 bg-white border border-red-200 rounded-xl p-6 text-center">
+          <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <p className="text-gray-900 font-semibold mb-1">Матрица оценок не загружена</p>
+          <p className="text-red-700 text-sm mb-4">{error}</p>
+          <button
+            onClick={() => fetchData()}
+            className="bg-indigo-600 text-white px-5 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          >
+            Повторить
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

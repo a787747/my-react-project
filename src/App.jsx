@@ -104,10 +104,12 @@ const HRRoute = ({ children, user }) => {
 
 /**
  * CoefficientRoute — admin only (D-0822-2).
- * Weights, level coefficients and grade coefficients are the money inputs of the
- * bonus index. Every screen that reads or edits them is admin-only at the route
- * level, not merely 403 at the API: c_level and HR used to reach these pages and
- * see a half-rendered table or an error card.
+ * Screens that EDIT the money inputs (/admin/scoring) or spend the budget
+ * (/admin/bonus-calculation) stay admin-only at the route level. The read-only
+ * money screens — /admin/final-scores and /admin/score-calculator — moved to
+ * ReportingRoute (admin + c_level) in ROLE_ACCESS_HR_CLEVEL (2026-08-26): the
+ * owner granted C-level read access; the APIs behind them refuse every write
+ * for non-admin either way.
  */
 const CoefficientRoute = ({ children, user }) => {
   if (!user) {
@@ -282,12 +284,16 @@ function AppContent() {
               </ReportingRoute>
             }
           />
+          {/* Критерии: admin edits, c_level reads (ROLE_ACCESS_HR_CLEVEL).
+              HR is redirected to /hr/dashboard — the criteria API refuses hr,
+              and until 2026-08-26 a typed /admin gave HR a silently empty
+              table (BUG-013). */}
           <Route
             path="/admin"
             element={
-              <AdminRoute user={user}>
-                <AdminSettings />
-              </AdminRoute>
+              <ReportingRoute user={user}>
+                <AdminSettings user={user} />
+              </ReportingRoute>
             }
           />
           <Route
@@ -301,9 +307,9 @@ function AppContent() {
           <Route
             path="/admin/final-scores"
             element={
-              <CoefficientRoute user={user}>
+              <ReportingRoute user={user}>
                 <AdminFinalScores user={user} />
-              </CoefficientRoute>
+              </ReportingRoute>
             }
           />
           <Route
@@ -333,9 +339,9 @@ function AppContent() {
           <Route
             path="/admin/score-calculator"
             element={
-              <CoefficientRoute user={user}>
+              <ReportingRoute user={user}>
                 <AdminScoreCalculator />
-              </CoefficientRoute>
+              </ReportingRoute>
             }
           />
         </Routes>

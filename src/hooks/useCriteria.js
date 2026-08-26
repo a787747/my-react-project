@@ -25,11 +25,13 @@ export const useCriteria = () => {
   // Каталог замораживается на СТАРТЕ оценки, не на активации (D-0822-1).
   const [evaluationStarted, setEvaluationStarted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // Загрузка критериев
   const fetchCriteria = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await apiClient.post(API_ENDPOINTS.MANAGE_CRITERIA, { action: 'get' });
       const rawData = response.data;
       
@@ -44,8 +46,11 @@ export const useCriteria = () => {
       setPeriod(rawData?.period || null);
       setCampaignActive(Boolean(rawData?.campaign_active));
       setEvaluationStarted(Boolean(rawData?.evaluation_started));
-    } catch (error) {
-      logger.error("Ошибка загрузки критериев:", error);
+    } catch (err) {
+      logger.error("Ошибка загрузки критериев:", err);
+      // Отказ сервера обязан дойти до экрана: молчаливый catch рисовал
+      // пустую таблицу критериев вместо причины (тот же паттерн, что BUG-012).
+      setError(err.userMessage || 'Не удалось загрузить критерии');
     } finally {
       setLoading(false);
     }
@@ -100,6 +105,7 @@ export const useCriteria = () => {
     campaignActive,
     evaluationStarted,
     loading,
+    error,
     fetchCriteria,
     saveCriterion,
     deleteCriterion

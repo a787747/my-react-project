@@ -73,9 +73,14 @@ const getInitialFormState = (criterion = null) => {
   };
 };
 
-const AdminSettings = () => {
+const AdminSettings = ({ user }) => {
+  // C-level читает каталог без правок (ROLE_ACCESS_HR_CLEVEL, 2026-08-26):
+  // сервер отвечает 403 на save/delete не-администратора, поэтому все органы
+  // записи рисуются только администратору.
+  const canEdit = user?.role === 'admin';
+
   // Хук для работы с критериями
-  const { criteriaList, period, campaignActive, evaluationStarted, loading, saveCriterion, deleteCriterion } = useCriteria();
+  const { criteriaList, period, campaignActive, evaluationStarted, loading, error, fetchCriteria, saveCriterion, deleteCriterion } = useCriteria();
   
   // Состояние редактирования
   const [editingId, setEditingId] = useState(null);
@@ -156,6 +161,24 @@ const AdminSettings = () => {
     return <LoadingSpinner text="Загрузка критериев..." />;
   }
 
+  // Критерии не загрузились — называем причину, а не рисуем пустую таблицу.
+  if (error) {
+    return (
+      <div className="max-w-6xl mx-auto p-8">
+        <div className="max-w-xl mx-auto mt-16 bg-white border border-red-200 rounded-xl p-6 text-center">
+          <p className="text-slate-900 font-semibold mb-1">Критерии не загружены</p>
+          <p className="text-red-700 text-sm mb-4">{error}</p>
+          <button
+            onClick={() => fetchCriteria()}
+            className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+          >
+            Повторить
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto p-8 pb-20">
       {/* Header */}
@@ -165,14 +188,20 @@ const AdminSettings = () => {
             <ListPlus className="text-blue-600 w-8 h-8" />
             Критерии Оценки
           </h1>
-          <p className="text-slate-500 mt-2">Добавляйте вопросы и назначайте их отделам.</p>
+          <p className="text-slate-500 mt-2">
+            {canEdit
+              ? 'Добавляйте вопросы и назначайте их отделам.'
+              : 'Каталог критериев — только чтение. Изменения доступны администратору.'}
+          </p>
         </div>
-        <button 
-          onClick={handleAddNew}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5" /> Добавить критерий
-        </button>
+        {canEdit && (
+          <button
+            onClick={handleAddNew}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700"
+          >
+            <Plus className="w-5 h-5" /> Добавить критерий
+          </button>
+        )}
       </div>
 
       <PeriodBanner
@@ -208,26 +237,28 @@ const AdminSettings = () => {
       </div>
 
       {/* Кнопка очистки тестовых оценок */}
-      <div className="mb-6">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-1">Очистка тестовых данных</h3>
-              <p className="text-sm text-gray-600">
-                Удалить все тестовые оценки всех сотрудников
-              </p>
+      {canEdit && (
+        <div className="mb-6">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-1">Очистка тестовых данных</h3>
+                <p className="text-sm text-gray-600">
+                  Удалить все тестовые оценки всех сотрудников
+                </p>
+              </div>
+              <button
+                onClick={() => setIsClearModalOpen(true)}
+                disabled={isClearing}
+                className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors"
+              >
+                <Trash2 className="w-5 h-5" />
+                {isClearing ? 'Удаление...' : 'Очистить тестовые оценки'}
+              </button>
             </div>
-            <button
-              onClick={() => setIsClearModalOpen(true)}
-              disabled={isClearing}
-              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors"
-            >
-              <Trash2 className="w-5 h-5" />
-              {isClearing ? 'Удаление...' : 'Очистить тестовые оценки'}
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Таблица критериев */}
       <CriteriaTable
@@ -240,6 +271,7 @@ const AdminSettings = () => {
         onSave={handleSave}
         onCancel={handleCancel}
         onDelete={handleDelete}
+        canEdit={canEdit}
       />
 
       {/* Модальное окно очистки тестовых оценок */}

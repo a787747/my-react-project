@@ -23,7 +23,8 @@ export const useAllEvaluations = () => {
   const [period, setPeriod] = useState(null);
   const [campaignActive, setCampaignActive] = useState(false);
   const [loading, setLoading] = useState(true);
-  
+  const [error, setError] = useState(null);
+
   const [detailsData, setDetailsData] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
@@ -31,12 +32,16 @@ export const useAllEvaluations = () => {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await apiClient.get(API_ENDPOINTS.ADMIN_ALL_EVALUATIONS);
       setEmployees(response.data.data || []);
       setPeriod(response.data.period || null);
       setCampaignActive(Boolean(response.data.campaign_active));
-    } catch (error) {
-      logger.error('Ошибка загрузки:', error);
+    } catch (err) {
+      logger.error('Ошибка загрузки:', err);
+      // Отказ или сбой обязан дойти до экрана: пустой список без причины
+      // неотличим от «оценок ещё нет».
+      setError(err.userMessage || 'Не удалось загрузить оценки');
     } finally {
       setLoading(false);
     }
@@ -86,6 +91,7 @@ export const useAllEvaluations = () => {
     period,
     campaignActive,
     loading,
+    error,
     detailsData,
     loadingDetails,
     fetchDetails,

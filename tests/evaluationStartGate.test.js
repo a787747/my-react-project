@@ -178,9 +178,13 @@ test("the classification freeze is GONE — classification stays editable during
 
 // ── 4. Coefficient privacy ───────────────────────────────────────────────────
 
-test("GET api/score-coefficients is admin-only", () => {
+test("GET api/score-coefficients admits admin + c_level and nobody else", () => {
+  // ROLE_ACCESS_HR_CLEVEL (2026-08-26): the owner granted C-level the
+  // read-only money screens, which consume this route. The POST save route
+  // stays admin-only (asserted in routeGuardWorkflows.test.js); HR and every
+  // other role still get 403 here.
   const wf = loadH1("score-coefficients.json");
-  assert.ok(jsOf(wf, "Prepare Guard Input").includes('required_roles: ["admin"]'));
+  assert.ok(jsOf(wf, "Prepare Guard Input").includes('required_roles: ["admin", "c_level"]'));
 });
 
 test("GET api/criteria strips weight for every non-admin role", () => {

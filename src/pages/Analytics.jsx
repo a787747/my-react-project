@@ -112,7 +112,9 @@ const Analytics = () => {
         });
         setError(null);
       } else {
-        setError('Не удалось загрузить данные');
+        // err.userMessage несёт причину с сервера — отказ (403) обязан
+        // дойти до экрана словами, а не пустым состоянием.
+        setError(err.userMessage || 'Не удалось загрузить данные');
       }
     } finally {
       setLoading(false);
