@@ -282,3 +282,5 @@ combined            079177fbb9d52ea4c5b942fcecaed1c2
 
 HANDOVER §4 formulas, catalogue values, coefficients, grades and every money
 path were untouched.
+
+**Implementation commit:** `0c464b1`.

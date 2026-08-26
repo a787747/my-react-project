@@ -1705,3 +1705,5 @@ Bugs: **30 open / 45 closed**.
   equal the dated H1 snapshot; generator drift 32 identical / 0 changed.
 
 **Report:** `docs/EMPLOYEE_SURFACES_POLISH_2026-08-26.md`.
+
+**Implementation commit:** `0c464b1`.
