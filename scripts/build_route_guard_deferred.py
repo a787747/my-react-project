@@ -2008,6 +2008,11 @@ return {{
           FROM performance_db.criteria c
           WHERE c.target_audience = 'project_participants'
         ), '[]'::json) AS project_criteria_ids,
+        COALESCE((
+          SELECT json_agg(c.id)
+          FROM performance_db.criteria c
+          WHERE c.c_level_only = true
+        ), '[]'::json) AS c_level_only_criteria_ids,
         (
           SELECT p.id
           FROM performance_db.evaluation_periods p
@@ -2064,6 +2069,28 @@ if (!subjectIsProject && projectCriteriaIds.includes(Number(prev.criteria_id))) 
         success: false,
         error: 'CRITERIA_NOT_APPLICABLE',
         message: `Критерий ${prev.criteria_id} — проектный, а сотрудник сейчас не участник проекта`,
+      },
+    },
+  };
+}
+// ── Channel dimension (owner, 2026-08-26; closes BUG-073) ───────────────────
+// Corrections calibrate the MANAGER channel. A c_level_only criterion has no
+// manager channel: its cell is the mean across C-level evaluators (D-0826-1),
+// so a correction there used to be accepted with a 200, stored, shown, and
+// then discarded by every money reader. It is refused instead — the C-level
+// channel is calibrated by being averaged, not corrected. Checked before the
+// period gate for the same reason as the project check: the refusal is
+// non-mutating either way, and the deployed rule stays provable on live
+// while no campaign runs.
+const cLevelOnlyCriteriaIds = parseIdList(row.c_level_only_criteria_ids);
+if (cLevelOnlyCriteriaIds.includes(Number(prev.criteria_id))) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'CRITERIA_NOT_APPLICABLE',
+        message: `Критерий ${prev.criteria_id} оценивается только C-level: этот канал калибруется усреднением оценок C-level, корректировка к нему не применяется`,
       },
     },
   };

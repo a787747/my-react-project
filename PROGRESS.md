@@ -1555,3 +1555,58 @@ all grade coefficients as version H1-2026; records.
 - The working tree carried **no other session's edits**; `git status` was clean at the start.
 - The second gate is **still unpressed**, and no route that could press it was called.
 - Committed as `cddccb8`.
+
+## 2026-08-26 — PRELAUNCH_GATE: the money re-derived by a disbeliever, the boundaries attacked, BUG-073 refused (D-0826-3)
+
+**Status:** ✅ Complete — verdict: **the owner can press «Запустить оценку»; nothing must be fixed first**
+
+**What was done:**
+- **The four reports treated as claims, not facts.** PRELAUNCH_BATCH_NIGHT, CLEVEL_AVERAGING,
+  TERMINATED_EMPLOYEES and MID_YEAR_HIRES_SCOPE re-verified against live and against a two-copy
+  stand: live counts/gate/release identical to the claims at 07:27Z and 07:59Z; the two money
+  readers' CTE byte-equal on live; generators at HEAD drift-free (32/32).
+- **The money recomputed independently** — applicability, final cells, formula #3 and the rounding
+  restated in plain Python from HANDOVER §4 with zero project imports, against raw rows. **1 922
+  matrix cells: zero mismatches.** All hand-computed fixture figures (360.9000 / 243.5620 / 7.4400 /
+  102.9200 / 118.2280, pool 833.0500) identical on payload, screen and frozen `period_results`.
+  Budget distribution re-derived by my own largest-remainder arithmetic: 15/15 on-screen amounts
+  identical across `3.000.000`-with-dots, spaces, mixed separators and `999,99`; zero, negative and
+  empty-pool inputs inert and honest (the empty-pool message measured on live's own screen,
+  read-only probe).
+- **Boundaries:** 0/1/2 C-level evaluators; exclusion after data (GAVE survives, ABOUT frozen NULL);
+  termination mid-campaign (given upward eval still counts: 6.75); manager with excluded
+  subordinate unmoved; no-grade person (self-review 422, but close freezes Σ×1.00 silently —
+  **BUG-075**); channel-smuggled criteria accepted by the write path, money immune, ratings
+  polluted 8.29-vs-8.17 and 7.50-vs-6.00 — **BUG-074**; partial evaluation blank-not-zero; no-row
+  person leaves no frozen record (BUG-067 re-measured); BUG-068 re-measured unchanged.
+- **The second gate established from the live graphs:** exactly one route sets
+  `evaluation_started_at`, none unsets it; only the criteria catalogue freezes at the press;
+  coefficients, classification, scope and termination routes carry no started-gate and keep
+  working; second press is a timestamp-stable 200 no-op; the mark survives close. The server needs
+  only `{period_id}` — the typed-name confirmation is client-side.
+- **Coefficient snapshot vs live: identical**, md5 and value-for-value, before and after the deploy.
+- **The one fix (item 5):** `API: Score Correction` refuses `c_level_only` criteria with 422
+  `CRITERIA_NOT_APPLICABLE` before the period gate (D-0826-3, closes BUG-073). Proven money-neutral:
+  control (HEAD, correction stored) vs treatment (refusal) closed side by side — **100/100 frozen
+  rows identical**. Deployed 07:57:50Z (one PUT, guard frozen, webhook path unchanged, export
+  refreshed); live probe 20/20 — criteria 1/10 → 422 through Caddy, criterion 3 → 409 at the
+  unpressed gate, `score_corrections` 0 throughout. `npm test` 401/401.
+
+**Results:** verdict YES with the untidy list ordered (BUG-074, BUG-075 filed; 070/071/067/060/068/014
+named, none blocking). Live after: 89/3/80, 0/0/0/0, `evaluation_started_at` NULL ×3, md5s equal
+the 04:48:44Z snapshot, guard frozen, 60/35/22/48, release `20260826T051630Z` untouched. Anchors
+`epe_2026_pregatefix_20260826T075634Z.dump` (md5 `8b1c61ffe6c295960b109653f46d18cf`) +
+`n8n_app_pregatefix_…` (md5 `6b4ad4a0699ae3778a54d35430c3e589`) on VPS and Mac, outside the repo.
+Bugs: **30 open / 45 closed**.
+
+**Notes / Gotchas:**
+- `set -o pipefail` turns `diff | wc -l` into a script-killer inside `$( )` — wrap diff in
+  `{ … || true; }`. And `ssh` inside a `while read` loop eats the loop's stdin: the teardown's
+  drop-loop processed one database and silently skipped the second (caught by the final
+  `SELECT datname`; dropped explicitly).
+- The submit INSERT path's `calculated_score` averages **every** submitted row, while the additive
+  path's recompute filters project criteria — the asymmetry is why smuggled channel scores reach
+  the archival ratings (BUG-074) but never the cells.
+- Stand DBs and containers removed; this brief's VPS dump deleted; `SELECT datname` reads
+  `epe_2026, postgres`. The second gate on live was never pressed.
+- Committed as the PRELAUNCH_GATE commit (hash recorded in the follow-up).

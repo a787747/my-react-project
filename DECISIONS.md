@@ -743,3 +743,18 @@ and self-assessment are feedback surfaces and do not feed money. Both are intent
 manager's own boss alone; subordinates' views inform the rating, not the pool. The coefficient
 tables as read on this date are snapshotted as version H1-2026 so the September calculation can be
 reconstructed — the December 2025 index cannot be, and that is what this prevents.
+
+### D-0826-3 — A score correction on a c_level_only criterion is refused, not interpreted (owner, 2026-08-26)
+**Decision (Alexander):** corrections calibrate the **manager** channel. The C-level channel is
+calibrated by being averaged across C-level evaluators (D-0826-1), so a `c_level` correction on a
+`c_level_only` criterion (today ids 1 and 10) is **refused** by `API: Score Correction` with
+422 `CRITERIA_NOT_APPLICABLE` — the third of the three options costed in
+`docs/CLEVEL_AVERAGING_2026-08-26.md` §3 — rather than replacing or joining the mean. Closes
+BUG-073's route half; the evaluator-less unique key on `score_corrections` stays recorded there.
+**Consequence:** the API is honest today: no calibration action can be accepted, stored, shown and
+silently discarded. The refusal sits before the period gate, like the project-dimension refusal,
+so it is provable on live while no campaign runs. If the owner later wants a correction to mean
+something on the C-level channel, that is a new decision and a one-line change in four places —
+nothing stored has to be migrated, because nothing can be stored.
+**Implemented:** PRELAUNCH_GATE 2026-08-26, `docs/PRELAUNCH_GATE_2026-08-26.md` — proven
+money-neutral by two closes of two copies of one dump (100/100 frozen rows identical).

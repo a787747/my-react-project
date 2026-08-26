@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 29 |
+| 🔴 Open | 30 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 44 |
+| 🟢 Closed | 45 |
 
 ---
 
@@ -790,10 +790,32 @@
 
 ### BUG-073: A C-level score correction on a C-level criterion is accepted, stored, and then ignored
 
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED (2026-08-26, PRELAUNCH_GATE — the route now refuses)
 - Severity: 🟡 Medium
 - Location: LIVE `API: Score Correction` → `Decide Level` (no `c_level_only` check); `src/utils/matrixUtils.js:getCriterionFinalScore` and the `finalOf` copy in `API: Manage Periods` → `Compute Close Results` (the `c_level_only` branch returns the channel value and never consults a correction).
 - Description: `POST /api/admin/score-correction` validates the range and the project-participation dimension and nothing about `c_level_only`. Measured on a stand 2026-08-26: a correction of 3 on criterion 1 for a subject returned **200**, was stored (`score_corrections` id 10, level `c_level`), and reached the matrix payload as `c_level_correction: 3` on that cell — and the frozen `period_results` came back **132.8520**, byte-identical to the same close without the correction. The row is written, transported and discarded. Separately, `score_corrections` is unique on `(subject_id, criteria_id, correction_level, period_id)` with no evaluator in the key, so corrections are last-writer-wins across C-level people even where they do count.
 - Why it matters: a calibration action that the API accepts with a 200 and that changes no number is worse than a refusal. Nobody can tell from the screen or the response that the correction did nothing. `score_corrections` is empty on live, so nothing is wrong today.
 - How to fix: the owner decides what a `c_level` correction means against an averaged C-level score — replace the mean, or enter it as one more opinion in the mean — and the route then either implements it or refuses `c_level_only` criteria by name. Surfaced deliberately by D-0826-1 rather than resolved; see `docs/CLEVEL_AVERAGING_2026-08-26.md` §3 for both options costed.
 - Source: `docs/CLEVEL_AVERAGING_2026-08-26.md` §3.
+- Fix (2026-08-26, D-0826-3, PRELAUNCH_GATE): the owner chose the refusal. `Validate Input` now also fetches the `c_level_only` criteria ids, and `Decide Level` answers **422 `CRITERIA_NOT_APPLICABLE`** for any of them — before the period gate, mirroring the project-criterion refusal, so the rule is provable on live while no campaign runs. Corrections calibrate the manager channel; the C-level channel is calibrated by being averaged (D-0826-1). The evaluator-less unique key on `score_corrections` (last-writer-wins across C-level people on the criteria where corrections DO count) is narrowed but **not** part of this fix and stays recorded here.
+- Verification: `backups/2026-08-26-prelaunch-gate/` — `gate_drive_proof.json` (criteria 1 and 10 → 422 on the treatment stand, both before and after the gate press; criterion-3 corrections still 200; project 422 and ownership 403 unchanged; BUG-068 behaviour unchanged) and `gate_close_proof.json` (control at HEAD with the correction stored vs treatment with it refused: **all 100 frozen `period_results` rows identical** — the refusal moves no money). Live after deploy (`gate_live_verify.json`, 20/20): criteria 1/10 → 422 through Caddy, criterion 3 → 409 at the unpressed gate, `score_corrections` still 0. `tests/clevelAveraging.test.js` pin inverted; suite 401/401. Report: `docs/PRELAUNCH_GATE_2026-08-26.md`.
+
+### BUG-074: The submit routes accept criteria that do not belong to the channel, and the score pollutes the archival ratings
+
+- Status: 🔴 OPEN
+- Severity: 🟡 Medium
+- Location: LIVE `API: Submit Evaluation` → `Build Insert SQL` (grades are validated for range and for the project dimension only; the insert's `calculated_score` is `AVG(score_val)` over **every** submitted row); same shape on the additive path and on `API: Update Evaluation WITH PERIOD`.
+- Description: a hand-crafted request can attach any active criterion to any channel. Measured on the gate stand 2026-08-26: a manager submit carrying criterion 1 (`c_level_only`) among ordinary grades → **200**, the row stored; a manager submit for a no-reports subject carrying criterion 2 (`managers_only`) → **200**; an upward submit carrying criterion 3 → **200**; a `c_level_direct` submit carrying criterion 3 → **200**. Every reader of per-criterion cells filters these rows out (`c.c_level_only = false` on the manager cell, the `managers_only`/`project` emission predicates, the c_level CTE's `c_level_only = true`), so **no money number moves** — proven by the close: the frozen `bonus_index` figures equal the hand arithmetic that ignores the smuggled rows. But `calculated_score` is the average of *all* submitted rows, and the archival ratings are averages of `calculated_score`: the polluted fixtures froze `rating_manager` **8.29** where the honest figure is 8.17, and **7.50** where the honest figure is 6.00.
+- Why it matters: the ratings are the feedback surface (formula 1) and September's calibration reads them. The UI forms never submit an inapplicable criterion, so this needs a hand-made request by an authenticated manager / C-level — low likelihood, but the write path is the last line the project's own doctrine (D-0822-3 applicability "on every write path") says should hold, and on this dimension it does not.
+- How to fix: extend the existing applicability check in `Build Insert SQL` (and the additive/update/self paths) to the audience and channel dimensions: manager/upward submits refuse `c_level_only` criteria; `managers_only` criteria require the subject's `has_subordinates`; `c_level_direct` submits accept only `c_level_only` criteria. Same 422 `CRITERIA_NOT_APPLICABLE` shape as the project dimension.
+- Source: `docs/PRELAUNCH_GATE_2026-08-26.md` §3 (gate stand, `gate_drive_proof.json`, `gate_close_proof.json`).
+
+### BUG-075: The close path silently applies grade coefficient 1.00 to a person with no grade — and the coefficient snapshot's note claims the opposite
+
+- Status: 🔴 OPEN
+- Severity: 🟢 Low (latent: today every no-grade person on live also has `can_be_evaluated=false`, so no such row can acquire data)
+- Location: LIVE `API: Manage Periods` → `Compute Close Results` (`const gradeCoefficient = Number(row.grade_coefficient) || 1.0`); the same `|| 1.0` on the client (`useFinalScoresMatrix`); `docs/coefficients/H1-2026_coefficients_20260826T044844Z.md` §3's closing sentence.
+- Description: measured on the gate stand 2026-08-26: an evaluable employee with `grade_id NULL` (fixture GT NoGrade) was evaluated normally and the close froze `bonus_index` **102.9200** = Σ(score × level coef × weight) × **1.00** — the fallback applied, silently, in the frozen record. The screen at least marks the row («без грейда (×1.00)», D-13 of PRELAUNCH_BATCH_NIGHT), but the snapshot document says «A person with no grade is **not** given 1.00 silently on the close path», which is the opposite of what the close does. The self-review path genuinely refuses (`NO_GRADE_COEFFICIENT` 422, re-measured on the same stand); the close does not.
+- Why it matters: a grade is a money input worth ×0.30…×3.00. If the owner ever grants `can_be_evaluated` to a person without assigning a grade (one `admin/save-user` edit), their index freezes at a coefficient nobody chose, and the closed period cannot be recomputed. Today unreachable on live: the only three no-grade people (21, 40, 61) are the read-only trio.
+- How to fix: either the close refuses to run while an in-scope evaluable participant has no grade (a named 422 listing the people — the BUG-030 doctrine), or the frozen row for such a person carries NULL money like the no-data case. And one sentence in the snapshot doc corrected to match the code.
+- Source: `docs/PRELAUNCH_GATE_2026-08-26.md` §3 (gate stand, `gate_close_proof.json` — frozen `1705.bonus_index = 102.9200`).

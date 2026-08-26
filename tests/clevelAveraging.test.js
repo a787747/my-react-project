@@ -233,14 +233,27 @@ test('item 3: the tooltip says the stored correction is not counted', () => {
   assert.match(tip, /Коррекция C-level: 3 \(не входит в расчёт C-level критерия\)/);
 });
 
-test('item 3: the correction route still accepts any criterion id, including c_level_only', () => {
-  // Not a change — the evidence for the question put to the owner. The route
-  // validates the project dimension and the range, and nothing about
-  // c_level_only, so a correction on criterion 1 or 10 is stored and then
-  // never read.
+test('item 3: the correction route refuses a c_level_only criterion (owner, 2026-08-26; closes BUG-073)', () => {
+  // INVERTED PIN. This test used to assert the ABSENCE of a c_level_only
+  // check — the evidence for the question put to the owner in
+  // CLEVEL_AVERAGING §3. The owner answered: corrections calibrate the
+  // manager channel; the C-level channel is calibrated by being averaged
+  // across C-level evaluators, so a correction there is refused rather than
+  // interpreted. The refusal reuses the project-criterion shape — 422
+  // CRITERIA_NOT_APPLICABLE — and sits before the period gate, so it is
+  // provable on live while no campaign runs.
   const decide = nodeCode(loadFrom(OUT_DEFERRED, 'score-correction.json'), 'Decide Level');
   assert.match(decide, /CRITERIA_NOT_APPLICABLE/);
-  assert.doesNotMatch(decide, /c_level_only/);
+  assert.match(decide, /c_level_only_criteria_ids/);
+  assert.match(decide, /оценивается только C-level/);
+  // The refusal fires BEFORE the period gate, like the project refusal.
+  assert.ok(decide.indexOf('c_level_only_criteria_ids') < decide.indexOf('NO_ACTIVE_PERIOD'),
+    'the c_level_only refusal must precede the period gate so it is provable on live pre-start');
+  // The id list is fetched in the same lookup as the project list.
+  const validate = nodeCode(loadFrom(OUT_DEFERRED, 'score-correction.json'), 'Validate Input');
+  assert.match(validate, /c_level_only = true/);
+  assert.match(validate, /c_level_only_criteria_ids/);
+  // The write path itself is unchanged.
   assert.match(decide, /ON CONFLICT \(subject_id, criteria_id, correction_level, period_id\)/);
 });
 
