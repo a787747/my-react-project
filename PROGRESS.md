@@ -1610,3 +1610,51 @@ Bugs: **30 open / 45 closed**.
 - Stand DBs and containers removed; this brief's VPS dump deleted; `SELECT datname` reads
   `epe_2026, postgres`. The second gate on live was never pressed.
 - Committed as `c9c6342`.
+
+## 2026-08-26 — HIRE_DATE_AND_SCOPE_TOGGLE: the card edits date and scope (D-0826-4/5)
+
+**Status:** ✅ Complete — deployed; live gate unpressed; no employee or scope value moved.
+
+**What changed:**
+- Admin-only `join_date` in the employee modal, including empty; existing-user save reloads the
+  live row immediately before POST and the server refuses a partial whole-row payload.
+- Hire-date changes atomically recompute date-derived rows of open periods and return a named
+  outcome for every period. Manual override, termination and closed periods win; exclusion after
+  any evaluation data is a hard 409 with received/self/given/correction counts.
+- Manual per-period «Участвует в оценке» switch in the same card. Off/on leaves a durable
+  `scope_override`, so later date recompute cannot undo either direction.
+- Period creation and recompute share the final-three-calendar-month rule: H1 cutoff 2026-03-31;
+  31 March in, 1 April out. Live disagreement before deploy: zero.
+- Migration 017: append-only `employee_card_events`; one admin reader unions it with the existing,
+  physically separate employment and scope logs. `join_date` leaves the global frozen-column set.
+
+**Proof and deployment:**
+- Final two-copy stand: **32/32**. Both databases from one dump, both closed through the real
+  route. Exactly one frozen row moved after a treatment-only date correction; every other frozen
+  cell byte-identical. Affected index `5.9400`, equal to hand arithmetic; pool difference exactly
+  `5.9400`.
+- Real browser on the started stand showed date → per-period result, manual toggles, actor/time
+  history, and the 409 refusal with counts **2/1/1/0** and the switch still on.
+- Rollback pair `20260826T085029Z`, md5 equal VPS/Mac:
+  `epe_2026 886c761c81f82f32aa327d7a49af19cf`,
+  `n8n_app 57b873cb0a8ce2f209c5d6e2ea65fd23`; VPS staging removed after verification,
+  Mac copy retained outside the repo.
+- Five workflows updated at 08:52:42–08:52:50Z; final `Admin Save User`
+  actor-id guard correction at 09:04:31Z; frontend release
+  **`20260826T085259Z`**. Auth Guard unchanged.
+- Live verify **19/19**: 89/3/80, gate NULL ×3, 0/0/0/0, all user cells and all pre-existing
+  participant cells unchanged, new override NULL everywhere, money-input md5 equal to the dated
+  snapshot, 60/35/22/49. Probe session and verification restore removed.
+- Tests **412/412**; build passed. Filed low performance BUG-076. Full report:
+  `docs/HIRE_DATE_AND_SCOPE_TOGGLE_2026-08-26.md`.
+
+**Notes / Gotchas:**
+- The brief's «same table» premise was false: termination and scope already had separate logs.
+  History was not migrated; the product reads all three through one route.
+- Python Framework urllib needed `/etc/ssl/cert.pem`; the first verifier run still cleaned its
+  probe session but exposed a teardown quoting bug, fixed before the successful 19/19 rerun.
+- The grade md5 must include `coalesce(description,'')`, exactly as the dated snapshot documents.
+- No mail, no formula/catalogue/coefficient/grade/criteria/period write, no live scope toggle and
+  no second-gate call.
+
+**Commit:** pending; recorded after the implementation commit.

@@ -42,6 +42,7 @@ const ManagerEvaluation = ({ user }) => {
     refreshTaskStatus,
     isOutOfScope,
     outOfScopeReason,
+    actorScopeOverride,
     campaignActive,
     periodInPreparation,
     loading: loadingTaskStatus
@@ -143,7 +144,12 @@ const ManagerEvaluation = ({ user }) => {
   }
 
   if (isOutOfScope) {
-    return <OutOfScopeNotice reason={outOfScopeReason} />;
+    return (
+      <OutOfScopeNotice
+        reason={outOfScopeReason}
+        scopeOverride={actorScopeOverride}
+      />
+    );
   }
 
   // Кампания не идёт: период не активен, либо активен, но оценка не запущена

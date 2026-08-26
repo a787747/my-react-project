@@ -1422,7 +1422,7 @@ return {
         -- the boolean left Postgres, so an out-of-scope person was told «ваш
         -- первый цикл начнётся со следующего периода» whatever had actually
         -- happened to them. The reason is what lets Welcome say the true thing.
-        SELECT epp.is_in_scope, epp.exclusion_reason,
+        SELECT epp.is_in_scope, epp.exclusion_reason, epp.scope_override,
                to_char(actor_u.join_date, 'YYYY-MM-DD') AS actor_join_date
         FROM current_period cp
         LEFT JOIN performance_db.evaluation_period_participants epp
@@ -1450,6 +1450,7 @@ return {
           departments.name AS department_name,
           grades.code AS grade_code,
           epp.exclusion_reason,
+          epp.scope_override,
           to_char(users.join_date, 'YYYY-MM-DD') AS join_date,
           false AS is_in_scope
         FROM performance_db.users users
@@ -1596,6 +1597,11 @@ return {
           THEN (SELECT exclusion_reason FROM actor_scope)
           ELSE NULL
         END AS actor_exclusion_reason,
+        CASE
+          WHEN EXISTS(SELECT 1 FROM current_period)
+          THEN (SELECT scope_override FROM actor_scope)
+          ELSE NULL
+        END AS actor_scope_override,
         (SELECT actor_join_date FROM actor_scope) AS actor_join_date,
         COALESCE(
           (SELECT json_agg(row_to_json(scoped) ORDER BY scoped.full_name) FROM scoped),
@@ -1682,6 +1688,7 @@ return {
       period_end_date: row.period_end_date || null,
       actor_is_in_scope: actorIsInScope,
       actor_exclusion_reason: row.actor_exclusion_reason || null,
+      actor_scope_override: row.actor_scope_override || null,
       actor_join_date: row.actor_join_date || null,
       data: employees,
       out_of_scope_data: outOfScope,

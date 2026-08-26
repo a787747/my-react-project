@@ -915,12 +915,14 @@ test("admin-users-data includes both work_category and is_project_participant", 
   );
 });
 
-test("save-user returns {success:true, user:<row>} shape", () => {
+test("save-user returns {success:true, user:<fresh row>} plus scope outcomes", () => {
   const wf = load("save-user.json");
   const js = allJsCode(wf);
   assert.ok(
-    js.includes("success: true") && js.includes("user: row"),
-    "save-user: must return {success:true, user: row}"
+    js.includes("success: true")
+      && js.includes("user: savedUser")
+      && js.includes("scope_results: scopeResults"),
+    "save-user: must return the saved row and named per-period scope outcomes"
   );
 });
 

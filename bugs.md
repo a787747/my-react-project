@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 30 |
+| 🔴 Open | 31 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 45 |
 
@@ -819,3 +819,12 @@
 - Why it matters: a grade is a money input worth ×0.30…×3.00. If the owner ever grants `can_be_evaluated` to a person without assigning a grade (one `admin/save-user` edit), their index freezes at a coefficient nobody chose, and the closed period cannot be recomputed. Today unreachable on live: the only three no-grade people (21, 40, 61) are the read-only trio.
 - How to fix: either the close refuses to run while an in-scope evaluable participant has no grade (a named 422 listing the people — the BUG-030 doctrine), or the frozen row for such a person carries NULL money like the no-data case. And one sentence in the snapshot doc corrected to match the code.
 - Source: `docs/PRELAUNCH_GATE_2026-08-26.md` §3 (gate stand, `gate_close_proof.json` — frozen `1705.bonus_index = 102.9200`).
+
+### BUG-076: Admin employee roster recomputes the full period list once per user
+- Status: 🔴 OPEN
+- Severity: 🔵 Low (performance)
+- Location: LIVE `API: Admin Get Users Data` → `Build Users Query`, correlated `period_scopes` subquery.
+- Description: the new employee-card participation controls need every period by name, so the roster query builds a JSON period list for each user through a correlated subquery. At the current 89 users × 3 periods this is small and the browser walkthrough is responsive, but work grows as users × periods rather than scanning and grouping once.
+- Why it matters: not an H1 correctness defect. It becomes page latency on a larger employee or period history and makes the whole admin roster wait before one card can open.
+- How to fix: pre-aggregate `(user_id, period_scopes)` in one CTE or `LEFT JOIN LATERAL`, then join it to users; preserve rows with no participant entry and periods with no active status.
+- Source: `docs/HIRE_DATE_AND_SCOPE_TOGGLE_2026-08-26.md` §8, post-build code review.

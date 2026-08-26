@@ -414,6 +414,11 @@ well as by the full diff. The two new columns were absent from the anchor and ar
 NULL on all 89 on live. The throwaway was dropped; `SELECT datname` afterwards is
 `epe_2026, postgres`.
 
+> **Superseded for future drift checks (D-0826-4, 2026-08-26):** `join_date`
+> remains correctly untouched by termination, but it is no longer globally
+> frozen. A date changed through the admin employee card is an intended,
+> audited owner action and must not be reported as an incident.
+
 Every other table, fingerprinted on both sides and **identical**:
 
 | table | md5 |

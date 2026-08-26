@@ -29,6 +29,7 @@ import {
 import {
   EXCLUSION_REASONS,
   WELCOME_AFTER_PERIOD_END,
+  WELCOME_EXCLUDED_BY_ADMIN,
   WELCOME_LATE_HIRE,
   teamExclusionText,
   welcomeExclusionText,
@@ -83,18 +84,27 @@ test('item 2: a NULL hire date puts a person OUT of scope, with a reason', () =>
   // The NULL branch must come BEFORE the comparison, or the comparison's own
   // NULL result falls through to ELSE true — the shape of BUG-066.
   const nullBranch = code.indexOf('WHEN u.join_date IS NULL THEN false');
-  const dateBranch = code.indexOf("WHEN u.join_date > '${endDate}'::date THEN false");
+  const dateBranch = code.indexOf('WHEN u.join_date >');
   assert.ok(nullBranch > 0 && dateBranch > nullBranch,
     'the NULL branch is evaluated before the date comparison');
   // Termination still outranks both.
   assert.ok(code.indexOf('WHEN u.terminated_at IS NOT NULL THEN false') < nullBranch);
 });
 
-test('item 2: the new reason is reversible by hand, terminated is not', () => {
+test('item 2: every date-derived reason is reversible by hand, terminated is not', () => {
   const code = nodeCode(loadFrom(OUT, 'manage-period-scope.json'), 'Build Include SQL');
-  assert.match(code, /REVERSIBLE_REASONS = \['excluded_by_admin', 'join_date_missing'\]/);
-  assert.match(code, /exclusion_reason IN \('excluded_by_admin', 'join_date_missing'\)/);
-  assert.doesNotMatch(code, /REVERSIBLE_REASONS.*terminated/);
+  assert.match(code, /REVERSIBLE_REASONS = \[/);
+  for (const reason of [
+    'excluded_by_admin', 'join_date_missing',
+    'hired_after_period_end', 'insufficient_tenure',
+  ]) {
+    assert.match(code, new RegExp(`['"]${reason}['"]`));
+  }
+  const reversibleBlock = code.slice(
+    code.indexOf('const REVERSIBLE_REASONS'),
+    code.indexOf('if (!REVERSIBLE_REASONS')
+  );
+  assert.doesNotMatch(reversibleBlock, /terminated/);
 });
 
 // ── item 3 ──────────────────────────────────────────────────────────────────
@@ -123,8 +133,19 @@ test('item 3: the task-list CTE still admits only in-scope people', () => {
   assert.match(scoped, /AND epp\.is_in_scope = true/);
 });
 
-test('item 3: the person is told the true reason, not the one that fits a late hire', () => {
-  assert.equal(welcomeExclusionText(EXCLUSION_REASONS.EXCLUDED_BY_ADMIN), WELCOME_LATE_HIRE);
+test('item 3: legacy late-hire marks keep their text; new manual marks are neutral', () => {
+  assert.equal(
+    welcomeExclusionText(EXCLUSION_REASONS.EXCLUDED_BY_ADMIN),
+    WELCOME_LATE_HIRE
+  );
+  assert.equal(
+    welcomeExclusionText(EXCLUSION_REASONS.EXCLUDED_BY_ADMIN, 'excluded_by_admin'),
+    WELCOME_EXCLUDED_BY_ADMIN
+  );
+  assert.equal(
+    welcomeExclusionText(EXCLUSION_REASONS.INSUFFICIENT_TENURE),
+    WELCOME_LATE_HIRE
+  );
   assert.equal(welcomeExclusionText(EXCLUSION_REASONS.HIRED_AFTER_PERIOD_END), WELCOME_AFTER_PERIOD_END);
   // An absent reason degrades to the previous copy rather than to a blank.
   assert.equal(welcomeExclusionText(null), WELCOME_AFTER_PERIOD_END);
@@ -143,6 +164,14 @@ test('item 3: the owner’s two texts are verbatim', () => {
     teamExclusionText(EXCLUSION_REASONS.EXCLUDED_BY_ADMIN, '2026-04-09'),
     'Не оценивается в этом периоде: принят(а) 9 апреля 2026, меньше трёх месяцев '
     + 'в периоде. Оценка — со второго полугодия.',
+  );
+  assert.equal(
+    teamExclusionText(
+      EXCLUSION_REASONS.EXCLUDED_BY_ADMIN,
+      '2020-01-01',
+      'excluded_by_admin'
+    ),
+    'Не оценивается в этом периоде по решению администратора.'
   );
 });
 

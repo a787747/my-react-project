@@ -44,6 +44,7 @@ const Welcome = () => {
     needsSelfReview,
     isOutOfScope,
     outOfScopeReason,
+    actorScopeOverride,
     loading: loadingTaskStatus 
   } = useTaskStatus();
 
@@ -65,7 +66,11 @@ const Welcome = () => {
       <div className="min-h-screen bg-surface-raised p-4 lg:p-6">
         <div className="max-w-5xl mx-auto space-y-5">
           <PeriodNotice notice={periodNotice} />
-          <OutOfScopeNotice embedded reason={outOfScopeReason} />
+          <OutOfScopeNotice
+            embedded
+            reason={outOfScopeReason}
+            scopeOverride={actorScopeOverride}
+          />
         </div>
       </div>
     );

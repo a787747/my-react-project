@@ -30,6 +30,7 @@ const SelfReview = () => {
     refreshTaskStatus,
     isOutOfScope,
     outOfScopeReason,
+    actorScopeOverride,
     campaignActive,
     periodInPreparation,
     loading: loadingTaskStatus
@@ -92,7 +93,12 @@ const SelfReview = () => {
   }
 
   if (isOutOfScope) {
-    return <OutOfScopeNotice reason={outOfScopeReason} />;
+    return (
+      <OutOfScopeNotice
+        reason={outOfScopeReason}
+        scopeOverride={actorScopeOverride}
+      />
+    );
   }
 
   // Кампания не идёт: период не активен, либо активен, но оценка не запущена

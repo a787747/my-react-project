@@ -50,7 +50,7 @@ export const EVALUATION_STATE_ORDER = [
 export const EVALUATION_STATE_LABELS = {
   [EVALUATION_STATES.IN_EVALUATION]: 'В оценке',
   [EVALUATION_STATES.EXCLUDED_BY_ADMIN]: 'Выведен из периода',
-  [EVALUATION_STATES.HIRED_AFTER_PERIOD_END]: 'Принят после конца периода',
+  [EVALUATION_STATES.HIRED_AFTER_PERIOD_END]: 'Менее трёх месяцев в периоде',
   [EVALUATION_STATES.JOIN_DATE_MISSING]: 'Нет даты приёма',
   [EVALUATION_STATES.TERMINATED]: 'Уволен',
   [EVALUATION_STATES.NO_PERIOD_ROW]: 'Нет строки участия',
@@ -65,8 +65,8 @@ export const EVALUATION_STATE_HINTS = {
     'Выведен из охвата этого периода вручную. Работает, входит в портал, участвует '
     + 'в следующем периоде. Задач и доли фонда в этом периоде нет. Обратимо.',
   [EVALUATION_STATES.HIRED_AFTER_PERIOD_END]:
-    'Принят после последнего дня периода — вне охвата автоматически. Задач и доли '
-    + 'фонда в этом периоде нет.',
+    'Принят позже границы минимального трёхмесячного стажа — вне охвата автоматически. '
+    + 'Задач и доли фонда в этом периоде нет.',
   [EVALUATION_STATES.JOIN_DATE_MISSING]:
     'В карточке не заполнена дата приёма — её нужно подтвердить. Пока дата пуста, '
     + 'человек не входит в охват нового периода.',
@@ -98,6 +98,7 @@ export const EVALUATION_STATE_CLASSES = {
 const REASON_TO_STATE = {
   [EXCLUSION_REASONS.TERMINATED]: EVALUATION_STATES.TERMINATED,
   [EXCLUSION_REASONS.HIRED_AFTER_PERIOD_END]: EVALUATION_STATES.HIRED_AFTER_PERIOD_END,
+  [EXCLUSION_REASONS.INSUFFICIENT_TENURE]: EVALUATION_STATES.HIRED_AFTER_PERIOD_END,
   [EXCLUSION_REASONS.EXCLUDED_BY_ADMIN]: EVALUATION_STATES.EXCLUDED_BY_ADMIN,
   [EXCLUSION_REASONS.JOIN_DATE_MISSING]: EVALUATION_STATES.JOIN_DATE_MISSING,
 };

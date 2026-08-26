@@ -59,6 +59,7 @@ const AdminUsers = ({ user }) => {
   // Проверка прав доступа - Admin, C-level, HR видят всех и могут редактировать
   const isFullAccess = ['admin', 'c_level', 'hr'].includes(user?.role);
   const canEdit = isFullAccess;
+  const isAdminUser = user?.role === 'admin';
 
   // Хук для работы с пользователями
   const {
@@ -67,6 +68,8 @@ const AdminUsers = ({ user }) => {
     loading,
     saving,
     saveUser,
+    changePeriodScope,
+    getEmployeeEvents,
     terminateUser,
     reinstateUser,
     importUsers
@@ -154,19 +157,25 @@ const AdminUsers = ({ user }) => {
     const result = await saveUser(formData, existingUserId);
     
     if (result.success) {
-      showToast(
-        existingUserId ? 'Сотрудник успешно обновлен' : 'Сотрудник успешно добавлен',
-        'success'
-      );
-      handleCloseModal();
+      if (!existingUserId) {
+        showToast('Сотрудник успешно добавлен', 'success');
+      }
+      // Keep an edited card open: the per-period recompute result and the
+      // append-only event must be visible instead of disappearing into a toast.
+      if (!existingUserId) handleCloseModal();
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           window.scrollTo(0, scrollY);
         });
       });
-    } else {
+    } else if (!existingUserId) {
       showToast(result.error || 'Ошибка при сохранении', 'error');
     }
+    return result;
+  };
+
+  const handleScopeChange = async (targetUserId, periodId, participate) => {
+    return changePeriodScope(targetUserId, periodId, participate);
   };
 
   // Увольнение / восстановление (D-0825-7).
@@ -370,8 +379,11 @@ const AdminUsers = ({ user }) => {
         options={options}
         saving={saving}
         currentUserRole={user?.role}
+        canManageScope={isAdminUser}
         onClose={handleCloseModal}
         onSave={handleSave}
+        onScopeChange={handleScopeChange}
+        onLoadEvents={getEmployeeEvents}
       />
 
       {/* Увольнение / восстановление */}

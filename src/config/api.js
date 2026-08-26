@@ -71,6 +71,9 @@ export const API_ENDPOINTS = {
   // ============================================
   ADMIN_USERS_DATA: `${API_BASE_URL}/api/admin-users-data`,
   ADMIN_SAVE_USER: `${API_BASE_URL}/admin/save-user`,  // n8n: admin/save-user (без /api/)
+  ADMIN_EXCLUDE_PARTICIPANT: `${API_BASE_URL}/api/admin/exclude-participant`,
+  ADMIN_INCLUDE_PARTICIPANT: `${API_BASE_URL}/api/admin/include-participant`,
+  ADMIN_EMPLOYEE_EVENTS: `${API_BASE_URL}/api/admin/employee-events`,
   // Увольнение — состояние, а не удаление (D-0825-7). Обе операции обратимы,
   // ни одна строка оценок не удаляется и ничего не пересчитывается.
   ADMIN_TERMINATE_EMPLOYEE: `${API_BASE_URL}/api/admin/terminate-employee`,

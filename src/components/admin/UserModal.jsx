@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Save, Loader2, AlertCircle } from 'lucide-react';
+import { X, Save, Loader2, AlertCircle, History } from 'lucide-react';
 import { isHR } from '../../utils/permissions';
 
 // Начальное состояние формы
@@ -27,7 +27,8 @@ const initialFormState = {
   work_category: 'general',
   department_id: '',
   grade_id: '',
-  manager_id: ''
+  manager_id: '',
+  join_date: ''
 };
 
 // Все доступные роли
@@ -42,9 +43,39 @@ const ALL_ROLES = [
 // Привилегированные роли (недоступны для HR)
 const PRIVILEGED_ROLES = ['hr', 'admin', 'c_level'];
 
-const UserModal = ({ isOpen, user, options, saving, currentUserRole, onClose, onSave }) => {
+const SCOPE_OUTCOME_TEXT = {
+  closed_untouched: 'Закрытый период не изменён',
+  no_participant_row: 'Нет строки участия — период не изменён',
+  terminated_preserved: 'Увольнение имеет приоритет — период не изменён',
+  manual_preserved: 'Ручное решение сохранено',
+  not_recomputed: 'Дата приёма не менялась',
+  refused_has_evaluations: 'Отказ: в периоде уже есть оценки',
+  included_by_date: 'Включён в охват по исправленной дате',
+  excluded_by_date: 'Исключён по правилу трёх месяцев',
+  unchanged_in_scope: 'Остался в охвате',
+  unchanged_out_of_scope: 'Остался вне охвата',
+};
+
+const UserModal = ({
+  isOpen,
+  user,
+  options,
+  saving,
+  currentUserRole,
+  canManageScope,
+  onClose,
+  onSave,
+  onScopeChange,
+  onLoadEvents,
+}) => {
   const [formData, setFormData] = useState(initialFormState);
   const [formErrors, setFormErrors] = useState({});
+  const [saveMessage, setSaveMessage] = useState(null);
+  const [scopeResults, setScopeResults] = useState([]);
+  const [periodScopes, setPeriodScopes] = useState([]);
+  const [scopeError, setScopeError] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [eventsError, setEventsError] = useState(null);
   
   // Фильтрация доступных ролей на основе роли текущего пользователя
   const availableRoles = useMemo(() => {
@@ -67,14 +98,41 @@ const UserModal = ({ isOpen, user, options, saving, currentUserRole, onClose, on
           work_category: user.work_category || 'general',
           department_id: user.department_id || '',
           grade_id: user.grade_id || '',
-          manager_id: user.manager_id || ''
+          manager_id: user.manager_id || '',
+          join_date: user.join_date || ''
         });
+        setPeriodScopes(Array.isArray(user.period_scopes) ? user.period_scopes : []);
       } else {
         setFormData(initialFormState);
+        setPeriodScopes([]);
       }
       setFormErrors({});
+      setSaveMessage(null);
+      setScopeResults([]);
+      setScopeError(null);
+      setEvents([]);
+      setEventsError(null);
     }
   }, [isOpen, user]);
+
+  const reloadEvents = async () => {
+    if (!user?.id || !canManageScope || !onLoadEvents) return;
+    const result = await onLoadEvents(user.id);
+    if (result.success) {
+      setEvents(result.data?.events || []);
+      setEventsError(null);
+    } else {
+      setEventsError(result.error);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && user?.id && canManageScope) {
+      reloadEvents();
+    }
+    // reloadEvents intentionally depends on the current modal target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, user?.id, canManageScope]);
 
   // Обработка Escape для закрытия
   useEffect(() => {
@@ -130,7 +188,65 @@ const UserModal = ({ isOpen, user, options, saving, currentUserRole, onClose, on
       return;
     }
 
-    await onSave(formData, user?.id);
+    setSaveMessage(null);
+    setScopeError(null);
+    const result = await onSave(formData, user?.id);
+    if (result?.success) {
+      const outcomes = result.data?.scope_results || [];
+      setScopeResults(outcomes);
+      setSaveMessage(
+        result.data?.card_event_id
+          ? 'Карточка сохранена, изменение записано в журнал.'
+          : 'Данные совпадают с текущей строкой; новая запись не потребовалась.'
+      );
+      setPeriodScopes((current) => current.map((period) => {
+        const outcome = outcomes.find(
+          (item) => Number(item.period_id) === Number(period.period_id)
+        );
+        if (!outcome || !outcome.desired_is_in_scope) {
+          if (outcome?.outcome === 'excluded_by_date') {
+            return {
+              ...period,
+              is_in_scope: false,
+              exclusion_reason: outcome.desired_reason,
+            };
+          }
+          return period;
+        }
+        if (outcome.outcome === 'included_by_date') {
+          return { ...period, is_in_scope: true, exclusion_reason: null };
+        }
+        return period;
+      }));
+      await reloadEvents();
+    } else if (result) {
+      setScopeResults(result.data?.scope_results || result.data?.periods || []);
+      setScopeError(result.error);
+    }
+  };
+
+  const handleScopeToggle = async (period, participate) => {
+    if (!user?.id || !onScopeChange) return;
+    setScopeError(null);
+    const result = await onScopeChange(user.id, period.period_id, participate);
+    if (!result.success) {
+      setScopeError(result.error);
+      return;
+    }
+    setPeriodScopes((current) => current.map((item) => (
+      Number(item.period_id) === Number(period.period_id)
+        ? {
+            ...item,
+            is_in_scope: participate,
+            exclusion_reason: participate ? null : 'excluded_by_admin',
+            scope_override: participate ? 'included_by_admin' : 'excluded_by_admin',
+          }
+        : item
+    )));
+    setSaveMessage(
+      `${period.period_name}: ${participate ? 'участие включено' : 'участие выключено'}; событие записано.`
+    );
+    await reloadEvents();
   };
 
   if (!isOpen) return null;
@@ -216,6 +332,27 @@ const UserModal = ({ isOpen, user, options, saving, currentUserRole, onClose, on
                 onChange={(e) => setFormData({...formData, job_title: e.target.value})} 
               />
             </div>
+
+            {/* Hire date is a money-affecting admin field (D-0826-4). Empty is
+                a real value: it moves date-derived rows out with
+                join_date_missing, unless a manual mark has precedence. */}
+            {canManageScope && (
+              <div className="col-span-2 md:col-span-1">
+                <label htmlFor="join_date" className="block text-sm font-medium text-gray-700 mb-1">
+                  Дата приёма
+                </label>
+                <input
+                  id="join_date"
+                  type="date"
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  value={formData.join_date}
+                  onChange={(e) => setFormData({ ...formData, join_date: e.target.value })}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Можно оставить пустой. После сохранения охват открытых периодов пересчитается.
+                </p>
+              </div>
+            )}
 
             {/* Роль */}
             <div>
@@ -322,6 +459,125 @@ const UserModal = ({ isOpen, user, options, saving, currentUserRole, onClose, on
                 <p className="text-red-500 text-xs mt-1">{formErrors.manager_id}</p>
               )}
             </div>
+
+            {canManageScope && user && (
+              <section className="col-span-2 border-t border-gray-200 pt-5" aria-labelledby="period-scope-title">
+                <h3 id="period-scope-title" className="text-sm font-semibold text-gray-900">
+                  Участвует в оценке
+                </h3>
+                <p className="text-xs text-gray-500 mt-1 mb-3">
+                  Ручное решение имеет приоритет над датой приёма. Закрытые периоды и увольнение не меняются.
+                </p>
+                <div className="space-y-2">
+                  {periodScopes.map((period) => {
+                    const disabled = saving
+                      || period.period_status === 'closed'
+                      || period.period_type === 'annual'
+                      || !period.has_period_row
+                      || Boolean(user.terminated_at);
+                    return (
+                      <div
+                        key={period.period_id}
+                        className="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-3"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{period.period_name}</p>
+                          <p className="text-xs text-gray-500">
+                            {period.start_date} — {period.end_date}
+                            {period.period_status === 'closed' && ' · закрыт'}
+                            {period.period_type === 'annual' && ' · годовой контейнер'}
+                            {!period.has_period_row && ' · нет строки участия'}
+                          </p>
+                          {period.exclusion_reason && (
+                            <p className="text-xs text-amber-700 mt-0.5">
+                              Причина: {period.exclusion_reason}
+                            </p>
+                          )}
+                        </div>
+                        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={period.is_in_scope === true}
+                            disabled={disabled}
+                            onChange={(e) => handleScopeToggle(period, e.target.checked)}
+                            aria-label={`${period.period_name}: участвует в оценке`}
+                            className="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          {period.is_in_scope === true ? 'Да' : 'Нет'}
+                        </label>
+                      </div>
+                    );
+                  })}
+                  {periodScopes.length === 0 && (
+                    <p className="text-sm text-gray-500">Периоды участия не найдены.</p>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {(saveMessage || scopeError) && (
+              <div
+                className={`col-span-2 rounded-lg border p-3 text-sm ${
+                  scopeError
+                    ? 'border-red-200 bg-red-50 text-red-800'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                }`}
+                role={scopeError ? 'alert' : 'status'}
+              >
+                {scopeError || saveMessage}
+              </div>
+            )}
+
+            {scopeResults.length > 0 && (
+              <section className="col-span-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                <h3 className="text-sm font-semibold text-indigo-950">
+                  Что произошло с охватом
+                </h3>
+                <ul className="mt-2 space-y-1 text-sm text-indigo-900">
+                  {scopeResults.map((result) => (
+                    <li key={result.period_id}>
+                      <strong>{result.period_name}:</strong>{' '}
+                      {SCOPE_OUTCOME_TEXT[result.outcome] || result.outcome}
+                      {result.outcome === 'refused_has_evaluations' && (
+                        <span>
+                          {' '}— получено {result.evaluations_received || 0},
+                          самооценок {result.self_reviews || 0},
+                          поставлено другим {result.evaluations_given || 0},
+                          корректировок {result.corrections_about || 0}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {canManageScope && user && (
+              <section className="col-span-2 border-t border-gray-200 pt-5" aria-labelledby="employee-events-title">
+                <h3 id="employee-events-title" className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                  <History className="w-4 h-4" />
+                  Журнал изменений
+                </h3>
+                {eventsError && <p className="text-xs text-red-700 mt-2">{eventsError}</p>}
+                {!eventsError && events.length === 0 && (
+                  <p className="text-xs text-gray-500 mt-2">Записей пока нет.</p>
+                )}
+                <ul className="mt-2 max-h-40 overflow-y-auto space-y-2">
+                  {events.map((event) => (
+                    <li
+                      key={`${event.source}-${event.event_id}`}
+                      className="text-xs text-gray-700 border-l-2 border-gray-200 pl-2"
+                    >
+                      <span className="font-medium">{event.source}: {event.event_type}</span>
+                      {' · '}
+                      {event.occurred_at || 'время не указано'}
+                      {' · actor '}
+                      {event.actor_id}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
 
           {/* Footer */}

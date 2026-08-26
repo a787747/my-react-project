@@ -62,7 +62,11 @@ const OutOfScopeTeamSection = ({ employees = [], className = '' }) => {
               </span>
             </div>
             <p className="text-sm text-slate-700 leading-normal mt-1">
-              {teamExclusionText(employee.exclusion_reason, employee.join_date)}
+              {teamExclusionText(
+                employee.exclusion_reason,
+                employee.join_date,
+                employee.scope_override
+              )}
             </p>
           </li>
         ))}

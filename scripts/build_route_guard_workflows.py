@@ -2867,8 +2867,34 @@ return {
         -- and the whole page must not empty out when no period is active.
         epp.is_in_scope AS period_is_in_scope,
         epp.exclusion_reason AS period_exclusion_reason,
+        epp.scope_override AS period_scope_override,
         (epp.user_id IS NOT NULL) AS has_period_row,
         (SELECT id FROM active_period) AS period_id,
+        COALESCE((
+          SELECT json_agg(
+            json_build_object(
+              'period_id', p.id,
+              'period_name', p.name,
+              'period_type', p.period_type,
+              'period_status', p.status,
+              'start_date', to_char(p.start_date, 'YYYY-MM-DD'),
+              'end_date', to_char(p.end_date, 'YYYY-MM-DD'),
+              'scope_cutoff_date', to_char(
+                (date_trunc('month', p.end_date)::date
+                  - interval '2 months' - interval '1 day')::date,
+                'YYYY-MM-DD'
+              ),
+              'has_period_row', pp.user_id IS NOT NULL,
+              'is_in_scope', pp.is_in_scope,
+              'exclusion_reason', pp.exclusion_reason,
+              'scope_override', pp.scope_override
+            )
+            ORDER BY p.start_date, p.id
+          )
+          FROM performance_db.evaluation_periods p
+          LEFT JOIN performance_db.evaluation_period_participants pp
+            ON pp.period_id = p.id AND pp.user_id = u.id
+        ), '[]'::json) AS period_scopes,
         -- D-0825-7. Both are text, never a date object: a date column crossing
         -- the n8n Postgres node is UTC-serialised and can shift a calendar day
         -- (BUG-031). The page filters on terminated_at being non-null and shows
@@ -3056,12 +3082,55 @@ if (!guard.ok) {
 }
 // Actor identity comes from guard — body admin_id is ignored for authorization.
 const actorId = Number(guard.identity.id);
+if (!Number.isFinite(actorId) || actorId < 1) {
+  return {
+    json: {
+      http_status: 500,
+      body: { success: false, error: 'INVALID_ACTOR', message: 'Сервер авторизации не вернул корректный actor_id' },
+    },
+  };
+}
 const body = guard.request.body || guard.request;
 // H1: only general and project allowed
 const VALID_WORK_CATEGORIES = ['general', 'project'];
 const VALID_ROLES = ['admin', 'c_level', 'manager', 'employee', 'hr'];
 
-const workCategory = String(body.work_category || 'general').trim();
+const cleanId = (v) => {
+  if (v === '' || v == null || v === 'null') return null;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+};
+const userId = cleanId(body.id);
+const isNew = userId === null;
+
+// Existing users are a full-row write. Missing role/work_category used to fall
+// through to employee/general and could silently change both access and money.
+// The client reloads the live row immediately before POST; the server refuses a
+// partial body as the second line of defence.
+const FULL_ROW_FIELDS = [
+  'full_name', 'email', 'role', 'work_category', 'job_title',
+  'department_id', 'grade_id', 'manager_id', 'join_date',
+];
+if (!isNew) {
+  const missing = FULL_ROW_FIELDS.filter((field) => !Object.prototype.hasOwnProperty.call(body, field));
+  if (missing.length) {
+    return {
+      json: {
+        http_status: 422,
+        body: {
+          success: false,
+          error: 'INCOMPLETE_USER_ROW',
+          message: `Карточка не сохранена: передана не вся актуальная строка (${missing.join(', ')})`,
+          missing_fields: missing,
+        },
+      },
+    };
+  }
+}
+
+const workCategory = String(
+  Object.prototype.hasOwnProperty.call(body, 'work_category') ? body.work_category : 'general'
+).trim();
 if (!VALID_WORK_CATEGORIES.includes(workCategory)) {
   return {
     json: {
@@ -3074,7 +3143,9 @@ if (!VALID_WORK_CATEGORIES.includes(workCategory)) {
     },
   };
 }
-const role = String(body.role || 'employee').trim();
+const role = String(
+  Object.prototype.hasOwnProperty.call(body, 'role') ? body.role : 'employee'
+).trim();
 if (!VALID_ROLES.includes(role)) {
   return {
     json: {
@@ -3098,18 +3169,30 @@ if (!email || email.length > 150) {
   };
 }
 
-const cleanId = (v) => {
-  if (v === '' || v == null || v === 'null') return null;
-  const n = parseInt(v, 10);
-  return Number.isFinite(n) ? n : null;
-};
-
-const userId = cleanId(body.id);
 const departmentId = cleanId(body.department_id);
 const gradeId = cleanId(body.grade_id);
 const managerId = cleanId(body.manager_id);
-const isNew = userId === null;
 const isProjectParticipant = workCategory === 'project';
+const rawJoinDate = body.join_date == null ? '' : String(body.join_date).trim();
+if (rawJoinDate && !/^\\d{4}-\\d{2}-\\d{2}$/.test(rawJoinDate)) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'INVALID_JOIN_DATE', message: 'Дата приёма должна быть в формате ГГГГ-ММ-ДД или пустой' },
+    },
+  };
+}
+if (rawJoinDate) {
+  const parsed = new Date(`${rawJoinDate}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== rawJoinDate) {
+    return {
+      json: {
+        http_status: 422,
+        body: { success: false, error: 'INVALID_JOIN_DATE', message: 'Укажите существующую календарную дату приёма' },
+      },
+    };
+  }
+}
 
 const safeFullName = fullName.replace(/'/g, "''");
 const safeEmail = email.replace(/'/g, "''");
@@ -3119,6 +3202,7 @@ const departmentSql = departmentId !== null ? String(departmentId) : 'NULL';
 const gradeSql = gradeId !== null ? String(gradeId) : 'NULL';
 const managerSql = managerId !== null ? String(managerId) : 'NULL';
 const jobTitleSql = safeJobTitle ? `'${safeJobTitle}'` : 'NULL';
+const joinDateSql = rawJoinDate ? `'${rawJoinDate}'::date` : 'NULL';
 
 // Classification (project/general) stays editable during a running campaign
 // (D-0822-3). The classification freeze 409 is gone: a switch never destroys
@@ -3128,6 +3212,7 @@ const jobTitleSql = safeJobTitle ? `'${safeJobTitle}'` : 'NULL';
 return {
   json: {
     ok: true,
+    actor_id: actorId,
     is_new: isNew,
     user_id: userId,
     work_category: workCategory,
@@ -3139,6 +3224,7 @@ return {
     department_sql: departmentSql,
     grade_sql: gradeSql,
     manager_sql: managerSql,
+    join_date_sql: joinDateSql,
   },
 };
 """.strip()
@@ -3152,35 +3238,252 @@ if (prev.http_status) {
 const userId = prev.user_id;
 const isNew = prev.is_new;
 const isProjectParticipant = prev.is_project_participant;
+const actorId = Number(prev.actor_id);
 
 let sql;
 if (isNew) {
   sql = `
-INSERT INTO performance_db.users
-  (full_name, email, role, job_title, work_category, is_project_participant,
-   department_id, grade_id, manager_id, created_at)
-VALUES
-  ('${prev.full_name}', '${prev.email}', '${prev.role}', ${prev.job_title_sql},
-   '${prev.work_category}', ${isProjectParticipant},
-   ${prev.department_sql}, ${prev.grade_sql}, ${prev.manager_sql}, now())
-RETURNING id, full_name, email, role, work_category, is_project_participant,
-          job_title, manager_id, department_id, grade_id, has_subordinates
+WITH inserted AS (
+  INSERT INTO performance_db.users
+    (full_name, email, role, job_title, work_category, is_project_participant,
+     department_id, grade_id, manager_id, join_date, created_at)
+  VALUES
+    ('${prev.full_name}', '${prev.email}', '${prev.role}', ${prev.job_title_sql},
+     '${prev.work_category}', ${isProjectParticipant},
+     ${prev.department_sql}, ${prev.grade_sql}, ${prev.manager_sql}, ${prev.join_date_sql}, now())
+  RETURNING *
+),
+logged AS (
+  INSERT INTO performance_db.employee_card_events
+    (user_id, actor_id, event_type, changes)
+  SELECT
+    i.id,
+    ${actorId},
+    'created',
+    jsonb_build_object(
+      'full_name', jsonb_build_object('old', NULL, 'new', i.full_name),
+      'email', jsonb_build_object('old', NULL, 'new', i.email),
+      'role', jsonb_build_object('old', NULL, 'new', i.role),
+      'job_title', jsonb_build_object('old', NULL, 'new', i.job_title),
+      'work_category', jsonb_build_object('old', NULL, 'new', i.work_category),
+      'department_id', jsonb_build_object('old', NULL, 'new', i.department_id),
+      'grade_id', jsonb_build_object('old', NULL, 'new', i.grade_id),
+      'manager_id', jsonb_build_object('old', NULL, 'new', i.manager_id),
+      'join_date', jsonb_build_object('old', NULL, 'new', to_char(i.join_date, 'YYYY-MM-DD'))
+    )
+  FROM inserted i
+  RETURNING id
+)
+SELECT
+  true AS target_found,
+  false AS blocked,
+  row_to_json(i) AS saved_user,
+  '[]'::json AS scope_results,
+  (SELECT id FROM logged LIMIT 1) AS card_event_id
+FROM inserted i
   `;
 } else {
   sql = `
-UPDATE performance_db.users
-SET full_name = '${prev.full_name}',
-    email = '${prev.email}',
-    role = '${prev.role}',
-    job_title = ${prev.job_title_sql},
-    work_category = '${prev.work_category}',
-    is_project_participant = ${isProjectParticipant},
-    department_id = ${prev.department_sql},
-    grade_id = ${prev.grade_sql},
-    manager_id = ${prev.manager_sql}
-WHERE id = ${userId}
-RETURNING id, full_name, email, role, work_category, is_project_participant,
-          job_title, manager_id, department_id, grade_id, has_subordinates
+WITH target AS (
+  SELECT u.*
+  FROM performance_db.users u
+  WHERE u.id = ${userId}
+  FOR UPDATE
+),
+period_state AS (
+  SELECT
+    p.id AS period_id,
+    p.name AS period_name,
+    p.status AS period_status,
+    p.period_type,
+    p.end_date,
+    epp.user_id IS NOT NULL AS row_exists,
+    epp.is_in_scope AS old_is_in_scope,
+    epp.exclusion_reason AS old_reason,
+    epp.scope_override,
+    t.terminated_at IS NOT NULL AS user_terminated,
+    t.join_date IS DISTINCT FROM ${prev.join_date_sql} AS join_date_changed,
+    CASE
+      WHEN ${prev.join_date_sql} IS NULL THEN false
+      WHEN ${prev.join_date_sql} >
+           ((date_trunc('month', p.end_date)::date - interval '2 months' - interval '1 day')::date)
+        THEN false
+      ELSE true
+    END AS desired_is_in_scope,
+    CASE
+      WHEN ${prev.join_date_sql} IS NULL THEN 'join_date_missing'
+      WHEN ${prev.join_date_sql} >
+           ((date_trunc('month', p.end_date)::date - interval '2 months' - interval '1 day')::date)
+        THEN 'insufficient_tenure'
+      ELSE NULL
+    END AS desired_reason,
+    (SELECT count(*)::integer FROM performance_db.evaluations e
+      WHERE e.period_id = p.id AND e.subject_id = ${userId}
+        AND e.is_self_evaluation = false) AS evaluations_received,
+    (SELECT count(*)::integer FROM performance_db.evaluations e
+      WHERE e.period_id = p.id AND e.subject_id = ${userId}
+        AND e.is_self_evaluation = true) AS self_reviews,
+    (SELECT count(*)::integer FROM performance_db.evaluations e
+      WHERE e.period_id = p.id AND e.evaluator_id = ${userId}
+        AND e.is_self_evaluation = false) AS evaluations_given,
+    (SELECT count(*)::integer FROM performance_db.score_corrections sc
+      WHERE sc.period_id = p.id AND sc.subject_id = ${userId}) AS corrections_about
+  FROM performance_db.evaluation_periods p
+  CROSS JOIN target t
+  LEFT JOIN performance_db.evaluation_period_participants epp
+    ON epp.period_id = p.id AND epp.user_id = t.id
+),
+eligible AS (
+  SELECT ps.*
+  FROM period_state ps
+  WHERE ps.period_status <> 'closed'
+    AND ps.row_exists
+    AND NOT ps.user_terminated
+    AND ps.scope_override IS NULL
+    AND (ps.old_reason IS NULL OR ps.old_reason IN (
+      'join_date_missing', 'hired_after_period_end', 'insufficient_tenure'
+    ))
+),
+blocked_periods AS (
+  SELECT *
+  FROM eligible e
+  WHERE e.join_date_changed
+    AND e.old_is_in_scope = true
+    AND e.desired_is_in_scope = false
+    AND (
+      e.evaluations_received + e.self_reviews
+      + e.evaluations_given + e.corrections_about
+    ) > 0
+),
+updated AS (
+  UPDATE performance_db.users u
+  SET full_name = '${prev.full_name}',
+      email = '${prev.email}',
+      role = '${prev.role}',
+      job_title = ${prev.job_title_sql},
+      work_category = '${prev.work_category}',
+      is_project_participant = ${isProjectParticipant},
+      department_id = ${prev.department_sql},
+      grade_id = ${prev.grade_sql},
+      manager_id = ${prev.manager_sql},
+      join_date = ${prev.join_date_sql}
+  FROM target t
+  WHERE u.id = t.id
+    AND NOT EXISTS (SELECT 1 FROM blocked_periods)
+  RETURNING u.*
+),
+scope_changed AS (
+  UPDATE performance_db.evaluation_period_participants epp
+  SET is_in_scope = e.desired_is_in_scope,
+      exclusion_reason = e.desired_reason,
+      updated_at = now()
+  FROM eligible e
+  WHERE epp.period_id = e.period_id
+    AND epp.user_id = ${userId}
+    AND e.join_date_changed
+    AND EXISTS (SELECT 1 FROM updated)
+    AND (e.old_is_in_scope, e.old_reason)
+        IS DISTINCT FROM (e.desired_is_in_scope, e.desired_reason)
+  RETURNING
+    epp.period_id,
+    epp.is_in_scope,
+    epp.exclusion_reason
+),
+scope_logged AS (
+  INSERT INTO performance_db.period_scope_events
+    (period_id, user_id, event_type, reason, actor_id, note)
+  SELECT
+    sc.period_id,
+    ${userId},
+    CASE WHEN sc.is_in_scope THEN 'included' ELSE 'excluded' END,
+    CASE WHEN sc.is_in_scope THEN NULL ELSE sc.exclusion_reason END,
+    ${actorId},
+    'Автоматический пересчёт после изменения даты приёма'
+  FROM scope_changed sc
+  RETURNING id
+),
+card_changes AS (
+  SELECT
+    (
+      CASE WHEN t.full_name IS DISTINCT FROM u.full_name
+        THEN jsonb_build_object('full_name', jsonb_build_object('old', t.full_name, 'new', u.full_name))
+        ELSE '{}'::jsonb END
+      || CASE WHEN t.email IS DISTINCT FROM u.email
+        THEN jsonb_build_object('email', jsonb_build_object('old', t.email, 'new', u.email))
+        ELSE '{}'::jsonb END
+      || CASE WHEN t.role IS DISTINCT FROM u.role
+        THEN jsonb_build_object('role', jsonb_build_object('old', t.role, 'new', u.role))
+        ELSE '{}'::jsonb END
+      || CASE WHEN t.job_title IS DISTINCT FROM u.job_title
+        THEN jsonb_build_object('job_title', jsonb_build_object('old', t.job_title, 'new', u.job_title))
+        ELSE '{}'::jsonb END
+      || CASE WHEN t.work_category IS DISTINCT FROM u.work_category
+        THEN jsonb_build_object('work_category', jsonb_build_object('old', t.work_category, 'new', u.work_category))
+        ELSE '{}'::jsonb END
+      || CASE WHEN t.department_id IS DISTINCT FROM u.department_id
+        THEN jsonb_build_object('department_id', jsonb_build_object('old', t.department_id, 'new', u.department_id))
+        ELSE '{}'::jsonb END
+      || CASE WHEN t.grade_id IS DISTINCT FROM u.grade_id
+        THEN jsonb_build_object('grade_id', jsonb_build_object('old', t.grade_id, 'new', u.grade_id))
+        ELSE '{}'::jsonb END
+      || CASE WHEN t.manager_id IS DISTINCT FROM u.manager_id
+        THEN jsonb_build_object('manager_id', jsonb_build_object('old', t.manager_id, 'new', u.manager_id))
+        ELSE '{}'::jsonb END
+      || CASE WHEN t.join_date IS DISTINCT FROM u.join_date
+        THEN jsonb_build_object('join_date', jsonb_build_object(
+          'old', to_char(t.join_date, 'YYYY-MM-DD'),
+          'new', to_char(u.join_date, 'YYYY-MM-DD')
+        ))
+        ELSE '{}'::jsonb END
+    ) AS changes
+  FROM target t
+  JOIN updated u ON u.id = t.id
+),
+card_logged AS (
+  INSERT INTO performance_db.employee_card_events
+    (user_id, actor_id, event_type, changes)
+  SELECT ${userId}, ${actorId}, 'updated', cc.changes
+  FROM card_changes cc
+  WHERE cc.changes <> '{}'::jsonb
+  RETURNING id
+),
+outcomes AS (
+  SELECT
+    ps.period_id,
+    ps.period_name,
+    ps.period_status,
+    ps.period_type,
+    ps.old_is_in_scope,
+    ps.old_reason,
+    ps.desired_is_in_scope,
+    ps.desired_reason,
+    ps.evaluations_received,
+    ps.self_reviews,
+    ps.evaluations_given,
+    ps.corrections_about,
+    CASE
+      WHEN ps.period_status = 'closed' THEN 'closed_untouched'
+      WHEN NOT ps.row_exists THEN 'no_participant_row'
+      WHEN ps.user_terminated OR ps.old_reason = 'terminated' THEN 'terminated_preserved'
+      WHEN ps.scope_override IS NOT NULL OR ps.old_reason = 'excluded_by_admin' THEN 'manual_preserved'
+      WHEN NOT ps.join_date_changed THEN 'not_recomputed'
+      WHEN EXISTS (SELECT 1 FROM blocked_periods bp WHERE bp.period_id = ps.period_id)
+        THEN 'refused_has_evaluations'
+      WHEN EXISTS (SELECT 1 FROM scope_changed sc WHERE sc.period_id = ps.period_id)
+        THEN CASE WHEN ps.desired_is_in_scope THEN 'included_by_date' ELSE 'excluded_by_date' END
+      WHEN ps.desired_is_in_scope THEN 'unchanged_in_scope'
+      ELSE 'unchanged_out_of_scope'
+    END AS outcome
+  FROM period_state ps
+)
+SELECT
+  EXISTS (SELECT 1 FROM target) AS target_found,
+  EXISTS (SELECT 1 FROM blocked_periods) AS blocked,
+  (SELECT row_to_json(u) FROM updated u LIMIT 1) AS saved_user,
+  COALESCE((SELECT json_agg(row_to_json(o) ORDER BY o.period_id) FROM outcomes o), '[]'::json)
+    AS scope_results,
+  (SELECT id FROM card_logged LIMIT 1) AS card_event_id,
+  COALESCE((SELECT count(*) FROM scope_logged), 0)::integer AS scope_events_written
   `;
 }
 
@@ -3192,16 +3495,53 @@ const prev = $('Build User Upsert').first().json;
 if (prev.http_status) {
   return { json: prev };
 }
-const row = $input.all().map(item => item.json).find(item => item.id !== undefined);
+const row = $input.all().map(item => item.json).find(item => item.target_found !== undefined);
 if (!row) {
   return {
     json: { http_status: 500, body: { success: false, error: 'UPSERT_FAILED', message: 'Failed to save user' } },
   };
 }
+const found = row.target_found === true || row.target_found === 't';
+if (!found) {
+  return {
+    json: { http_status: 404, body: { success: false, error: 'USER_NOT_FOUND', message: 'Сотрудник не найден' } },
+  };
+}
+let scopeResults = row.scope_results;
+if (typeof scopeResults === 'string') {
+  try { scopeResults = JSON.parse(scopeResults); } catch { scopeResults = []; }
+}
+if (!Array.isArray(scopeResults)) scopeResults = [];
+const blocked = row.blocked === true || row.blocked === 't';
+if (blocked) {
+  const blockedPeriods = scopeResults.filter((item) => item.outcome === 'refused_has_evaluations');
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'HIRE_DATE_SCOPE_HAS_EVALUATIONS',
+        message: 'Карточка не сохранена целиком: изменение даты приёма исключило бы сотрудника из периода, где уже есть оценки. Все поля, включая остальные правки, остались прежними. Сохраните остальные поля отдельно, затем скорректируйте дату.',
+        periods: blockedPeriods,
+        scope_results: scopeResults,
+      },
+    },
+  };
+}
+let savedUser = row.saved_user;
+if (typeof savedUser === 'string') {
+  try { savedUser = JSON.parse(savedUser); } catch { savedUser = null; }
+}
 return {
   json: {
     http_status: 200,
-    body: { success: true, user: row },
+    body: {
+      success: true,
+      user: savedUser,
+      scope_results: scopeResults,
+      card_event_id: row.card_event_id != null ? Number(row.card_event_id) : null,
+      scope_events_written: Number(row.scope_events_written) || 0,
+    },
   },
 };
 """.strip()
@@ -3499,13 +3839,21 @@ participants AS (
     CASE
       WHEN u.terminated_at IS NOT NULL THEN false
       WHEN u.join_date IS NULL THEN false
-      WHEN u.join_date > '${endDate}'::date THEN false
+      -- D-0826-5: the final three calendar months are outside the minimum
+      -- tenure. For H1 ending 2026-06-30 the boundary is 2026-03-31, so a hire
+      -- on 31 March is in and a hire on 1 April is out.
+      WHEN u.join_date >
+           ((date_trunc('month', '${endDate}'::date)::date
+             - interval '2 months' - interval '1 day')::date) THEN false
       ELSE true
     END,
     CASE
       WHEN u.terminated_at IS NOT NULL THEN 'terminated'
       WHEN u.join_date IS NULL THEN 'join_date_missing'
-      WHEN u.join_date > '${endDate}'::date THEN 'hired_after_period_end'
+      WHEN u.join_date >
+           ((date_trunc('month', '${endDate}'::date)::date
+             - interval '2 months' - interval '1 day')::date)
+        THEN 'insufficient_tenure'
       ELSE NULL
     END
   FROM new_period np
@@ -3513,6 +3861,7 @@ participants AS (
   ON CONFLICT (period_id, user_id) DO UPDATE
     SET is_in_scope = EXCLUDED.is_in_scope,
         exclusion_reason = EXCLUDED.exclusion_reason,
+        scope_override = NULL,
         updated_at = now()
   RETURNING user_id
 )
@@ -5725,9 +6074,6 @@ if (!Number.isFinite(periodId) || periodId < 1) {
 // 'excluded_by_admin'; the sentence that makes it auditable a year later lives
 // here.
 const note = String(body.note || '').trim().slice(0, 500);
-// Explicit, opt-in, and never inferred from anything else in the request.
-const confirmed = body.confirm_existing_evaluations === true
-  || body.confirm_existing_evaluations === 'true';
 
 return {
   json: {
@@ -5736,7 +6082,6 @@ return {
     user_id: userId,
     period_id: periodId,
     note,
-    confirmed,
     sql: `
       SELECT
         u.id AS target_id,
@@ -5865,18 +6210,18 @@ const given = Number(check.evaluations_given) || 0;
 const corrections = Number(check.corrections_about) || 0;
 const total = received + selfReviews + given + corrections;
 
-if (total > 0 && !prev.confirmed) {
-  // The brief's one mandatory refusal. It states what happens to each half
-  // rather than deciding for the caller: nothing is deleted either way, the
-  // difference is only what stops counting FOR this person and what keeps
-  // counting FOR everybody else.
+if (total > 0) {
+  // D-0826-4 supersedes the old confirmation escape hatch: taking somebody
+  // out after any evaluation exists is always refused. The response still
+  // names both halves so the owner sees exactly what would stop counting and
+  // what would remain, but no second request can override the refusal.
   return {
     json: {
       http_status: 409,
       body: {
         success: false,
         error: 'HAS_EVALUATIONS',
-        message: `В периоде «${check.period_name}» у сотрудника уже есть данные оценки. Ничего не будет удалено. Оценки, которые он ПОЛУЧИЛ (${received}) и его самооценка (${selfReviews}) останутся в базе и перестанут на него считаться: при закрытии периода он замёрзнет как «вне охвата, данных нет», без единой цифры. Оценки, которые он ПОСТАВИЛ другим (${given}), продолжат считаться этим другим полностью. Корректировок по нему: ${corrections}. Повторите запрос с confirm_existing_evaluations=true, если это то, чего вы хотите.`,
+        message: `В периоде «${check.period_name}» у сотрудника уже есть данные оценки, поэтому вывести его из охвата нельзя. Перестали бы считаться оценки, которые он ПОЛУЧИЛ (${received}), его самооценка (${selfReviews}) и корректировки по нему (${corrections}). Оценки, которые он ПОСТАВИЛ другим (${given}), остались бы у этих людей. Ничего не изменено.`,
         evaluations_received: received,
         self_reviews: selfReviews,
         evaluations_given: given,
@@ -5924,6 +6269,7 @@ scoped_out AS (
   UPDATE performance_db.evaluation_period_participants epp
   SET is_in_scope = false,
       exclusion_reason = 'excluded_by_admin',
+      scope_override = 'excluded_by_admin',
       updated_at = now()
   WHERE (epp.period_id, epp.user_id) IN (SELECT period_id, user_id FROM target)
   RETURNING epp.period_id
@@ -6105,7 +6451,12 @@ if (!(check.row_exists === true || check.row_exists === 't')) {
 // decides they belong in the period needs a way in. Without this the new reason
 // would be a state with no exit. It stays distinct from 'terminated', which is
 // reinstatement's population and is still refused here.
-const REVERSIBLE_REASONS = ['excluded_by_admin', 'join_date_missing'];
+const REVERSIBLE_REASONS = [
+  'excluded_by_admin',
+  'join_date_missing',
+  'hired_after_period_end',
+  'insufficient_tenure',
+];
 if (!REVERSIBLE_REASONS.includes(String(check.row_reason || ''))) {
   const inScope = check.row_is_in_scope === true || check.row_is_in_scope === 't';
   return {
@@ -6142,7 +6493,10 @@ WITH target AS (
   WHERE epp.period_id = ${periodId}
     AND epp.user_id = ${userId}
     AND epp.is_in_scope = false
-    AND epp.exclusion_reason IN ('excluded_by_admin', 'join_date_missing')
+    AND epp.exclusion_reason IN (
+      'excluded_by_admin', 'join_date_missing',
+      'hired_after_period_end', 'insufficient_tenure'
+    )
     AND EXISTS (
       SELECT 1 FROM performance_db.evaluation_periods p
       WHERE p.id = ${periodId} AND p.status <> 'closed'
@@ -6153,6 +6507,7 @@ scoped_in AS (
   UPDATE performance_db.evaluation_period_participants epp
   SET is_in_scope = true,
       exclusion_reason = NULL,
+      scope_override = 'included_by_admin',
       updated_at = now()
   WHERE (epp.period_id, epp.user_id) IN (SELECT period_id, user_id FROM target)
   RETURNING epp.period_id
@@ -6285,6 +6640,111 @@ return {
 """
 
 
+EMPLOYEE_EVENTS_BUILD = """
+const guard = $('Run Auth Guard EMPLOYEE EVENTS').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const query = (guard.request && guard.request.query) || {};
+const rawUser = query.user_id;
+let userFilter = '';
+if (rawUser !== undefined && rawUser !== null && String(rawUser).trim() !== '') {
+  const userId = parseInt(rawUser, 10);
+  if (!Number.isFinite(userId) || userId < 1) {
+    return {
+      json: {
+        http_status: 422,
+        body: { success: false, error: 'INVALID_USER_ID', message: 'Идентификатор сотрудника должен быть положительным целым числом' },
+      },
+    };
+  }
+  userFilter = `WHERE events.user_id = ${userId}`;
+}
+if (!userFilter) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'USER_ID_REQUIRED', message: 'Параметр user_id обязателен' },
+    },
+  };
+}
+return {
+  json: {
+    ok: true,
+    sql: `
+      SELECT *
+      FROM (
+        SELECT
+          ce.id AS event_id,
+          'card'::text AS source,
+          ce.event_type,
+          ce.user_id,
+          NULL::integer AS period_id,
+          ce.actor_id,
+          ce.occurred_at,
+          jsonb_build_object('changes', ce.changes) AS details
+        FROM performance_db.employee_card_events ce
+        UNION ALL
+        SELECT
+          se.id AS event_id,
+          'scope'::text AS source,
+          se.event_type,
+          se.user_id,
+          se.period_id,
+          se.actor_id,
+          se.occurred_at,
+          jsonb_build_object('reason', se.reason, 'note', se.note) AS details
+        FROM performance_db.period_scope_events se
+        UNION ALL
+        SELECT
+          ee.id AS event_id,
+          'employment'::text AS source,
+          ee.event_type,
+          ee.user_id,
+          ee.period_id,
+          ee.actor_id,
+          ee.occurred_at,
+          jsonb_build_object(
+            'effective_date', to_char(ee.effective_date, 'YYYY-MM-DD'),
+            'note', ee.note
+          ) AS details
+        FROM performance_db.employment_events ee
+      ) events
+      ${userFilter}
+      ORDER BY events.occurred_at DESC, events.source, events.event_id DESC
+    `,
+  },
+};
+"""
+
+
+EMPLOYEE_EVENTS_FORMAT = """
+const prev = $('Build Employee Events Query').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const rows = $input.all().map(item => item.json)
+  .filter(item => item.event_id !== undefined && item.event_id !== null);
+const events = rows.map((row) => ({
+  ...row,
+  occurred_at: row.occurred_at instanceof Date
+    ? row.occurred_at.toISOString()
+    : row.occurred_at,
+}));
+return {
+  json: {
+    http_status: 200,
+    body: { success: true, events, total: events.length },
+  },
+};
+"""
+
+
 def build_manage_period_scope(credential_id: str, guard_workflow_id: str) -> dict[str, Any]:
     def pg(node_id: str, name: str, position: list[int], empty_column: str) -> dict[str, Any]:
         return node(
@@ -6351,6 +6811,23 @@ def build_manage_period_scope(credential_id: str, guard_workflow_id: str) -> dic
         node("scope-history-format", "Format Scope Events Response", "n8n-nodes-base.code",
              [500, 600], {"jsCode": PERIOD_SCOPE_HISTORY_FORMAT}),
         respond_node("scope-respond-history", "Respond SCOPE HISTORY", [740, 600]),
+        # One read surface over the three append-only event families. Historical
+        # tables remain physically separate; no row is copied or rewritten.
+        node("employee-events-webhook", "Webhook EMPLOYEE EVENTS",
+             "n8n-nodes-base.webhook", [-700, 900],
+             {"httpMethod": "GET", "path": "api/admin/employee-events",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-employee-events"),
+        node("employee-events-guard-input", "Prepare Guard Input EMPLOYEE EVENTS",
+             "n8n-nodes-base.code", [-480, 900], {"jsCode": guard_input_js(["admin"])}),
+        run_guard_node("employee-events-run-guard", "Run Auth Guard EMPLOYEE EVENTS",
+                       [-250, 900], guard_workflow_id),
+        node("employee-events-build", "Build Employee Events Query",
+             "n8n-nodes-base.code", [0, 900], {"jsCode": EMPLOYEE_EVENTS_BUILD}),
+        pg("employee-events-load", "Load Employee Events", [250, 900], "event_id"),
+        node("employee-events-format", "Format Employee Events Response",
+             "n8n-nodes-base.code", [500, 900], {"jsCode": EMPLOYEE_EVENTS_FORMAT}),
+        respond_node("employee-events-respond", "Respond EMPLOYEE EVENTS", [740, 900]),
     ]
     connections = {
         "Webhook EXCLUDE": connect("Prepare Guard Input EXCLUDE"),
@@ -6375,6 +6852,12 @@ def build_manage_period_scope(credential_id: str, guard_workflow_id: str) -> dic
         "Build Scope Events Query": connect("Load Scope Events"),
         "Load Scope Events": connect("Format Scope Events Response"),
         "Format Scope Events Response": connect("Respond SCOPE HISTORY"),
+        "Webhook EMPLOYEE EVENTS": connect("Prepare Guard Input EMPLOYEE EVENTS"),
+        "Prepare Guard Input EMPLOYEE EVENTS": connect("Run Auth Guard EMPLOYEE EVENTS"),
+        "Run Auth Guard EMPLOYEE EVENTS": connect("Build Employee Events Query"),
+        "Build Employee Events Query": connect("Load Employee Events"),
+        "Load Employee Events": connect("Format Employee Events Response"),
+        "Format Employee Events Response": connect("Respond EMPLOYEE EVENTS"),
     }
     return workflow("API: Manage Period Scope", nodes_list, connections)
 

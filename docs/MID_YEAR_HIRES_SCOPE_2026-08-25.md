@@ -492,6 +492,11 @@ column list and the diff covers all of it — the frozen columns
 `can_evaluate`, `can_be_evaluated`, `token_version`, `employment_type`,
 `created_at`) and the two termination columns alike, checked by name as well as
 by the full diff. The three terminated people are still exactly three, unchanged.
+
+> **Superseded for future drift checks (D-0826-4, 2026-08-26):** this paragraph
+> correctly describes what this 25-August brief was allowed to change. It is no
+> longer the product-wide frozen-column list: `join_date` is now admin-editable
+> and an intended card change is ordinary owner activity, not an incident.
 The throwaway was dropped; `SELECT datname` afterwards is `epe_2026, postgres`.
 
 Every other table, fingerprinted on both sides and **identical**:

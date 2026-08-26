@@ -25,6 +25,7 @@ import { formatPeriodDateRu } from './formatPeriodDateRu.js';
 export const EXCLUSION_REASONS = {
   EXCLUDED_BY_ADMIN: 'excluded_by_admin',
   HIRED_AFTER_PERIOD_END: 'hired_after_period_end',
+  INSUFFICIENT_TENURE: 'insufficient_tenure',
   JOIN_DATE_MISSING: 'join_date_missing',
   TERMINATED: 'terminated',
 };
@@ -35,6 +36,10 @@ export const WELCOME_LATE_HIRE =
   + 'к работе после 31 марта, и отработанного периода недостаточно для оценки. Это не оценка '
   + 'вашей работы. В оценке за второе полугодие вы участвуете в полном объёме, и её результат '
   + 'войдёт в ваш годовой результат.';
+
+export const WELCOME_EXCLUDED_BY_ADMIN =
+  'В оценке за этот период вы не участвуете по решению администратора. Это не оценка вашей '
+  + 'работы. За подробностями обратитесь в HR.';
 
 /** The pre-existing notice, accurate for somebody hired after the period ended. */
 export const WELCOME_AFTER_PERIOD_END =
@@ -58,9 +63,17 @@ export const WELCOME_TITLE = 'Вы вне охвата текущего пери
  * Falls back to the pre-existing sentence when the reason is absent — an old
  * bundle, a payload without the field, or a state nobody has named yet.
  */
-export const welcomeExclusionText = (reason) => {
+export const welcomeExclusionText = (reason, scopeOverride = null) => {
   switch (reason) {
     case EXCLUSION_REASONS.EXCLUDED_BY_ADMIN:
+      // The four H1 marks made before scope_override existed are all the
+      // owner's late-hire set and keep his exact text. Every new manual switch
+      // writes excluded_by_admin into scope_override and therefore gets an
+      // honest neutral explanation instead of a false «после 31 марта».
+      return scopeOverride === 'excluded_by_admin'
+        ? WELCOME_EXCLUDED_BY_ADMIN
+        : WELCOME_LATE_HIRE;
+    case EXCLUSION_REASONS.INSUFFICIENT_TENURE:
       return WELCOME_LATE_HIRE;
     case EXCLUSION_REASONS.JOIN_DATE_MISSING:
       return WELCOME_JOIN_DATE_MISSING;
@@ -82,10 +95,14 @@ export const welcomeExclusionText = (reason) => {
  * With no hire date that sentence cannot be written at all, so the missing-date
  * state gets its own EXECUTOR WORDING line instead of a sentence with a hole.
  */
-export const teamExclusionText = (reason, joinDate) => {
+export const teamExclusionText = (reason, joinDate, scopeOverride = null) => {
   if (reason === EXCLUSION_REASONS.JOIN_DATE_MISSING) {
     return 'Не оценивается в этом периоде: в карточке не заполнена дата приёма — её нужно '
       + 'подтвердить.';
+  }
+  if (reason === EXCLUSION_REASONS.EXCLUDED_BY_ADMIN
+      && scopeOverride === 'excluded_by_admin') {
+    return 'Не оценивается в этом периоде по решению администратора.';
   }
   const formatted = formatPeriodDateRu(joinDate);
   if (!formatted) {
@@ -99,6 +116,7 @@ export const teamExclusionText = (reason, joinDate) => {
 export const EXCLUSION_BADGE_LABELS = {
   [EXCLUSION_REASONS.EXCLUDED_BY_ADMIN]: 'Не оценивается в периоде',
   [EXCLUSION_REASONS.HIRED_AFTER_PERIOD_END]: 'Принят после конца периода',
+  [EXCLUSION_REASONS.INSUFFICIENT_TENURE]: 'Менее трёх месяцев в периоде',
   [EXCLUSION_REASONS.JOIN_DATE_MISSING]: 'Нет даты приёма',
   [EXCLUSION_REASONS.TERMINATED]: 'Уволен',
 };

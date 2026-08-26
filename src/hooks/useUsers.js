@@ -57,25 +57,90 @@ export const useUsers = () => {
   const saveUser = useCallback(async (userData, existingUserId = null) => {
     try {
       setSaving(true);
-      
-      const payload = { ...userData };
+
+      let payload = { ...userData };
       if (existingUserId) {
-        payload.id = existingUserId;
+        // admin/save-user is a whole-row UPDATE. Reload the live row immediately
+        // before POST, then overlay only what the form changed. This prevents a
+        // missing role/work_category from silently becoming employee/general.
+        const { data: freshData } = await apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA);
+        const fresh = (freshData.users || []).find(
+          (row) => Number(row.id) === Number(existingUserId)
+        );
+        if (!fresh) {
+          return { success: false, error: 'Сотрудник больше не найден — обновите страницу' };
+        }
+        payload = {
+          id: existingUserId,
+          full_name: fresh.full_name,
+          email: fresh.email,
+          job_title: fresh.job_title ?? '',
+          role: fresh.role,
+          work_category: fresh.work_category,
+          department_id: fresh.department_id ?? '',
+          grade_id: fresh.grade_id ?? '',
+          manager_id: fresh.manager_id ?? '',
+          join_date: fresh.join_date ?? '',
+          ...userData,
+        };
       }
 
-      await apiClient.post(API_ENDPOINTS.ADMIN_SAVE_USER, payload);
+      const { data } = await apiClient.post(API_ENDPOINTS.ADMIN_SAVE_USER, payload);
       
       // Silent reload: a full-page spinner would unmount the table and jump to top
       await fetchData({ silent: true });
       
-      return { success: true };
+      return { success: true, data };
     } catch (err) {
       logger.error('Ошибка сохранения:', err);
-      return { success: false, error: 'Ошибка при сохранении. Попробуйте снова.' };
+      return {
+        success: false,
+        error: err.userMessage || 'Ошибка при сохранении. Попробуйте снова.',
+        data: err.response?.data,
+      };
     } finally {
       setSaving(false);
     }
   }, [fetchData]);
+
+  const changePeriodScope = useCallback(async (userId, periodId, participate) => {
+    try {
+      setSaving(true);
+      const endpoint = participate
+        ? API_ENDPOINTS.ADMIN_INCLUDE_PARTICIPANT
+        : API_ENDPOINTS.ADMIN_EXCLUDE_PARTICIPANT;
+      const { data } = await apiClient.post(endpoint, {
+        user_id: userId,
+        period_id: periodId,
+      });
+      await fetchData({ silent: true });
+      return { success: true, data };
+    } catch (err) {
+      logger.error('Ошибка изменения охвата периода:', err);
+      return {
+        success: false,
+        error: err.userMessage || 'Не удалось изменить участие в периоде',
+        data: err.response?.data,
+      };
+    } finally {
+      setSaving(false);
+    }
+  }, [fetchData]);
+
+  const getEmployeeEvents = useCallback(async (userId) => {
+    try {
+      const { data } = await apiClient.get(API_ENDPOINTS.ADMIN_EMPLOYEE_EVENTS, {
+        params: { user_id: userId },
+      });
+      return { success: true, data };
+    } catch (err) {
+      logger.error('Ошибка загрузки истории сотрудника:', err);
+      return {
+        success: false,
+        error: err.userMessage || 'Не удалось загрузить историю изменений',
+      };
+    }
+  }, []);
 
   // Увольнение (D-0825-7). Состояние, не удаление: ни одна строка оценок не
   // трогается, ничего не пересчитывается. Сервер отказывает, если у сотрудника
@@ -218,6 +283,8 @@ export const useUsers = () => {
     error,
     fetchData,
     saveUser,
+    changePeriodScope,
+    getEmployeeEvents,
     terminateUser,
     reinstateUser,
     importUsers

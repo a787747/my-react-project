@@ -40,6 +40,7 @@ export const TaskStatusProvider = ({ children }) => {
   // D-0825-11: WHY the actor is out of scope, so the notice can say the true
   // thing instead of the one sentence that only fits a late hire.
   const [outOfScopeReason, setOutOfScopeReason] = useState(null);
+  const [actorScopeOverride, setActorScopeOverride] = useState(null);
   const [actorJoinDate, setActorJoinDate] = useState(null);
   const [campaignActive, setCampaignActive] = useState(false);
   const [periodInPreparation, setPeriodInPreparation] = useState(false);
@@ -92,6 +93,11 @@ export const TaskStatusProvider = ({ children }) => {
       setOutOfScopeReason(
         employeesPayload.actor_exclusion_reason
         ?? employeesPayload[0]?.actor_exclusion_reason
+        ?? null
+      );
+      setActorScopeOverride(
+        employeesPayload.actor_scope_override
+        ?? employeesPayload[0]?.actor_scope_override
         ?? null
       );
       setActorJoinDate(
@@ -169,6 +175,7 @@ export const TaskStatusProvider = ({ children }) => {
     isManagerCLevel,
     isOutOfScope,
     outOfScopeReason,
+    actorScopeOverride,
     actorJoinDate,
     isCLevel,
     needsSelfReview,
@@ -201,6 +208,7 @@ export const useTaskStatus = () => {
       isManagerCLevel: false,
       isOutOfScope: false,
       outOfScopeReason: null,
+      actorScopeOverride: null,
       actorJoinDate: null,
       isCLevel: false,
       needsSelfReview: false,

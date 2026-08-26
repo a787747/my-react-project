@@ -758,3 +758,25 @@ something on the C-level channel, that is a new decision and a one-line change i
 nothing stored has to be migrated, because nothing can be stored.
 **Implemented:** PRELAUNCH_GATE 2026-08-26, `docs/PRELAUNCH_GATE_2026-08-26.md` — proven
 money-neutral by two closes of two copies of one dump (100/100 frozen rows identical).
+
+### D-0826-4 — The hire date is editable and drives scope; a manual mark overrides it (owner, 2026-08-26)
+**Decision (Alexander):** the hire date is corrected from the employee card by the admin, empty
+included, and correcting it recomputes scope for open periods. A manual exclusion or a termination
+is never overridden by that recompute; closed periods are never touched; a recompute that would
+remove a person who already has evaluations in the period is refused rather than performed. A
+manual per-period participation toggle sits in the same card and replaces the command-line path.
+Every such change is recorded with actor and time.
+**Consequence:** money, in both directions. Scope decides who is evaluated, who evaluates, and who
+takes a share of the pool, and until now a wrong hire date could not be corrected at all while
+scope could only be changed outside the product. The hire date leaves the frozen-column set: a
+change to it is now an ordinary owner action, not an incident.
+
+### D-0826-5 — Scope rule: less than three months in the period means out (owner, 2026-08-26)
+**Decision (Alexander):** a person hired later than three months before a period ends is out of
+scope of that period. This replaces the previous rule, which excluded only people hired after the
+period had already ended. It is the rule already applied by hand to H1-2026 — Asatryan (25),
+Atayeva (64), Chariyev (22), Jumayeva (63) — now expressed in the system.
+**Consequence:** H2-2026 and every period after it apply the boundary automatically instead of
+requiring the same manual pass, and a hire-date correction moves a person to where the rule says
+they belong rather than to where the old rule said. A shorter stretch of work produces a score too
+noisy to justify a share of the pool.
