@@ -1742,3 +1742,5 @@ the one money input in it is `options.grades[].coefficient`.
   the brief's grant; stale tracked generator snapshots found and left un-adopted (BUG-077).
 
 **Report:** `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md`.
+
+**Implementation commit:** `5c46052`.

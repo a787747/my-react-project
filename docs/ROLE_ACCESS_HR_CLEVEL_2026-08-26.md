@@ -202,4 +202,4 @@ byte-identical, and the save routes remain admin-only.
 - `EPE: Auth Guard` untouched: no generator or JSON of it modified; the deploy script refuses to
   run if its live `updatedAt` differs from the frozen value.
 
-**Commit:** recorded in PROGRESS.md by the follow-up commit, per the repo's rhythm.
+**Implementation commit:** `5c46052`.
