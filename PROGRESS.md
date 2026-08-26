@@ -1457,3 +1457,100 @@ Alexander picks the off-host weekly backup target and rotates OpenAI/OpenRouter 
 - The working tree carried **no other session's edits** tonight; `git status` was clean at the start and every modified file is this session's.
 - The second gate is **still unpressed**, and no route that could press it was called.
 - Committed as `8525ab1`.
+
+## 2026-08-26 — CLEVEL_AVERAGING: two C-level opinions become one number (D-0826-1), and the money inputs are photographed
+
+**Brief:** establish whether a second `c_level_direct` evaluation on the same person is data loss or
+an unchosen aggregation rule; make the channel behave like the upward channel — mean across
+evaluators, count carried, every consumer in lockstep; surface (do not resolve) how a `c_level`
+correction interacts with an averaged value; snapshot the nine weights, 90 level coefficients and
+all grade coefficients as version H1-2026; records.
+
+**What was done:**
+- **Item 1 — answered before anything changed: an aggregation rule, not data loss.** The unique
+  index on `evaluations` is `(subject_id, evaluator_id, evaluation_source, period_id)` — evaluator
+  is *in* the key — and `Build Insert SQL` conflicts on exactly that tuple, with the
+  «do I already have one» probe scoped to `dup.evaluator_id = ${actorId}`. A second C-level person
+  gets their own row and **both rows persist**; measured on the stand, two evaluation rows and four
+  score rows survived. It was the two **readers** that took `ORDER BY e.updated_at DESC LIMIT 1`.
+  Reported for the other channels too: **manager** can hold two rows after a `manager_id` change
+  mid-period and picks the latest (unresolved, untouched); **upward** has averaged in SQL since it
+  was written; **self** is one row per `(subject, period)` enforced by a unique partial index, with
+  409 `DUPLICATE_SELF_REVIEW` on the second attempt.
+- **Item 2 — the channel is averaged.** One grouped CTE, `c_level_direct_scores`, produces `AVG`
+  and `COUNT` in a single scan, and is **character-for-character identical** in `API:
+  evaluations-matrix` and in the close dataset of `API: Manage Periods` (a test asserts the
+  byte-equality). The cell reads `ROUND(avg, 2)` — the scale `rating_c_level_direct` already uses —
+  and `c_level_count` travels beside it. Because the mean is computed in SQL, every client consumer
+  receives it without a logic change; the client work was making the count visible: a «×N» badge and
+  a new tooltip on the matrix cell, «среднее по N» in the employee modal and the score-detail modal,
+  and a «C-LEVEL ОЦЕНЩИКОВ» column in the Excel detail sheet. The matrix cell now shows the channel
+  value rather than the actor's own score — after averaging, showing an evaluator their own 4 in the
+  cell whose money is 6 would be the defect this brief exists to remove; the actor's own score moved
+  into the tooltip and editing still edits only their own row. **No schema change:** a count is a
+  property of one cell and `period_results` stores one row per person.
+- **Item 3 — surfaced, not resolved, and measured rather than read.** `API: Score Correction`
+  validates the range and the project dimension and **nothing** about `c_level_only`. On the stand a
+  correction of 3 on criterion 1 returned **200**, was stored, reached the payload as
+  `c_level_correction: 3` — and the close froze `132.8520`, byte-identical to the same close without
+  it. Filed **BUG-073** with both candidate rules costed (replace the mean → 9.00; join the mean →
+  25.00; today → 36.00) and a third option named: refuse `c_level_only` corrections by name, which
+  can ship before the money rule is decided. Also recorded: `score_corrections` has no evaluator in
+  its unique key, so corrections are last-writer-wins one table over.
+- **Item 4 — the coefficient snapshot,** `docs/coefficients/H1-2026_coefficients_20260826T044844Z.md`,
+  produced by the new `scripts/snapshot_coefficients.py`. Read-only.
+- **Item 5 — records.** D-0826-1 and D-0826-2 appended verbatim; D-0824-2's amendment and the
+  CRITERION9 report both carry a SUPERSEDED banner on the **level curve only** (the weight 1.50 is
+  unchanged and still current); the approved tables the pre-gate runbook compares against are now
+  the dated snapshot, not the old figures.
+
+**Results:**
+- **The money proof, two rounds, 29/29** (`clevel_close_proof.json`). Two databases from one dump of
+  live, seeded identically (fingerprints asserted equal before each round), two isolated n8n
+  containers — one at HEAD, one on the working tree — each closed through its own real
+  `POST /api/periods/close`.
+  - **Round 1, one C-level evaluator: 832 frozen money cells over 104 rows, zero moved.** Pool
+    **548.494** on both sides — the same figure the previous session's close produced from its own
+    fixtures. The subject's index `174.7080` = the hand figure 291.18 × 0.60.
+  - **Round 2, a second evaluator (8 and 4 on criterion 1, 7 and 9 on criterion 10):** payload
+    **6 and 8 with `c_level_count: 2`** under the new code against **4 and 9** under the old (the
+    later row — named, not left as «4 or 8»). Frozen: **exactly one person's row differs**, in
+    `final_rating` and `bonus_index` only — **124.8360 → 132.8520** — every other one of the 103 rows
+    byte-identical, and the pool differs by exactly 8.016. `rating_c_level_direct` reads 7.00 on both
+    sides: that archival column has always averaged this channel; now the money path agrees with it.
+- **The screen matches the frozen result.** In a real browser on the stand, `/admin/final-scores`
+  reads `Σ 221.42 · Итог 132.85` for that person with «C-level: 6 (среднее по 2 оценкам) · 6.00 ×
+  коэф. × вес 5.00 = 36.00» on the cell; the matrix shows 6 and 8 with ×2 badges. The other seeded
+  people read 170.83 / 108.32 / 80.89 / 13.74 — unmoved.
+- **Live after:** 89 users / 3 terminated / **80 in H1 scope**; four data tables **0/0/0/0**;
+  `evaluation_started_at` **NULL on all three periods**; `plpgsql` only; `EPE: Auth Guard` still
+  `2026-08-18T16:34:30.674Z`; **60 workflows / 35 active / 22 archived / 48 webhooks**; catalogue,
+  level coefficients and grades **md5-identical to the 04:48:44Z snapshot**. All **176**
+  `c_level_only` cells on live carry `c_level_count`, every one null with no evaluations.
+  `clevel_live_verify.json`: **22 checks, 22 passed.**
+- **Deployed:** two workflows at 05:16:11Z / 05:16:13Z (active before and after, 70 and 9 nodes,
+  webhook paths unchanged) and frontend release **`20260826T051630Z`**. `npm test` **401/401** (21
+  new). Lint at the repository baseline, 16/14, unchanged.
+- Closed **BUG-072** (the defect itself, filed and closed in this batch); filed **BUG-073**.
+  Counters now **29 open / 44 closed**.
+
+**Notes / Gotchas:**
+- **A scalar sub-select over a grouped CTE returns NULL, not 0, when the group is absent.** The live
+  payload came back `c_level_count: null` on every cell, not `0` — exactly how `subordinate_count`
+  has always behaved on the upward channel. The verification caught it; the assertion and the
+  helper's comment were corrected to the measured contract rather than the assumed one, and the
+  client resolves a null count to 1-with-a-score / 0-without, which is the pre-change behaviour.
+- **A `numeric` inside `json_build_object` serialises as a JSON number,** so `ROUND(avg, 2)` needs no
+  float cast and a single evaluator's integer comes back unchanged. A test still pins that a
+  string-typed value computes as a number, because a cached payload must not turn a money cell into
+  a string concatenation.
+- **Backticks in generated SQL comments** broke the Code nodes again, exactly as last night; the
+  generator's own test named both by workflow and node before anything reached live.
+- The three existing seed files guard on the database name (`^epe_mid_`, `^epe_mid_night_`). Rather
+  than weaken a safety guard, this stand took a name that satisfies both and added its own infix —
+  `epe_mid_night_clv_` — so the teardown loop can still never see another brief's database.
+- **Eight dumps of live from previous briefs remain in VPS `/root/epe_stand_tmp`** (root-only, mode
+  600 — not BUG-053's world-readable problem, but `PROJECT_RULES.md` says teardown empties that
+  directory). This session removed only its own; deleting other sessions' artefacts is not its call.
+- The working tree carried **no other session's edits**; `git status` was clean at the start.
+- The second gate is **still unpressed**, and no route that could press it was called.

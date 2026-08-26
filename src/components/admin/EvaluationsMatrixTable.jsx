@@ -15,7 +15,7 @@
 
 import React from 'react';
 import { Star, Eye, Edit2, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
-import { buildSharedCriteriaGroups, getCriterionFinalScore, getCriterionCorrections, canReceiveCLevel, formatCorrectionTooltip } from '../../utils/matrixUtils';
+import { buildSharedCriteriaGroups, getCriterionFinalScore, getCriterionCorrections, canReceiveCLevel, formatCorrectionTooltip, getCLevelChannel, formatScoreCompact } from '../../utils/matrixUtils';
 import { getScoreBandChipClasses } from '../../utils/evaluationUtils';
 
 const EvaluationsMatrixTable = ({ 
@@ -443,8 +443,24 @@ const EvaluationsMatrixTable = ({
                       }
                       const writable = canReceiveCLevel(emp, period);
                       const actorScore = c.actor_c_level_score ?? null;
-                      const displayed = actorScore ?? c.c_level_score;
+                      // D-0826-1: ячейка показывает то, что идёт в деньги —
+                      // среднее по всем C-level. Раньше здесь стояло
+                      // `actorScore ?? c.c_level_score`, и оценщик видел свою
+                      // оценку там, где расчёт брал чужую (последнюю по
+                      // времени). Собственный балл ушёл в подсказку, а
+                      // редактирование по-прежнему правит только свою строку.
+                      const channel = getCLevelChannel(c);
+                      const displayed = formatScoreCompact(channel.score);
                       const isEdit = Boolean(emp.actor_c_level_evaluation_id);
+                      const cLevelTitle = [
+                        channel.score === null
+                          ? 'C-level оценка ещё не выставлена'
+                          : (channel.averaged
+                              ? `Среднее по ${channel.count} оценкам C-level: ${displayed}`
+                              : `C-level: ${displayed}`),
+                        actorScore != null ? `ваша оценка: ${actorScore}` : null,
+                        writable ? (isEdit ? 'нажмите, чтобы изменить свою' : 'нажмите, чтобы оценить') : null,
+                      ].filter(Boolean).join(' · ');
                       return (
                       <td 
                         key={`clvl-${emp.id}-${c.criteria_id}`} 
@@ -455,14 +471,22 @@ const EvaluationsMatrixTable = ({
                           onClick={(e) => handleCLevelClick(e, emp)}
                           className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-xs transition-all cursor-pointer group relative ${
                             displayed
-                              ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 hover:ring-2 hover:ring-offset-1 hover:ring-orange-400' 
+                              ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 hover:ring-2 hover:ring-offset-1 hover:ring-orange-400'
                               : 'bg-orange-50 text-orange-400 hover:bg-orange-100 border-2 border-dashed border-orange-300'
                           }`}
-                          title={isEdit ? 'Изменить C-level оценку' : 'Добавить C-level оценку'}
+                          title={cLevelTitle}
                         >
                           {displayed ? (
                             <>
                               {displayed}
+                              {channel.averaged && (
+                                <sup
+                                  className="absolute -top-1 -left-1 text-[9px] font-bold text-orange-700 bg-white rounded-full px-0.5"
+                                  data-testid="c-level-count"
+                                >
+                                  ×{channel.count}
+                                </sup>
+                              )}
                               <Edit2 className="w-3 h-3 absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 text-orange-600 bg-white rounded-full" />
                             </>
                           ) : (
@@ -471,12 +495,22 @@ const EvaluationsMatrixTable = ({
                         </button>
                         ) : (
                           <span
-                            className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-xs ${
+                            className={`relative inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-xs ${
                               displayed ? 'bg-gray-100 text-gray-500' : 'text-gray-300'
                             }`}
-                            title="C-level оценка недоступна для этого сотрудника в выбранном периоде"
+                            title={displayed
+                              ? cLevelTitle
+                              : 'C-level оценка недоступна для этого сотрудника в выбранном периоде'}
                           >
                             {displayed || '-'}
+                            {channel.averaged && (
+                              <sup
+                                className="absolute -top-1 -left-1 text-[9px] font-bold text-gray-600 bg-white rounded-full px-0.5"
+                                data-testid="c-level-count"
+                              >
+                                ×{channel.count}
+                              </sup>
+                            )}
                           </span>
                         )}
                       </td>

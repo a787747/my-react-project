@@ -18,21 +18,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import apiClient from '../api/client';
 import { API_ENDPOINTS } from '../config/api';
+import { getCLevelChannel } from '../utils/matrixUtils';
 import logger from '../utils/logger';
 
 /**
  * Получить финальную оценку по критерию (с учетом mid-level и C-level корректировок)
- * Логика: для c_level_only критериев - c_level_score
+ * Логика: для c_level_only критериев - c_level_score (СРЕДНЕЕ по всем C-level,
+ *         D-0826-1; число оценщиков приходит рядом как `c_level_count`)
  *         для остальных: среднее из (manager_score, mid_level_correction?, c_level_correction?)
  */
 const getCriterionFinalScore = (criterion) => {
-  const { manager_score, mid_level_correction, c_level_correction, c_level_score, c_level_only } = criterion;
-  
+  const { manager_score, mid_level_correction, c_level_correction, c_level_only } = criterion;
+
   // Для C-level критериев
   if (c_level_only) {
-    return c_level_score ?? null;
+    return getCLevelChannel(criterion).score;
   }
-  
+
   // Если нет оценки менеджера
   if (manager_score === null || manager_score === undefined) {
     return null;

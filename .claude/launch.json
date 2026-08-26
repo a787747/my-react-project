@@ -18,6 +18,15 @@
         "VITE_DEV_API_PROXY=http://127.0.0.1:25679 npm run dev -- --port 5399 --strictPort"
       ],
       "port": 5399
+    },
+    {
+      "name": "epe-clevel-vite",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "VITE_DEV_API_PROXY=http://127.0.0.1:25679 npm run dev -- --port 5499 --strictPort"
+      ],
+      "port": 5499
     }
   ]
 }

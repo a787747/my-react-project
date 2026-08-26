@@ -1,5 +1,16 @@
 # Criterion 9 «Ответственность сверх роли» — created and proven on live (id 14); riders shipped (2026-08-24)
 
+> **SUPERSEDED on the level curve — D-0826-2 (owner, 2026-08-26).** Every mention below of
+> `0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00` as the *approved* curve of criterion 14
+> is historical. The owner has declared the curve **as it stands on live** —
+> `0.70/1.00/1.00/1.10/1.20/1.50/2.00/3.00/5.00/7.00` — the approved curve for H1-2026, and the
+> repository stops describing the live values as drift. What this report actually *wrote* on
+> 2026-08-24 is unchanged and is still an accurate execution record; only its status as the
+> current contract lapses. **The weight, 1.50, is unchanged and still current.** The approved
+> tables to compare against before «Запустить оценку» and before close are now the dated
+> snapshot in `docs/coefficients/` — `H1-2026_coefficients_20260826T044844Z.md`. BUG-050 (the
+> migration chain cannot rebuild live `score_corrections`) is a separate matter and stays open.
+
 Brief: create the ninth criterion on live through Alexander's own path (manage-criteria save →
 score-coefficients save), audience all / self off / manager on / c_level off, weight 1.50, level
 coefficients 0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00, texts VERBATIM from the attached

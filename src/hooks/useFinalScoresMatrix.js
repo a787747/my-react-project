@@ -25,6 +25,7 @@ import {
   buildSharedCriteriaList,
   extractFilterOptions,
   filterEmployees,
+  getCLevelChannel,
   takesBonusShare,
 } from '../utils/matrixUtils';
 import logger from '../utils/logger';
@@ -55,17 +56,22 @@ const LOAD_ERRORS = {
 
 /**
  * Получить финальную оценку по критерию (с учетом mid-level и C-level корректировок)
- * Логика: для c_level_only критериев - c_level_score
+ * Логика: для c_level_only критериев - c_level_score (СРЕДНЕЕ по всем C-level,
+ *         D-0826-1: сервер считает среднее и присылает `c_level_count` рядом)
  *         для остальных: среднее из (manager_score, mid_level_correction?, c_level_correction?)
+ *
+ * Общий помощник matrixUtils.getCLevelChannel — единственное место, где
+ * читается пара (c_level_score, c_level_count): экран итоговых баллов, матрица
+ * оценок и закрытие периода обязаны видеть один и тот же балл.
  */
 const getCriterionFinalScore = (criterion) => {
-  const { manager_score, mid_level_correction, c_level_correction, c_level_score, c_level_only } = criterion;
-  
+  const { manager_score, mid_level_correction, c_level_correction, c_level_only } = criterion;
+
   // Для C-level критериев
   if (c_level_only) {
-    return c_level_score ?? null;
+    return getCLevelChannel(criterion).score;
   }
-  
+
   // Если нет оценки менеджера
   if (manager_score === null || manager_score === undefined) {
     return null;

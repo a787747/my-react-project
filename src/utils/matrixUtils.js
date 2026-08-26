@@ -77,23 +77,84 @@ export const filterEmployees = (employees = [], filters = {}) => {
 };
 
 /**
+ * Канал c_level_direct одной ячейки: значение и число оценщиков.
+ *
+ * D-0826-1 (владелец, 2026-08-26). `c_level_score` приходит с сервера уже как
+ * СРЕДНЕЕ по всем C-level, поставившим оценку по этому критерию, а
+ * `c_level_count` — сколько их было. Раньше сервер брал `ORDER BY updated_at
+ * DESC LIMIT 1`: строки обеих оценок лежали в базе (уникальный индекс
+ * evaluations включает evaluator_id, поэтому ничего не перезаписывалось), но
+ * читатель брал последнюю по времени — и долю фонда решал тот, кто отправил
+ * позже. Права на c_level_direct у трёх человек, а критерии — 1 (вес 5.00) и
+ * 10 (1.60), самые тяжёлые в каталоге.
+ *
+ * Ячейка, которую ещё никто не оценил, приходит как `null` / `null` — CTE
+ * группируется, поэтому в ней просто нет строки, и коррелированный подзапрос
+ * даёт NULL. Ровно так же ведёт себя `subordinate_count` восходящего канала.
+ * Значит `count` может быть null по двум разным причинам — нет оценок, или
+ * полезная нагрузка старая (кэш, тест, выгрузка до этой правки), — и обе
+ * разрешаются одинаково: 1, если балл есть, и 0, если балла нет. Это ровно
+ * поведение до D-0826-1. Балл без счётчика невозможен со стороны сервера:
+ * если строка в CTE есть, в ней есть и AVG, и COUNT.
+ *
+ * @param {Object} criterion
+ * @returns {{score: number|null, count: number, averaged: boolean}}
+ */
+export const getCLevelChannel = (criterion) => {
+  if (!criterion) return { score: null, count: 0, averaged: false };
+  const raw = criterion.c_level_score;
+  const score = raw === null || raw === undefined ? null : Number(raw);
+  const rawCount = criterion.c_level_count;
+  const count = rawCount === null || rawCount === undefined
+    ? (score === null ? 0 : 1)
+    : Number(rawCount);
+  return { score, count, averaged: count > 1 };
+};
+
+/**
+ * Короткая запись балла: целое — без дробной части, среднее — до двух знаков
+ * без хвостовых нулей. 6 → «6», 5.5 → «5.5», 5.33 → «5.33».
+ */
+export const formatScoreCompact = (value) => {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Number(n.toFixed(2)).toString();
+};
+
+/**
+ * Подпись канала C-level для подсказки: «C-level: 6 (среднее по 2 оценкам)».
+ * Для одного оценщика — просто «C-level: 6», как и было до D-0826-1.
+ */
+export const formatCLevelChannel = (criterion) => {
+  const { score, count, averaged } = getCLevelChannel(criterion);
+  if (score === null) return null;
+  const shown = formatScoreCompact(score);
+  return averaged
+    ? `C-level: ${shown} (среднее по ${count} оценкам)`
+    : `C-level: ${shown}`;
+};
+
+/**
  * Вычисляет итоговую оценку критерия с учётом всех корректировок
- * 
+ *
  * Логика:
- * - Для C-level критериев: возвращаем c_level_score
+ * - Для C-level критериев: возвращаем c_level_score (среднее по всем C-level,
+ *   D-0826-1 — считается на сервере, здесь только приводится к числу)
  * - Для остальных: усреднение (manager_score, mid_level_correction, c_level_correction)
- * 
+ *
  * @param {Object} criterion - объект критерия
  * @returns {number|null} итоговая оценка
  */
 export const getCriterionFinalScore = (criterion) => {
-  const { manager_score, mid_level_correction, c_level_correction, c_level_score, c_level_only } = criterion;
-  
-  // Для C-level критериев
+  const { manager_score, mid_level_correction, c_level_correction, c_level_only } = criterion;
+
+  // Для C-level критериев. Number(): среднее приходит из SQL как numeric и
+  // может сериализоваться строкой; целое одного оценщика возвращается как есть.
   if (c_level_only) {
-    return c_level_score ?? null;
+    return getCLevelChannel(criterion).score;
   }
-  
+
   // Если нет оценки менеджера
   if (manager_score === null || manager_score === undefined) {
     return null;
@@ -168,7 +229,20 @@ export const formatCorrectionTooltip = (criterion) => {
     parts.push(`Mid-level: ${criterion.mid_level_correction}`);
   }
   if (criterion.c_level_correction != null) {
-    parts.push(`C-level: ${criterion.c_level_correction}`);
+    // На c_level_only критерии коррекция в расчёт НЕ входит: и матрица, и
+    // закрытие берут для такого критерия только прямой канал C-level. Строка
+    // существует в базе и молча не используется — это открытый вопрос
+    // владельца (см. отчёт CLEVEL_AVERAGING §3), а не решение этой правки.
+    parts.push(criterion.c_level_only
+      ? `Коррекция C-level: ${criterion.c_level_correction} (не входит в расчёт C-level критерия)`
+      : `C-level: ${criterion.c_level_correction}`);
+  }
+  // Канал c_level_direct (D-0826-1). У c_level_only критерия оценки менеджера
+  // нет вовсе, и до этой правки подсказка на такой ячейке была пустой — балл
+  // 6 не сообщал, что он средний из 4 и 8.
+  if (criterion.c_level_only) {
+    const channel = formatCLevelChannel(criterion);
+    if (channel) parts.push(channel);
   }
   const finalScore = getCriterionFinalScore(criterion);
   if (finalScore != null && parts.length > 1) {

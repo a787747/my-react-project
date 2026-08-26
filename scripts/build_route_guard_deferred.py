@@ -166,6 +166,37 @@ manager_scores_from_boss AS (
     AND c.target_audience = 'managers_only'
     AND c.is_active = true
     AND e.period_id = ${periodId}
+),
+-- D-0826-1 (owner, 2026-08-26): the C-level direct channel is an AVERAGE
+-- across evaluators carrying the number of evaluators, exactly the shape the
+-- upward channel above has always had.
+--
+-- Nothing was ever lost at write time: the unique index on evaluations is
+-- (subject, evaluator, source, period), so a second C-level person gets their
+-- own row and both rows persist. It was the READER that picked one — this
+-- sub-select used to be ORDER BY e.updated_at DESC LIMIT 1 — so whoever
+-- submitted last decided the person's share of the pool on criteria 1
+-- (weight 5.00) and 10 (1.60), the heaviest pair in the catalogue, and three
+-- people hold the right to file them.
+--
+-- AVG and COUNT come from ONE grouped scan: the mean and the count can never
+-- end up describing different sets of rows. The identical CTE is in the close
+-- dataset of API: Manage Periods, so the frozen period_results inherit
+-- exactly what this screen shows.
+c_level_direct_scores AS (
+  SELECT
+    e.subject_id,
+    es.criteria_id,
+    AVG(es.score_value) as avg_c_level_score,
+    COUNT(*) as c_level_count
+  FROM performance_db.evaluations e
+  JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id
+  JOIN performance_db.criteria c ON es.criteria_id = c.id
+  WHERE e.evaluation_source = 'c_level_direct'
+    AND c.c_level_only = true
+    AND c.is_active = true
+    AND e.period_id = ${periodId}
+  GROUP BY e.subject_id, es.criteria_id
 )
 SELECT
   u.id,
@@ -232,17 +263,23 @@ SELECT
         ORDER BY e.updated_at DESC
         LIMIT 1
       ),
+      -- The mean across every C-level evaluator, and the count beside it
+      -- (D-0826-1). Two decimals — the same scale rating_c_level_direct
+      -- already uses. A single evaluator returns that evaluator's integer
+      -- unchanged, so this is a no-op wherever only one person filed.
+      -- The CTE already restricts itself to active c_level_only criteria,
+      -- so no cell of any other criterion can match.
       'c_level_score', (
-        SELECT es.score_value
-        FROM performance_db.evaluations e
-        JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id
-        WHERE e.subject_id = u.id
-          AND e.evaluation_source = 'c_level_direct'
-          AND c.c_level_only = true
-          AND es.criteria_id = c.id
-          AND e.period_id = ${periodId}
-        ORDER BY e.updated_at DESC
-        LIMIT 1
+        SELECT ROUND(cds.avg_c_level_score::numeric, 2)
+        FROM c_level_direct_scores cds
+        WHERE cds.subject_id = u.id
+          AND cds.criteria_id = c.id
+      ),
+      'c_level_count', (
+        SELECT cds.c_level_count::integer
+        FROM c_level_direct_scores cds
+        WHERE cds.subject_id = u.id
+          AND cds.criteria_id = c.id
       ),
       'actor_c_level_score', (
         SELECT es.score_value

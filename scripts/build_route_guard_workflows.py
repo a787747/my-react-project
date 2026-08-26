@@ -4249,8 +4249,9 @@ return {
 """.strip()
 
 # The dataset mirrors the evaluations-matrix per-criterion subqueries exactly:
-# same predicates, same latest-by-updated_at rule, same correction lookups —
-# so the persisted final cell is the matrix cell by construction (D-0820-12).
+# same predicates, same latest-by-updated_at rule for the manager channel, same
+# c_level_direct_scores CTE, same correction lookups — so the persisted final
+# cell is the matrix cell by construction (D-0820-12).
 PERIODS_CLOSE_DATASET_SQL = """
 WITH criteria_data AS (
   SELECT c.id, c.weight, c.c_level_only, c.target_audience,
@@ -4261,6 +4262,37 @@ WITH criteria_data AS (
     ) AS score_coefficients
   FROM performance_db.criteria c
   WHERE c.is_active = true
+),
+-- D-0826-1 (owner, 2026-08-26): the C-level direct channel is an AVERAGE
+-- across evaluators carrying the number of evaluators, exactly the shape the
+-- upward channel already has in the matrix.
+--
+-- Nothing was ever lost at write time: the unique index on evaluations is
+-- (subject, evaluator, source, period), so a second C-level person gets their
+-- own row and both rows persist. It was the READER that picked one — this
+-- sub-select used to be ORDER BY e.updated_at DESC LIMIT 1 — so whoever
+-- submitted last decided the person's share of the pool on criteria 1
+-- (weight 5.00) and 10 (1.60), the heaviest pair in the catalogue, and three
+-- people hold the right to file them.
+--
+-- AVG and COUNT come from ONE grouped scan: the mean and the count can never
+-- end up describing different sets of rows. This CTE is character-for-character
+-- the one in API: evaluations-matrix; if the two ever drift, the screen and
+-- the frozen result stop agreeing about money.
+c_level_direct_scores AS (
+  SELECT
+    e.subject_id,
+    es.criteria_id,
+    AVG(es.score_value) as avg_c_level_score,
+    COUNT(*) as c_level_count
+  FROM performance_db.evaluations e
+  JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id
+  JOIN performance_db.criteria c ON es.criteria_id = c.id
+  WHERE e.evaluation_source = 'c_level_direct'
+    AND c.c_level_only = true
+    AND c.is_active = true
+    AND e.period_id = ${periodId}
+  GROUP BY e.subject_id, es.criteria_id
 )
 SELECT
   epp.user_id,
@@ -4304,17 +4336,23 @@ SELECT
         ORDER BY e.updated_at DESC
         LIMIT 1
       ),
+      -- The mean across every C-level evaluator, and the count beside it
+      -- (D-0826-1). Two decimals — the same scale rating_c_level_direct
+      -- already uses. A single evaluator returns that evaluator's integer
+      -- unchanged, so this is a no-op wherever only one person filed.
+      -- The CTE already restricts itself to active c_level_only criteria,
+      -- so no cell of any other criterion can match.
       'c_level_score', (
-        SELECT es.score_value
-        FROM performance_db.evaluations e
-        JOIN performance_db.evaluation_scores es ON e.id = es.evaluation_id
-        WHERE e.subject_id = epp.user_id
-          AND e.evaluation_source = 'c_level_direct'
-          AND cd.c_level_only = true
-          AND es.criteria_id = cd.id
-          AND e.period_id = ${periodId}
-        ORDER BY e.updated_at DESC
-        LIMIT 1
+        SELECT ROUND(cds.avg_c_level_score::numeric, 2)
+        FROM c_level_direct_scores cds
+        WHERE cds.subject_id = epp.user_id
+          AND cds.criteria_id = cd.id
+      ),
+      'c_level_count', (
+        SELECT cds.c_level_count::integer
+        FROM c_level_direct_scores cds
+        WHERE cds.subject_id = epp.user_id
+          AND cds.criteria_id = cd.id
       ),
       'mid_level_correction', (
         SELECT sc2.correction_score
@@ -4429,7 +4467,13 @@ if (rows.length === 0) {
 const periodId = Number(prev.period_id);
 const actorId = Number(prev.actor_id);
 
-// matrixUtils.getCriterionFinalScore — the matrix final cell (D-0820-12)
+// matrixUtils.getCriterionFinalScore — the matrix final cell (D-0820-12).
+// `c_level_score` is now the MEAN across every C-level evaluator of that cell
+// (D-0826-1); the count travels beside it as `c_level_count` and is carried to
+// the screens, not into period_results — a count is a property of one cell and
+// period_results stores one row per person, so a person-level column would
+// misdescribe it. A c_level score CORRECTION still does not enter this branch
+// at all: see D-0826-1's «surfaced, not resolved» — that is the owner's call.
 const finalOf = (crit) => {
   if (crit.c_level_only) {
     return crit.c_level_score != null ? Number(crit.c_level_score) : null;

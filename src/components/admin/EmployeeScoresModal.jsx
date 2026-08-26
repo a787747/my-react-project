@@ -17,7 +17,7 @@
 
 import React from 'react';
 import { X, Star, Briefcase, Award, Crown, CheckCircle, MinusCircle, AlertTriangle, Users, UserCheck } from 'lucide-react';
-import { groupCriteria, getCriterionFinalScore, getCriterionCorrections, canReceiveCLevel, formatCorrectionTooltip } from '../../utils/matrixUtils';
+import { groupCriteria, getCriterionFinalScore, getCriterionCorrections, canReceiveCLevel, formatCorrectionTooltip, getCLevelChannel, formatCLevelChannel, formatScoreCompact } from '../../utils/matrixUtils';
 import { getScoreBandChipClasses } from '../../utils/evaluationUtils';
 
 const EmployeeScoresModal = ({ isOpen, employee, period, onClose, onCLevelClick }) => {
@@ -345,11 +345,22 @@ const EmployeeScoresModal = ({ isOpen, employee, period, onClose, onCLevelClick 
                         )}
                       </div>
                       
+                      {/* D-0826-1: балл — среднее по всем C-level, поставившим
+                          оценку по этому критерию; число оценщиков подписано
+                          под ним, иначе 6 из «4 и 8» неотличимо от чистой 6. */}
                       <div className="text-center">
                         <p className="text-[10px] text-gray-400 mb-1">C-level</p>
-                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-sm ${getScoreStyle(c.c_level_score, false, c)}`}>
-                          {c.c_level_score ?? <MinusCircle className="w-4 h-4" />}
+                        <span
+                          className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-sm ${getScoreStyle(getCLevelChannel(c).score, false, c)}`}
+                          title={formatCLevelChannel(c) || 'C-level оценка ещё не выставлена'}
+                        >
+                          {formatScoreCompact(getCLevelChannel(c).score) ?? <MinusCircle className="w-4 h-4" />}
                         </span>
+                        {getCLevelChannel(c).averaged && (
+                          <p className="text-[10px] text-orange-600 font-semibold mt-1" data-testid="c-level-count">
+                            среднее по {getCLevelChannel(c).count}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>

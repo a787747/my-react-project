@@ -8,7 +8,7 @@
  */
 
 import * as XLSX from 'xlsx-js-style';
-import { groupCriteria, getCriterionFinalScore } from './matrixUtils';
+import { groupCriteria, getCriterionFinalScore, getCLevelChannel } from './matrixUtils';
 
 // ============================================
 // СТИЛИ
@@ -222,7 +222,7 @@ const createStyledSummarySheet = (employees) => {
     
     const selfScores = criteria.filter(c => c.self_score != null).map(c => c.self_score);
     const managerScores = criteria.filter(c => c.manager_score != null).map(c => c.manager_score);
-    const cLevelScores = criteria.filter(c => (c.c_level_correction != null) || (c.c_level_score != null)).map(c => c.c_level_correction ?? c.c_level_score);
+    const cLevelScores = criteria.filter(c => (c.c_level_correction != null) || (c.c_level_score != null)).map(c => c.c_level_correction ?? getCLevelChannel(c).score);
     const subordinateScores = criteria.filter(c => c.subordinate_avg_score != null).map(c => parseFloat(c.subordinate_avg_score));
     
     const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
@@ -434,7 +434,10 @@ const createStyledDetailSheet = (employees) => {
   row += 2;
 
   // Заголовки
-  const headers = ['№', 'СОТРУДНИК', 'ОТДЕЛ', 'ГРУППА', 'КРИТЕРИЙ', 'САМО', 'МЕНЕДЖЕР', 'ПОДЧИН.', 'НАЧАЛЬН.', 'C-LEVEL', 'ИТОГО', 'КОММЕНТАРИЙ'];
+  // «C-LEVEL ОЦЕНЩИКОВ» (D-0826-1): колонка C-LEVEL — среднее по всем
+  // C-level, поставившим оценку по этому критерию. Без числа оценщиков
+  // выгруженная 6 неотличима от чистой 6, хотя может быть средним 4 и 8.
+  const headers = ['№', 'СОТРУДНИК', 'ОТДЕЛ', 'ГРУППА', 'КРИТЕРИЙ', 'САМО', 'МЕНЕДЖЕР', 'ПОДЧИН.', 'НАЧАЛЬН.', 'C-LEVEL', 'C-LEVEL ОЦЕНЩИКОВ', 'ИТОГО', 'КОММЕНТАРИЙ'];
   headers.forEach((h, c) => {
     ws[cellAddr(row, c)] = styledCell(h, STYLES.header);
   });
@@ -468,7 +471,8 @@ const createStyledDetailSheet = (employees) => {
           styledCell(formatScoreForExcel(c.manager_score), numStyle),
           styledCell(formatScoreForExcel(c.subordinate_avg_score), numStyle),
           styledCell(formatScoreForExcel(c.boss_score), numStyle),
-          styledCell(formatScoreForExcel(c.c_level_correction ?? c.c_level_score), numStyle),
+          styledCell(formatScoreForExcel(c.c_level_correction ?? getCLevelChannel(c).score), numStyle),
+          styledCell(c.c_level_only ? getCLevelChannel(c).count : null, numStyle),
           styledCell(formatScoreForExcel(getCriterionFinalScore(c)), STYLES.numberHighlight),
           styledCell(safeValue(c.comment), cellStyle),
         ];
@@ -486,7 +490,8 @@ const createStyledDetailSheet = (employees) => {
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: row - 1, c: headers.length - 1 } });
   ws['!cols'] = [
     { wch: 5 }, { wch: 28 }, { wch: 18 }, { wch: 12 }, { wch: 30 },
-    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 35 }
+    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 18 },
+    { wch: 10 }, { wch: 35 }
   ];
 
   return ws;

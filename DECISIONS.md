@@ -530,6 +530,14 @@ on live at 17:15Z (0.70/1.00/1.00/1.10/1.20/1.50/2.00/3.00/5.00/7.00) was also t
 read-only comparison of live weights, level coefficients and grade coefficients against
 the approved tables is a runbook step before «Запустить оценку» and before close.
 
+> **SUPERSEDED on the level curve by [D-0826-2](#d-0826-2--the-live-criterion-14-curve-is-the-approved-one-upward-and-self-stay-display-only-owner-2026-08-26) (owner, 2026-08-26).**
+> The curve on live — `0.70/1.00/1.00/1.10/1.20/1.50/2.00/3.00/5.00/7.00` — **is** the approved
+> curve for H1-2026. The `0.20/0.25/0.30/0.35/0.50/0.70/1.00/2.00/3.60/6.00` figures above and in
+> `docs/CRITERION9_2026-08-2x.md` no longer describe the system, and the repository stops calling
+> the live values drift. The **weight** of 1.50 in this row is unchanged and still current.
+> The approved tables the runbook compares against are now the dated snapshot in
+> `docs/coefficients/` (`H1-2026_coefficients_20260826T044844Z.md`), not these figures.
+
 ### D-0824-3 — Upward evaluation content is never shown to the evaluated manager (owner, 2026-08-24)
 **Decision (Alexander):** scores and comments a subordinate gives their manager (source
 subordinate → manager, criterion 2) are never visible to that manager — not now and not under
@@ -714,3 +722,24 @@ Sona Rahmanova 80) are in H1 scope and `can_be_evaluated`; `API: Submit Self Rev
 `hr`; Welcome listed «Самооценка» among their tasks — and the sidebar offered no route to the
 form, which worked perfectly when reached by URL. Two of eighty in-scope people would have been
 told on day one that they had tasks they could not open. No route, guard or payload changed.
+
+### D-0826-1 — C-level direct evaluations are averaged, like the upward channel (owner, 2026-08-26)
+**Decision (Alexander):** when more than one C-level person files a direct evaluation on the same
+subject in the same period, the scores are averaged and the number of evaluators is carried, the
+same way the upward channel already behaves. Last-writer-wins is replaced.
+**Consequence:** money. The two closed criteria are «Стратегическая значимость роли» (weight 5.00)
+and «Оценка C-Level и соответствие культуре» (1.60) — the heaviest pair in the catalogue — and
+three people hold the right to file them, so collisions were likely from day one. Under the old
+behaviour whoever submitted last decided a person's share of the pool. Made before the gate, with
+zero evaluation rows in the database, so nothing is migrated and nothing is recomputed.
+
+### D-0826-2 — The live criterion-14 curve is the approved one; upward and self stay display-only (owner, 2026-08-26)
+**Decision (Alexander):** the level coefficients of criterion 14 «Ответственность сверх роли» as
+they stand on live are the approved values for H1-2026. The earlier D-0824-2 / CRITERION9 figures
+no longer describe the system and are superseded on this point. Separately: the bonus allocation
+index is built from the manager channel and the C-level direct channel only — the upward channel
+and self-assessment are feedback surfaces and do not feed money. Both are intentional.
+**Consequence:** criterion 2 «Качество управления» (weight 3.00) is scored in the money by the
+manager's own boss alone; subordinates' views inform the rating, not the pool. The coefficient
+tables as read on this date are snapshotted as version H1-2026 so the September calculation can be
+reconstructed — the December 2025 index cannot be, and that is what this prevents.

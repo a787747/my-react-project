@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 28 |
+| 🔴 Open | 29 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 43 |
+| 🟢 Closed | 44 |
 
 ---
 
@@ -777,3 +777,23 @@
 - Why it matters: cosmetic today, and shrinking. Since this session the cells render «н/п» versus «-» from the client's own applicability map, so a blank column no longer reads as «behind schedule» for the two dimensions that ARE filtered; for these five rows it still does. Not fixed server-side on purpose: the natural predicate is `can_be_evaluated`, which the owner edits at will, and tying the matrix's emitted criteria set to a column that can flip mid-campaign would let one checkbox move a person's criteria count — and therefore their index — with no evaluation changing.
 - How to fix: decide whether `c_level_only` applicability is a property of the person's role (stable) or of `can_be_evaluated` (editable), then filter on the stable one. Needs the owner.
 - Source: `docs/PRELAUNCH_BATCH_NIGHT_2026-08-26.md` §6.
+
+### BUG-072: Two C-level evaluations on one person, and the money read whichever was touched last
+
+- Status: 🟢 CLOSED (2026-08-26)
+- Severity: 🔴 High
+- Location: LIVE `API: evaluations-matrix` → `Build Matrix Query` and `API: Manage Periods` → `Build Close Dataset Query`; the `'c_level_score'` sub-select in each.
+- Description: `c_level_direct` is the only channel that feeds the bonus index on criteria 1 «Стратегическая значимость роли» (weight 5.00) and 10 «Оценка C-Level и соответствие культуре» (1.60), the heaviest pair in the catalogue, and **three** people hold the right to file it (Alexander id 2, Bayram id 18, Jemal id 47). Nothing was lost at write time — the unique index on `evaluations` is `(subject_id, evaluator_id, evaluation_source, period_id)`, so a second C-level person gets their own row and both rows persist — but both readers took `ORDER BY e.updated_at DESC LIMIT 1`, so the number that reached the screen, the payload and the frozen `period_results` was whichever evaluation was touched last. The upward channel next to it in the same query has averaged in SQL since it was written.
+- Why it matters: money, and silently. Measured on a stand: two C-level evaluators scoring one person 8 and 4 on criterion 1 and 7 and 9 on criterion 10 froze `bonus_index` **124.8360** under the old code (the last writer's 4 and 9) against **132.8520** averaged — a 6.4 % swing on one person from a submission-order accident, with no screen anywhere showing that a second opinion existed.
+- Fix (2026-08-26, D-0826-1): one grouped CTE, `c_level_direct_scores`, character-for-character identical in both workflows, produces `AVG` and `COUNT` in a single scan; the cell reads `ROUND(avg, 2)` and a new `c_level_count` travels beside it into the payload and onto every screen that shows the channel (matrix cell badge «×N», tooltips, employee modal, score-detail modal, Excel detail sheet). No schema change: `period_results` stores one row per person and a count is a property of one cell.
+- Verification: `backups/2026-08-26-clevel-averaging/clevel_close_proof.json` — two copies of one dump, control on the workflow surface at HEAD and treatment on the working tree, each closed through its own real `POST /api/periods/close`, 29/29 checks. Round 1 (one evaluator): 832 frozen money cells, **zero moved**. Round 2 (two evaluators): exactly one person's row differs, in `final_rating` and `bonus_index` only, by exactly the hand figures; the other 103 rows byte-identical. `tests/clevelAveraging.test.js` (21 assertions); suite 401/401. Live: `docs/CLEVEL_AVERAGING_2026-08-26.md`.
+
+### BUG-073: A C-level score correction on a C-level criterion is accepted, stored, and then ignored
+
+- Status: 🔴 OPEN
+- Severity: 🟡 Medium
+- Location: LIVE `API: Score Correction` → `Decide Level` (no `c_level_only` check); `src/utils/matrixUtils.js:getCriterionFinalScore` and the `finalOf` copy in `API: Manage Periods` → `Compute Close Results` (the `c_level_only` branch returns the channel value and never consults a correction).
+- Description: `POST /api/admin/score-correction` validates the range and the project-participation dimension and nothing about `c_level_only`. Measured on a stand 2026-08-26: a correction of 3 on criterion 1 for a subject returned **200**, was stored (`score_corrections` id 10, level `c_level`), and reached the matrix payload as `c_level_correction: 3` on that cell — and the frozen `period_results` came back **132.8520**, byte-identical to the same close without the correction. The row is written, transported and discarded. Separately, `score_corrections` is unique on `(subject_id, criteria_id, correction_level, period_id)` with no evaluator in the key, so corrections are last-writer-wins across C-level people even where they do count.
+- Why it matters: a calibration action that the API accepts with a 200 and that changes no number is worse than a refusal. Nobody can tell from the screen or the response that the correction did nothing. `score_corrections` is empty on live, so nothing is wrong today.
+- How to fix: the owner decides what a `c_level` correction means against an averaged C-level score — replace the mean, or enter it as one more opinion in the mean — and the route then either implements it or refuses `c_level_only` criteria by name. Surfaced deliberately by D-0826-1 rather than resolved; see `docs/CLEVEL_AVERAGING_2026-08-26.md` §3 for both options costed.
+- Source: `docs/CLEVEL_AVERAGING_2026-08-26.md` §3.

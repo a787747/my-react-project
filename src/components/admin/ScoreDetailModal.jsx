@@ -20,6 +20,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Star, User, TrendingUp, MessageSquare, Edit3, Save, Loader2, AlertCircle, Crown, Users } from 'lucide-react';
 import { ADMIN_ROLES } from '../../config/constants';
 import { getScoreZone } from '../../utils/evaluationUtils';
+import { getCLevelChannel, formatScoreCompact } from '../../utils/matrixUtils';
 import logger from '../../utils/logger';
 
 const ScoreDetailModal = ({ 
@@ -104,7 +105,10 @@ const ScoreDetailModal = ({
 
   const selfScore = criterion.self_score;
   const managerScore = criterion.manager_score;
-  const cLevelScore = criterion.c_level_score;
+  // D-0826-1: канал c_level_direct — среднее по всем C-level, поставившим
+  // оценку по этому критерию, и число оценщиков рядом.
+  const cLevelChannel = getCLevelChannel(criterion);
+  const cLevelScore = cLevelChannel.score;
   const midLevelCorrection = criterion.mid_level_correction;
   const cLevelCorrection = criterion.c_level_correction;
   
@@ -247,12 +251,19 @@ const ScoreDetailModal = ({
                       <TrendingUp className="w-4 h-4 text-orange-700" />
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900 text-sm">C-level оценка</p>
+                      <p className="font-semibold text-gray-900 text-sm">
+                        C-level оценка
+                        {cLevelChannel.averaged && (
+                          <span className="ml-1 text-xs font-normal text-orange-700" data-testid="c-level-count">
+                            — среднее по {cLevelChannel.count} оценкам
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-gray-500">{cLevelStyle.label}</p>
                     </div>
                   </div>
                   <span className={`text-3xl font-bold ${cLevelStyle.text}`}>
-                    {cLevelScore ?? '-'}
+                    {formatScoreCompact(cLevelScore) ?? '-'}
                   </span>
                 </div>
               </div>
