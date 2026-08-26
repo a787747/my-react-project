@@ -601,3 +601,7 @@ Unauthenticated matrix read → **401**.
   clean and every modified file is this session's.
 - `backups/` is gitignored — the proof artefacts and the dumps under
   `backups/2026-08-26-clevel-averaging/` are deliberately not tracked.
+
+---
+
+**This report, the two D-0826 rows, the two bug rows, the coefficient snapshot, the executor scripts, the refreshed workflow exports and every frontend change landed on `main` as commit `cddccb8`.** The proof artefacts under `backups/2026-08-26-clevel-averaging/` — `clevel_close_proof.json` (29/29), `clevel_correction_probe.json`, `clevel_live_verify.json` (22/22), `throwaway_env.json` and the stand dump — are deliberately **not** tracked: `backups/` is gitignored because those files carry personal data. The rollback anchors live in `~/EPE_ROLLBACK/2026-08-26-clevel-averaging/`, outside the repository.

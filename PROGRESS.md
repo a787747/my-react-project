@@ -1554,3 +1554,4 @@ all grade coefficients as version H1-2026; records.
   directory). This session removed only its own; deleting other sessions' artefacts is not its call.
 - The working tree carried **no other session's edits**; `git status` was clean at the start.
 - The second gate is **still unpressed**, and no route that could press it was called.
+- Committed as `cddccb8`.
