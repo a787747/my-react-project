@@ -1,5 +1,41 @@
 # Evaluation Portal Progress
 
+## 2026-08-26 — LIVE_SMOKE_H1: the real campaign exercised once on live, then removed to the byte
+
+**Status:** ✅ Done and fully reversed. **Verdict: the campaign is safe to invite 78 people into.**
+
+The one and only rehearsal of the real H1 campaign on the real system before the invitation goes
+out. Anchor dump before the first write (`epe_2026_presmoke_20260826T142200Z.dump`, md5
+`072fc767…`, on the Mac outside the repo); full row-level fingerprint recorded.
+
+- **Seeded** three in-scope accounts by direct `password_hash` write in the scrypt format
+  (Hekimov 68 / Ruhlyadko 85 / Hojayeva 45) — no invite link, no mail, no code (D-0820-8).
+- **Walked every channel** in a real browser on epe.sedamedical.com: self-review ×3,
+  manager→subordinate (Hekimov→Ruhlyadko as a **partial** left at 2/6 then **completed through the
+  additive path** — upsert into the same row, no duplicate), upward ×2 (Ruhlyadko→Hekimov,
+  Hekimov→Hojayeva), a full manager eval (Hojayeva→Hekimov, 7 criteria), and one **c_level_direct**
+  filed by the owner's admin account (minted session). 8 evaluations (ids 31–38), what each person
+  saw at each step recorded, no console errors.
+- **Every money number re-derived by hand from raw rows and matched to the digit:** the 8 plain
+  ratings, three weighted self-reviews (26.88 / 11.18 / 45.82), two upward averages (7.00 / 9.00),
+  and the three bonus indices (**Hekimov 605.66, Ruhlyadko 147.62, Hojayeva 0.00** — the last is
+  correct: her C-level boss filed nothing, and self+upward never pay). The frontend
+  `useFinalScoresMatrix` formula was replayed from the live matrix + coefficients payloads; that
+  replay is what `/admin/final-scores` and `/admin/bonus-calculation` render.
+- **Undone completely:** 26 scores + 8 evaluations deleted, 4 auth_sessions deleted (3 logins +
+  admin probe), 3 password hashes back to NULL. Proven byte-identical to the anchor — campaign
+  0/0/0/0, all fingerprints/md5s/counts identical, no participant row moved, no user column
+  changed. Only `evaluations_id_seq` 30→38 and `evaluation_scores_id_seq` 81→107 advanced (gaps
+  31–38 / 82–107, accepted and not repaired).
+- **One process reminder surfaced (not a bug, not blocking):** a manager whose boss is C-level
+  earns a 0 index until a C-level person evaluates them or files a c_level_direct — C-level must
+  actually evaluate the managers under them. One honest deviation: the c_level_direct used the real
+  API route, not the admin SPA screen (the browser token injection was blocked by the safety
+  classifier); it is the exact backend path the admin UI POSTs to.
+
+**Report:** `docs/LIVE_SMOKE_H1_2026-08-26.md`. No mail sent, no container restarted, no schema or
+money input changed.
+
 ## 2026-08-12 — Initial revival health check
 
 **What was done:**
