@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Users, Plus, Info, Upload, UserMinus, UserCheck } from 'lucide-react';
+import { Users, Plus, Info, Upload, UserMinus, UserCheck, AlertCircle } from 'lucide-react';
 
 // Компоненты
 import { Toast, LoadingSpinner, Pagination } from '../components/common';
@@ -56,17 +56,22 @@ const getAllSubordinates = (managerId, allUsers, visited = new Set()) => {
 };
 
 const AdminUsers = ({ user }) => {
-  // Проверка прав доступа - Admin, C-level, HR видят всех и могут редактировать
+  // Admin, C-level и HR видят весь список (ROLE_ACCESS_HR_CLEVEL, 2026-08-26).
+  // Редактирует только admin: каждый маршрут записи отвечает 403 остальным
+  // ролям, поэтому кнопки для них не рисуются вовсе — скрытая кнопка не защита,
+  // но видимая кнопка, которую сервер откажет, — ложное обещание.
   const isFullAccess = ['admin', 'c_level', 'hr'].includes(user?.role);
-  const canEdit = isFullAccess;
   const isAdminUser = user?.role === 'admin';
+  const canEdit = isAdminUser;
 
   // Хук для работы с пользователями
   const {
     users,
     options,
     loading,
+    error,
     saving,
+    fetchData,
     saveUser,
     changePeriodScope,
     getEmployeeEvents,
@@ -233,6 +238,27 @@ const AdminUsers = ({ user }) => {
   // Состояние загрузки
   if (loading) {
     return <LoadingSpinner text="Загрузка данных..." />;
+  }
+
+  // Список не загрузился — говорим почему, а не рисуем пустую таблицу.
+  // До 2026-08-26 отказ сервера (403 для hr/c_level) молча превращался в
+  // «Найдено: 0» — тот же проглоченный отказ, что был на /team (BUG-012).
+  if (error) {
+    return (
+      <div className="p-8 bg-gray-50 min-h-screen">
+        <div className="max-w-xl mx-auto mt-16 bg-white border border-red-200 rounded-xl p-6 text-center">
+          <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <p className="text-gray-900 font-semibold mb-1">Список сотрудников не загружен</p>
+          <p className="text-red-700 text-sm mb-4">{error}</p>
+          <button
+            onClick={() => fetchData()}
+            className="bg-indigo-600 text-white px-5 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          >
+            Повторить
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

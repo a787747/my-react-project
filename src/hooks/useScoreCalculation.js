@@ -76,12 +76,43 @@ export const useScoreCalculation = () => {
       // 1. Матрицу оценок (содержит сотрудников и их оценки)
       // 2. Коэффициенты критериев
       // 3. Данные пользователей с грейдами
-      const [matrixResponse, coefficientsResponse, usersDataResponse] = await Promise.all([
+      // allSettled, а не all с молчаливыми catch: пустой набор коэффициентов
+      // неотличим от правды и давал невзвешенный расчёт без ошибки (BUG-042).
+      const [matrixResult, coefficientsResult, usersDataResult] = await Promise.allSettled([
         apiClient.get(API_ENDPOINTS.ADMIN_EVALUATIONS_MATRIX),
-        apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS).catch(() => ({ data: { data: [] } })),
-        apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA).catch(() => ({ data: { options: { grades: [] } } }))
+        apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS),
+        apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA)
       ]);
-      
+
+      const failures = [];
+      if (matrixResult.status === 'rejected') {
+        logger.error('Матрица оценок не загружена:', matrixResult.reason);
+        failures.push('Матрица оценок не загружена — расчёт невозможен');
+      }
+      if (coefficientsResult.status === 'rejected') {
+        logger.error('Коэффициенты критериев не загружены:', coefficientsResult.reason);
+        failures.push('Коэффициенты не загружены — расчёт невозможен');
+      }
+      if (usersDataResult.status === 'rejected') {
+        logger.error('Коэффициенты грейдов не загружены:', usersDataResult.reason);
+        failures.push('Коэффициенты грейдов не загружены — расчёт невозможен');
+      }
+      if (failures.length > 0) {
+        setMatrixData([]);
+        setEmployees([]);
+        setCriteriaWithCoefficients([]);
+        setGrades([]);
+        setGradesMap({});
+        setPeriod(null);
+        setCampaignActive(false);
+        setError(failures.join(' · '));
+        return;
+      }
+
+      const matrixResponse = matrixResult.value;
+      const coefficientsResponse = coefficientsResult.value;
+      const usersDataResponse = usersDataResult.value;
+
       const rawEmployees = matrixResponse.data.data || [];
       setPeriod(matrixResponse.data.period || null);
       setCampaignActive(Boolean(matrixResponse.data.campaign_active));

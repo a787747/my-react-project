@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
       },
       "id": "scorecoeff-guard-input",
       "name": "Prepare Guard Input",

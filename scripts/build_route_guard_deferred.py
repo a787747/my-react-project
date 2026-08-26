@@ -1954,8 +1954,14 @@ def build_employee_self_review(credential_id: str, guard_workflow_id: str) -> di
 # ── 8. POST api/admin/score-correction ───────────────────────────────────────
 # Live unique key is (subject, criteria, level, period). period_id is NOT NULL.
 # That is existing schema, not a new column. Client evaluator_id / correction_level
-# are ignored for privilege. admin+c_level → c_level (2025: Alexander/admin wrote
+# are ignored for privilege. admin → c_level level (2025: Alexander/admin wrote
 # both c_level rows). mid_level → actor is the subject's manager's manager.
+# Role c_level is refused since ROLE_ACCESS_HR_CLEVEL (owner's brief,
+# 2026-08-26: C-level is a reader; no write route accepts c_level or hr). This
+# narrows the writer half of D-0820-7: c_level-level corrections are now stored
+# by admin alone. The C-level channel itself was already correction-free —
+# D-0826-3 refuses corrections on c_level_only criteria — and c_level people
+# keep their own c_level_direct evaluations (submit/update routes, untouched).
 
 CORR_VALIDATE = f"""
 {guard_reject_js()}
@@ -2107,8 +2113,11 @@ if (!row.period_id) {
     },
   };
 }
+// Role c_level never reaches this node since ROLE_ACCESS_HR_CLEVEL (2026-08-26):
+// the guard refuses it with 403 ROLE_FORBIDDEN. c_level-level corrections are
+// stored by admin alone.
 let correctionLevel = 'none';
-if (prev.role === 'admin' || prev.role === 'c_level') {
+if (prev.role === 'admin') {
   correctionLevel = 'c_level';
 } else if (Number(row.skip_level_id) === Number(prev.actor_id)) {
   correctionLevel = 'mid_level';
@@ -2120,7 +2129,7 @@ if (correctionLevel === 'none') {
       body: {
         success: false,
         error: 'OWNERSHIP_FORBIDDEN',
-        message: 'Корректировка доступна руководителю руководителя, администратору или C-level',
+        message: 'Корректировка доступна руководителю руководителя или администратору',
       },
     },
   };
@@ -2190,7 +2199,7 @@ def build_score_correction(credential_id: str, guard_workflow_id: str) -> dict[s
               "responseMode": "responseNode", "options": {}},
              type_version=2.1, webhook_id="score-correction-webhook"),
         node("sc-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
-             [-480, 0], {"jsCode": guard_input_js(["admin", "c_level", "manager"], "can_evaluate")}),
+             [-480, 0], {"jsCode": guard_input_js(["admin", "manager"], "can_evaluate")}),
         run_guard_node("sc-run-guard", "Run Auth Guard", [-250, 0], guard_workflow_id),
         node("sc-validate", "Validate Input", "n8n-nodes-base.code",
              [0, 0], {"jsCode": CORR_VALIDATE}),
@@ -2228,6 +2237,12 @@ def build_score_correction(credential_id: str, guard_workflow_id: str) -> dict[s
 
 
 # ── 9. POST manage-criteria ──────────────────────────────────────────────────
+# One webhook, three actions. Since ROLE_ACCESS_HR_CLEVEL (2026-08-26) the
+# guard admits admin + c_level, and the role split happens on the action:
+# 'get' serves both (C-level reads the criteria admin page, weights included —
+# the owner granted C-level the money-read screens), 'save'/'delete' refuse
+# every non-admin with the guard's own 403 shape before any SQL is built.
+# HR is not in the guard list: the owner granted HR the employees roster only.
 
 CRITERIA_ROUTE = f"""
 {guard_reject_js()}
@@ -2238,6 +2253,16 @@ if (action !== 'get' && action !== 'save' && action !== 'delete') {{
     json: {{
       http_status: 422,
       body: {{ success: false, error: 'INVALID_ACTION', message: 'Действие должно быть get, save или delete' }},
+    }},
+  }};
+}}
+// Writes are admin-only. The refusal fires by role, before the freeze check
+// and before any SQL: hiding a button is not access control.
+if (action !== 'get' && String(guard.identity.role || '') !== 'admin') {{
+  return {{
+    json: {{
+      http_status: 403,
+      body: {{ success: false, error: 'ROLE_FORBIDDEN', message: 'Изменение критериев доступно только администратору' }},
     }},
   }};
 }}
@@ -2376,7 +2401,7 @@ def build_manage_criteria(credential_id: str, guard_workflow_id: str) -> dict[st
               "responseMode": "responseNode", "options": {}},
              type_version=2.1, webhook_id="110ced24-b474-4754-8976-8d8963ebacb9"),
         node("mc-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
-             [-480, 0], {"jsCode": guard_input_js(["admin"])}),
+             [-480, 0], {"jsCode": guard_input_js(["admin", "c_level"])}),
         run_guard_node("mc-run-guard", "Run Auth Guard", [-250, 0], guard_workflow_id),
         node("mc-route", "Route Action", "n8n-nodes-base.code",
              [0, 0], {"jsCode": CRITERIA_ROUTE}),

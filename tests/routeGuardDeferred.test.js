@@ -171,17 +171,64 @@ test("score-correction uses guard.identity.id and ignores client evaluator_id", 
   assert.ok(js.includes("correctionLevel = 'mid_level'"));
 });
 
+test("score-correction refuses role c_level at the guard (ROLE_ACCESS_HR_CLEVEL)", () => {
+  // Owner's brief, 2026-08-26: C-level is a reader; no write route accepts
+  // c_level or hr. This narrows the writer half of D-0820-7 — c_level-level
+  // corrections are stored by admin alone; the mid_level path (skip-level
+  // manager) and the can_evaluate capability check are unchanged.
+  const js = allJsCode(load("score-correction.json"));
+  assert.ok(
+    js.includes('required_roles: ["admin", "manager"]'),
+    'score-correction: required_roles must be exactly ["admin", "manager"]'
+  );
+  assert.ok(
+    js.includes('required_capability: "can_evaluate"'),
+    "score-correction: the can_evaluate capability check must stay"
+  );
+  assert.equal(
+    js.includes("prev.role === 'admin' || prev.role === 'c_level'"),
+    false,
+    "score-correction: the c_level branch of Decide Level must be gone"
+  );
+});
+
 test("employee-self-review ignores client subject_id and uses the actor", () => {
   const js = allJsCode(load("employee-self-review.json"));
   assert.ok(js.includes("guard.identity.id"));
   assert.ok(!js.includes("query.subject_id"));
 });
 
-test("manage-criteria and update-admin-data stay admin-only", () => {
-  for (const file of ["manage-criteria.json", "update-admin-data.json"]) {
-    const js = allJsCode(load(file));
-    assert.ok(js.includes('"admin"'), file);
-  }
+test("update-admin-data stays admin-only — exactly", () => {
+  const js = allJsCode(load("update-admin-data.json"));
+  assert.ok(
+    js.includes('required_roles: ["admin"]'),
+    'update-admin-data: required_roles must be exactly ["admin"] — the money WRITE never widens'
+  );
+});
+
+test("manage-criteria admits admin + c_level, and refuses every non-admin write by role", () => {
+  // ROLE_ACCESS_HR_CLEVEL (2026-08-26): C-level reads the criteria admin page
+  // through action 'get'; 'save'/'delete' answer 403 ROLE_FORBIDDEN for any
+  // non-admin BEFORE the freeze check and before any SQL. HR is not admitted
+  // at all — the owner granted HR the employees roster only.
+  const js = allJsCode(load("manage-criteria.json"));
+  assert.ok(
+    js.includes('required_roles: ["admin", "c_level"]'),
+    'manage-criteria: required_roles must be exactly ["admin", "c_level"]'
+  );
+  assert.ok(
+    js.includes("action !== 'get' && String(guard.identity.role || '') !== 'admin'"),
+    "manage-criteria: writes must be refused by role for every non-admin"
+  );
+  assert.ok(
+    js.includes("Изменение критериев доступно только администратору"),
+    "manage-criteria: the write refusal must say why"
+  );
+  const routeJs = allJsCode(load("manage-criteria.json"));
+  const refusalAt = routeJs.indexOf("ROLE_FORBIDDEN");
+  const freezeAt = routeJs.indexOf("EVALUATION_STARTED");
+  assert.ok(refusalAt !== -1 && freezeAt !== -1 && refusalAt < freezeAt,
+    "manage-criteria: the role refusal must sit before the freeze check");
 });
 
 // D-0822-1: the catalogue freezes when the evaluation STARTS, not when the

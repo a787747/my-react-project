@@ -14,22 +14,26 @@
  * - onSave: function - сохранить
  * - onCancel: function - отменить
  * - onDelete: function(id) - удалить критерий
+ * - canEdit: boolean - рисовать ли колонку «Действия». C-level читает эту
+ *   таблицу без правок (ROLE_ACCESS_HR_CLEVEL): сервер отвечает 403 на любую
+ *   запись не-администратора, поэтому кнопки для него не рисуются вовсе.
  */
 
 import React from 'react';
 import { Edit3, Trash2, Check, User, Users, Shield } from 'lucide-react';
 import CriteriaForm from './CriteriaForm';
 
-const CriteriaTable = ({ 
-  criteria, 
-  audiences, 
-  editingId, 
-  editForm, 
-  onEdit, 
-  onFormChange, 
-  onSave, 
-  onCancel, 
-  onDelete 
+const CriteriaTable = ({
+  criteria,
+  audiences,
+  editingId,
+  editForm,
+  onEdit,
+  onFormChange,
+  onSave,
+  onCancel,
+  onDelete,
+  canEdit = true
 }) => {
   
   // Отображение бейджей доступа
@@ -87,7 +91,7 @@ const CriteriaTable = ({
             <th className="p-4 border-b w-48">Аудитория</th>
             <th className="p-4 border-b w-32 text-center">Статус</th>
             <th className="p-4 border-b w-44 text-center">Кто оценивает</th>
-            <th className="p-4 border-b w-32 text-right">Действия</th>
+            {canEdit && <th className="p-4 border-b w-32 text-right">Действия</th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -147,23 +151,25 @@ const CriteriaTable = ({
                   </td>
                   
                   {/* Действия */}
-                  <td className="p-4 text-right flex justify-end gap-2">
-                    <button 
-                      onClick={() => onEdit(crit)} 
-                      className="p-2 text-slate-400 hover:text-blue-600 transition-colors" 
-                      title="Редактировать"
-                    >
-                      <Edit3 className="w-5 h-5" />
-                    </button>
-                    
-                    <button 
-                      onClick={() => onDelete(crit.id)} 
-                      className="p-2 text-slate-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded"
-                      title="Удалить навсегда"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </td>
+                  {canEdit && (
+                    <td className="p-4 text-right flex justify-end gap-2">
+                      <button
+                        onClick={() => onEdit(crit)}
+                        className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                        title="Редактировать"
+                      >
+                        <Edit3 className="w-5 h-5" />
+                      </button>
+
+                      <button
+                        onClick={() => onDelete(crit.id)}
+                        className="p-2 text-slate-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded"
+                        title="Удалить навсегда"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </td>
+                  )}
                 </>
               )}
             </tr>

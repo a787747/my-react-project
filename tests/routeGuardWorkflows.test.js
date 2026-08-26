@@ -308,22 +308,38 @@ test("hr-evaluation-status restricts to hr, admin, c_level", () => {
   );
 });
 
-test("save-score-coefficients restricts to admin", () => {
+test("save-score-coefficients restricts to admin — exactly", () => {
   const wf = load("save-score-coefficients.json");
   const js = allJsCode(wf);
   assert.ok(
-    js.includes('"admin"'),
-    'save-score-coefficients: required_roles must include "admin"'
+    js.includes('required_roles: ["admin"]'),
+    'save-score-coefficients: required_roles must be exactly ["admin"] — the money WRITE never widens'
   );
 });
 
-test("admin-users-data restricts to admin", () => {
+test("admin-users-data admits admin, hr and c_level; HR never receives a grade coefficient", () => {
+  // ROLE_ACCESS_HR_CLEVEL (2026-08-26): the roster is readable by hr and
+  // c_level. The one money input in the payload is options.grades[].coefficient:
+  // admin and c_level keep it, HR gets {id, code} only.
   const wf = load("admin-users-data.json");
   const js = allJsCode(wf);
   assert.ok(
-    js.includes('"admin"'),
-    'admin-users-data: required_roles must include "admin"'
+    js.includes('required_roles: ["admin", "hr", "c_level"]'),
+    'admin-users-data: required_roles must be exactly ["admin", "hr", "c_level"]'
   );
+  assert.ok(
+    js.includes("actorRole === 'hr' ? { id: g.id, code: g.code } : g"),
+    "admin-users-data: the merge must strip grades[].coefficient for role hr"
+  );
+});
+
+test("admin-users-data selects no compensation column", () => {
+  // Salary stays admin-only in the database and leaves it on NO route. The
+  // roster SQL must never grow a salary column for any role.
+  const wf = load("admin-users-data.json");
+  const js = allJsCode(wf);
+  assert.equal(js.includes("salary"), false,
+    "admin-users-data: no salary/compensation column may appear in the query or merge");
 });
 
 test("save-user restricts to admin", () => {

@@ -1707,3 +1707,38 @@ Bugs: **30 open / 45 closed**.
 **Report:** `docs/EMPLOYEE_SURFACES_POLISH_2026-08-26.md`.
 
 **Implementation commit:** `0c464b1`.
+
+## 2026-08-26 — ROLE_ACCESS_HR_CLEVEL: C-level reads the admin surfaces, HR reads the roster (D-0826-6) — BUILT, NOT DEPLOYED
+
+**Status:** 🟡 Code complete on `claude/hr-clevel-access-control-dudin7`; **nothing touched the
+running system** — this session ran in a remote cloud container with no SSH, no route to live and
+no Docker, so the stand proof, the dump, the deploy and every live verification remain for a Mac
+session (runbook: report §5).
+
+**Diagnosed (outcome 1):** the owner's empty employees page is a 403 the screen swallows — the
+/team pattern (BUG-012) exactly: `/admin/users` admits admin/c_level/hr at the route while
+`api/admin-users-data` was admin-only, and `AdminUsers.jsx` never rendered the error it caught.
+Same silent pattern on `/admin` (criteria). The roster SQL carries no salary column for any role;
+the one money input in it is `options.grades[].coefficient`.
+
+**What changed:**
+- Guards (generators; live PUT pending): `admin-users-data` → admin+hr+c_level with the grades
+  coefficient stripped for hr; `score-coefficients` GET → admin+c_level; `manage-criteria` →
+  admin+c_level with save/delete refusing every non-admin 403 by role before the freeze;
+  `score-correction` → admin+manager (role c_level refused — supersedes the writer half of
+  D-0820-7, flagged to the owner in report §4.1 with the one-line revert named).
+- Frontend: final-scores + score-calculator + /admin → `ReportingRoute`; sidebar offers them to
+  c_level; roster and criteria pages read-only below admin; correction affordance admin/skip-level
+  only; AdminUsers/AdminSettings/AllEvaluations/Matrix/Analytics name a refused or failed read
+  instead of a blank list; `useScoreCalculation` stops substituting empty coefficients (BUG-042 →
+  in progress; BUG-013 HR half → in progress).
+- Tooling for the Mac: `scripts/deploy_role_access_hr_clevel.py` (4 PUTs, open-campaign
+  invariants, exports refresh) and `scripts/prove_role_access.py` (role×route matrix incl.
+  negative cells, write refusals one by one, compensation key walk; campaign-safe by
+  construction).
+- Validation here: `npm test` **439/439** (16 new/updated pins), build passes, changed-file lint
+  adds no errors. Surfaced, not resolved: password-reset routes are unauthenticated self-service
+  (nothing to refuse by role); employee-events stays admin-only; `/admin/bonus-calculation` not in
+  the brief's grant; stale tracked generator snapshots found and left un-adopted (BUG-077).
+
+**Report:** `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md`.

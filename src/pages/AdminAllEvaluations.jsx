@@ -33,10 +33,12 @@ const AdminAllEvaluations = () => {
     period,
     campaignActive,
     loading,
+    error,
     detailsData,
     loadingDetails,
     fetchDetails,
-    clearDetails
+    clearDetails,
+    reload
   } = useAllEvaluations();
   const [periodCatalog, setPeriodCatalog] = useState([]);
 
@@ -80,6 +82,24 @@ const AdminAllEvaluations = () => {
   // Состояние загрузки
   if (loading) {
     return <LoadingSpinner text="Загрузка оценок..." />;
+  }
+
+  // Оценки не загрузились — называем причину, а не рисуем пустую таблицу.
+  if (error) {
+    return (
+      <div className="p-8 bg-gray-50 min-h-screen">
+        <div className="max-w-xl mx-auto mt-16 bg-white border border-red-200 rounded-xl p-6 text-center">
+          <p className="text-gray-900 font-semibold mb-1">Оценки не загружены</p>
+          <p className="text-red-700 text-sm mb-4">{error}</p>
+          <button
+            onClick={() => reload()}
+            className="bg-indigo-600 text-white px-5 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          >
+            Повторить
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

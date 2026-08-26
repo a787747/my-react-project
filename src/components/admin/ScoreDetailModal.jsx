@@ -18,7 +18,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Star, User, TrendingUp, MessageSquare, Edit3, Save, Loader2, AlertCircle, Crown, Users } from 'lucide-react';
-import { ADMIN_ROLES } from '../../config/constants';
 import { getScoreZone } from '../../utils/evaluationUtils';
 import { getCLevelChannel, formatScoreCompact } from '../../utils/matrixUtils';
 import logger from '../../utils/logger';
@@ -38,13 +37,18 @@ const ScoreDetailModal = ({
   const [submitting, setSubmitting] = useState(false);
 
   // Определяем уровень корректировки по роли пользователя или пропсу
-  const isCLevel = user && ADMIN_ROLES.includes(user.role);
-  const correctionLevel = propCorrectionLevel || (isCLevel ? 'c_level' : 'mid_level');
-  
-  // Проверка прав на корректировку:
-  // - C-level/admin могут ставить c_level коррекции
-  // - Менеджеры менеджеров могут ставить mid_level коррекции (проверяется на бэкенде)
-  const canCorrect = user && (isCLevel || user.has_manager_subordinates);
+  const isAdminActor = user && user.role === 'admin';
+  const correctionLevel = propCorrectionLevel || (isAdminActor ? 'c_level' : 'mid_level');
+
+  // Проверка прав на корректировку (ROLE_ACCESS_HR_CLEVEL, 2026-08-26):
+  // - admin ставит c_level коррекции
+  // - менеджеры менеджеров ставят mid_level коррекции (проверяется на бэкенде)
+  // - роль c_level сервер отказывает на маршруте корректировки (403), поэтому
+  //   орган корректировки ей не рисуется — C-level смотрит, канал C-level
+  //   калибруется усреднением (D-0826-1), не корректировкой
+  const canCorrect = user && (
+    isAdminActor || (user.role === 'manager' && user.has_manager_subordinates)
+  );
   
   // Можно корректировать только если есть оценка менеджера (не C-level only критерии)
   const hasManagerScore = criterion?.manager_score !== undefined && criterion?.manager_score !== null;

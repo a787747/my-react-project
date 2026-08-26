@@ -780,3 +780,26 @@ Atayeva (64), Chariyev (22), Jumayeva (63) — now expressed in the system.
 requiring the same manual pass, and a hire-date correction moves a person to where the rule says
 they belong rather than to where the old rule said. A shorter stretch of work produces a score too
 noisy to justify a share of the pool.
+
+### D-0826-6 — C-level reads the admin surfaces, HR reads the roster; neither writes (owner, 2026-08-26, via the ROLE_ACCESS_HR_CLEVEL brief)
+**Decision (Alexander, as briefed):** role `c_level` gains READ access to `/admin/users`, `/admin`
+(criteria), `/admin/all-evaluations`, `/analytics`, `/admin/evaluations-matrix`,
+`/admin/final-scores` and `/admin/score-calculator`; role `hr` gains read access to the employees
+roster (`/admin/users`). Neither role gains any write capability: every write route — user save,
+termination, scope, period management, criteria, coefficients, corrections, invites — refuses
+both roles by role, server-side. Compensation columns never reach these roles (the roster route
+carries no salary column for anyone; grade coefficients are stripped for HR). An empty or
+forbidden surface names its reason instead of rendering a blank list.
+**Consequence:** C-level reads the money surfaces — this partially supersedes D-0822-2's
+"coefficients are admin-eyes-only" (read-only, for c_level, on the GET route; both save routes
+stay admin-only). The corrections item supersedes the **writer half of D-0820-7**: `c_level`-level
+score corrections are now stored by admin alone, and C-level people calibrate their own channel by
+evaluating (averaged, D-0826-1) — flagged to the owner in
+`docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §4.1 with the one-line revert named, because the brief
+and the earlier decision conflict and the brief was implemented as written. "Password reset
+refuses both roles" is unimplementable — the routes are unauthenticated self-service recovery with
+no role dimension; surfaced, unchanged.
+**Implementation:** branch `claude/hr-clevel-access-control-dudin7` (generators + frontend +
+tests + deploy/prove scripts). **Not yet on live** — the executing session had no access to the
+Mac, the VPS or live; the stand proof, deploy and live verification follow the runbook in the
+report §5.

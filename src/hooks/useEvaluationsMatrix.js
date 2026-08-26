@@ -89,6 +89,7 @@ export const useEvaluationsMatrix = (periodId = null) => {
   const [period, setPeriod] = useState(null);
   const [campaignActive, setCampaignActive] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filters, setFilters] = useState(initialFilters);
   const [sorting, setSortingState] = useState(initialSorting);
 
@@ -96,6 +97,7 @@ export const useEvaluationsMatrix = (periodId = null) => {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await apiClient.get(API_ENDPOINTS.ADMIN_EVALUATIONS_MATRIX, {
         params: periodId ? { period_id: periodId } : undefined
       });
@@ -103,8 +105,11 @@ export const useEvaluationsMatrix = (periodId = null) => {
       setEmployees(body.data || []);
       setPeriod(body.period || null);
       setCampaignActive(Boolean(body.campaign_active));
-    } catch (error) {
-      logger.error('Ошибка загрузки:', error);
+    } catch (err) {
+      logger.error('Ошибка загрузки:', err);
+      // Отказ или сбой обязан дойти до экрана: пустая матрица без причины
+      // неотличима от «оценок ещё нет».
+      setError(err.userMessage || 'Не удалось загрузить матрицу оценок');
     } finally {
       setLoading(false);
     }
@@ -230,6 +235,7 @@ export const useEvaluationsMatrix = (periodId = null) => {
     period,
     campaignActive,
     loading,
+    error,
     filters,
     filterOptions,
     filteredEmployees,
