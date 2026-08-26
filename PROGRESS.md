@@ -1657,4 +1657,4 @@ Bugs: **30 open / 45 closed**.
 - No mail, no formula/catalogue/coefficient/grade/criteria/period write, no live scope toggle and
   no second-gate call.
 
-**Commit:** pending; recorded after the implementation commit.
+**Implementation commit:** `3b951c0`.

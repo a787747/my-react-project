@@ -251,4 +251,4 @@ No mail was sent. No catalogue, coefficient, grade, criteria or period row was
 written. No live employee, participant, evaluation or result value moved. The
 second gate was never called.
 
-**Commit:** pending; recorded after the implementation commit.
+**Implementation commit:** `3b951c0`.
