@@ -49,11 +49,11 @@ export const TaskStatusProvider = ({ children }) => {
   const [periodEnd, setPeriodEnd] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // C-level не нужна самооценка.
+  // Admin и C-level не делают самооценку (тот же контракт, что SelfReview).
   // Задачи существуют только когда кампания идёт: период активен И оценка
   // запущена (D-0822-1). В окне подготовки сервер не отдаёт ни одного флага.
   const isCLevel = user?.role === 'c_level';
-  const needsSelfReview = campaignActive && !isCLevel && !isOutOfScope;
+  const needsSelfReview = campaignActive && !ADMIN_ROLES.includes(user?.role) && !isOutOfScope;
 
   // Загрузка всех статусов
   const refreshTaskStatus = useCallback(async () => {

@@ -1,10 +1,10 @@
 # EPE — Handover
 
-**As of:** 2026-08-26 (HIRE_DATE_AND_SCOPE_TOGGLE) · **H1: active, not started**
+**As of:** 2026-08-26 (EMPLOYEE_SURFACES_POLISH) · **H1: active and started**
 H1 (id 2) has been **active** since **2026-08-24 19:07:36Z** (`POST /webhook/api/periods/activate`, Caddy 200,
-from `/admin/periods`). `evaluation_started_at` is still NULL — preparation window; employees have no tasks;
-submits answer 409 `PERIOD_NOT_STARTED`. The invitation date and «Запустить оценку» remain **his**. §7 is
-the remaining order of work.
+from `/admin/periods`) and Alexander started the campaign at **2026-08-26 10:08:54.340312Z**. Employee
+tasks are open and submit routes accept writes. The four campaign tables were still 0/0/0/0 at 11:04Z;
+whether the invitation had been sent was not verified. §7 is the remaining order of work.
 
 Every number in §§1–3 and §§5–10 was re-measured against the live system on 2026-08-24 17:14–17:16 UTC,
 read-only (SELECT / GET / `readlink` / `openssl` / `crontab -l`). **§4 is copied verbatim and was not
@@ -18,7 +18,8 @@ docs-vs-docs differences this pass found.
 
 Employees Performance Evaluation for SEDA Medical Turkmenistan. 89 people. React SPA + n8n as the entire backend + PostgreSQL.
 
-**Live now:** H1-2026 is the current period (`status=active`, `is_active=true`) since **2026-08-24 19:07:36Z**. The campaign has not been started. Four data tables are empty.
+**Live now:** H1-2026 is the current period (`status=active`, `is_active=true`) and the campaign has
+been running since **2026-08-26 10:08:54.340312Z**. Four data tables were still empty at 11:04Z.
 
 It ran exactly one cycle: a single annual period, "Annual Review 2025", 234 evaluations all dated December 2025. It has never run a half-year cycle. The season goal — H1 → H2 → annual aggregation — is new capability, not a repeat.
 
@@ -39,7 +40,7 @@ Since 2026-08-21 periods form a **hierarchy**: a half-year period may hang under
 | Live DB | `epe_2026`, schema `performance_db`, own credential `EPE 2026 Postgres` |
 | Archived DB | `postgres.performance_db` — 2025 data, **read-only forever**. This session by SELECT: **73 users, 234 evaluations, 644 scores, 3 corrections**. Fingerprint not re-hashed today (no dump taken); last computed `21d323b0…` in `docs/DRAFTS_UX_2026-08-2x.md` |
 | Databases on `postgres_n8n` | **`epe_2026` and `postgres` only** — every throwaway stand DB is gone |
-| Frontend | This host. Current release **`20260826T085259Z`** (2026-08-26 08:52:59Z, HIRE_DATE_AND_SCOPE_TOGGLE). **37** releases on disk; the rollback target is the previous one, `20260826T051630Z`. Deploy: `./scripts/deploy_epe_frontend.sh` — it now holds an exclusive lock locally and on the host and refuses a flip that started from a stale `current` (BUG-062), and its safety gates use `grep -r`, not `rg` (BUG-040). |
+| Frontend | This host. Current release **`20260826T110433Z`** (EMPLOYEE_SURFACES_POLISH); rollback target `20260826T085259Z`. Deploy: `./scripts/deploy_epe_frontend.sh` — it holds an exclusive lock locally and on the host and refuses a flip that started from a stale `current` (BUG-062), and its safety gates use `grep -r`, not `rg` (BUG-040). |
 | Azure VM | `135.232.120.40`, untouched fallback, still serves the old build on :8080. **Not re-probed this session** (last measured `docs/TLS_CUTOVER_2026-08-19.md`: TCP 3389 RDP open). September queue. |
 | Firewall | `DOCKER-USER` → `EPE-DOCKER-USER` (ufw does not filter Docker ports). 80/443 open; 5432/5431/8000/9000/2377/7946/4789 restricted to one allowlisted IP; 5678 DROP on `eth0`. **The allowlisted source is a single home IP (`188.137.254.191`) that changes — use the SSH tunnel, not the allowlist** |
 | Portainer | Reachable only via SSH tunnel `127.0.0.1:29000` |
@@ -85,7 +86,11 @@ API: Verify Code
 API: Verify Invite
 ```
 
-The set has not changed since 20 Aug; the webhook count rose 41 → **42** because `API: Manage Periods` grew from 7 to **8** routes (`POST api/periods/start-evaluation`, D-0822-1). CORS stays inactive. `Get Employee Self Review` and `Get Admin Data Fixed` are confirmed **absent** from `workflow_entity` (deleted; generators still emit them — BROWSER_WALKTHROUGH §9.4). H1 is **active** and **not started** — nothing campaign-shaped can be written until «Запустить оценку». Unauthenticated `GET /webhook/api/periods` and `GET …/annual-rollup` → **401 `TOKEN_MISSING`**; `GET …/start-evaluation` → 404 (POST-only, expected).
+The set has not changed since 20 Aug. CORS stays inactive. `Get Employee Self Review` and `Get Admin
+Data Fixed` are confirmed **absent** from `workflow_entity` (deleted; generators still emit them —
+BROWSER_WALKTHROUGH §9.4). H1 is **active and started**; campaign writes are now accepted.
+Unauthenticated `GET /webhook/api/periods` and `GET …/annual-rollup` → **401 `TOKEN_MISSING`**;
+`GET …/start-evaluation` → 404 (POST-only, expected).
 
 `My workflow 10` is an unnamed stray in the inactive-unarchived three. Archiving it would make the "3 inactive" baseline mean something; nobody has.
 
@@ -123,7 +128,12 @@ The set has not changed since 20 Aug; the webhook count rose 41 → **42** becau
 - **Periods are a hierarchy, and closing one freezes it.** `API: Manage Periods` (`M9ljMDdO1mIl8m1h`, `updatedAt=2026-08-24T06:10:13.683Z`, active, **70 nodes / 8 webhooks**) serves `GET api/periods`, `POST …/create`, `…/activate`, `…/rename`, `…/reparent`, `…/close`, `POST …/start-evaluation`, and `GET …/annual-rollup`. All mutating routes are `admin`-only; the roll-up is `admin` + `c_level`. Reports: `docs/PERIODS_HIERARCHY_2026-08-2x.md`, verified in `docs/PERIODS_VERIFY_2026-08-2x.md`, hardened in `docs/POSTVERIFY_BATCH_2026-08-2x.md`; start-evaluation in `docs/LIFECYCLE_COEFF_2026-08-2x.md`.
 - **A period has two gates, not one (2026-08-22, D-0822-1).** «Активировать» makes a leaf period the current one and nothing else — employees see no tasks, every submit route answers 409 `PERIOD_NOT_STARTED`, and the criteria catalogue and all coefficients stay editable. «Запустить оценку» (`POST /api/periods/start-evaluation`, admin-only, migration 014's `evaluation_started_at`) opens the campaign: tasks appear, submits are accepted, and the criteria catalogue freezes with 409 `EVALUATION_STARTED`. Irreversible at product level like activation and close — no route clears the mark, recovery is SQL. Refuses containers (422 `CONTAINER_NOT_STARTABLE`), annual periods (422 `ANNUAL_PERIOD_NOT_STARTABLE`), closed (422 `PERIOD_CLOSED`) and non-active periods (422 `PERIOD_NOT_ACTIVE`); a second call answers 200 `already_started` and writes nothing. `/admin/periods` shows three distinguishable states — «Неактивен» / «Активен · подготовка» / «Идёт оценка» — and the start control is admin-only. **"Campaign period" now means active AND started** on the submit routes, score-correction, and the whole task/status read surface (`/api/employees` flags, check-self-review, check-evaluated, get-my-manager); admin and reporting reads (matrix, analytics, all-evaluations, details-by-user, HR status) stay keyed on **active** alone and are unaffected by the new gate. Registration and authentication are untouched. Report: `docs/LIFECYCLE_COEFF_2026-08-2x.md`.
 - **Coefficients are admin-eyes-only and live until close (2026-08-22, D-0822-2).** `GET /api/score-coefficients` is now `admin`-only; `GET /api/criteria` strips `weight` for every non-admin role (the `c_level_only` level-text stripping is unchanged). The self-review no longer fetches coefficients and no longer sends `weighted_score` — the server computes it at submit with formula #2 and the subject's **real** grade coefficient, refusing with 422 `NO_GRADE_COEFFICIENT` rather than falling back to 1.0. The `ACTIVE_PERIOD_EXISTS` 409 is gone from both coefficient write paths; they validate instead (finite, > 0, levels 1..10 — BUG-029 closed). `/admin/scoring`, `/admin/score-calculator`, `/admin/final-scores` and `/admin/bonus-calculation` are admin-only at the route level, and `/admin/scoring` now fails loudly instead of rendering an empty grades table.
-- **Migration 014 — `evaluation_periods.evaluation_started_at` / `evaluation_started_by`** on live, both NULL on all three periods (nothing is retroactively started), with `chk_evaluation_periods_started_by_needs_started_at` and an FK on `evaluation_started_by`. Deliberately **not** tied to `status` by a CHECK: close leaves the mark set (a closed period was started — that is history) and the documented emergency stop sets an active period back to draft by SQL; a status-linked CHECK would break both.
+- **Migration 014 — `evaluation_periods.evaluation_started_at` / `evaluation_started_by`** on live. H1
+  now reads `2026-08-26 10:08:54.340312Z / 2`; Annual 2025 and Annual 2026 remain NULL. The
+  `chk_evaluation_periods_started_by_needs_started_at` CHECK and FK are unchanged. Deliberately
+  **not** tied to `status` by a CHECK: close leaves the mark set (a closed period was started — that
+  is history) and the documented emergency stop sets an active period back to draft by SQL; a
+  status-linked CHECK would break both.
 - **Close semantics, exactly.** Close is **admin-only**, requires typing the period's name (submit stays disabled until the string matches exactly), and is **irreversible** — there is no reopen route, no route that writes or deletes `period_results`, and activation hard-rejects a closed period. Recovery is a database restore — and since 2026-08-21 there is one to restore from: the previous night's `epe_2026` dump (BUG-032 closed, §2 Backups). Close refuses, in order: not found → 404; container (`child_count > 0`) → 422; already closed **with** results → 200 `already_closed`, zero rows; already closed **without** results → 409; `period_type='annual'` → 422 `ANNUAL_PERIOD_NOT_CLOSABLE`, **independently of child count**; not `active` → 422 `PERIOD_NOT_ACTIVE`; zero participants → 422. The insert and the `status='closed', is_active=false` update are one atomic SQL statement gated on a `FOR UPDATE` target CTE, so a lost race changes zero rows in both. Activation refuses containers and annual periods the same way.
 - **Migration 013 — `performance_db.period_results`** exists on live, **empty**, with the exact shape the migration declares: `period_id`, `user_id`, `is_in_scope`, `has_data` (default false) NOT NULL; `rating_manager`, `rating_upward`, `rating_c_level_direct`, `rating_self`, `final_rating`, `bonus_index` nullable numeric; `closed_at` NOT NULL default `now()`; `closed_by` nullable. `PRIMARY KEY (period_id, user_id)`, three foreign keys, index `idx_period_results_user`, and both anti-zero CHECKs on live:
   - `period_results_no_data_is_empty` — `has_data OR (every rating and both money columns IS NULL)`
@@ -148,20 +158,35 @@ The set has not changed since 20 Aug; the webhook count rose 41 → **42** becau
   | id | name | type | status | active | parent | children | participants / in scope |
   |---|---|---|---|---|---|---|---|
   | 1 | Annual 2025 | `annual` | `closed` | false | — | 0 | 0 / 0 |
-  | 2 | H1-2026 | `half_year` | `active` | true | **5** | 0 | 89 / **80** |
+  | 2 | H1-2026 | `half_year` | `active` | true | **5** | 0 | 89 / **79** |
   | 5 | Annual 2026 | `annual` | `draft` | false | — | **1** | 89 / **86** |
 
-  `evaluation_started_at` / `evaluation_started_by` are **NULL on all three** (re-read 2026-08-25). Nothing is started.
+  `evaluation_started_at` / `evaluation_started_by`: H1 =
+  **`2026-08-26 10:08:54.340312Z / 2`**; both annual rows are NULL.
 
-  In scope re-measured **2026-08-25 19:52Z**: H1 **80 of 89**. Nine are out — three terminated by the owner on 2026-08-25 (39, 51, 66 — D-0825-7), two by hire date (31 Esenova, 35 Balova), and four by hand at 18:46Z under D-0825-11 (25 Asatryan, 64 Atayeva, 22 Chariyev, 63 Jumayeva), reason `excluded_by_admin`, reversible by `POST /api/admin/include-participant`. The annual container holds 86: an exclusion from one half-year does not take a person out of the year, so only the three terminated are out of period 5.
+  In scope re-measured **2026-08-26 11:04Z**: H1 **79 of 89**. Ten are out — three terminated
+  (39, 51, 66 — D-0825-7), two by hire date (31 Esenova, 35 Balova), four hand-marked under
+  D-0825-11 (25 Asatryan, 64 Atayeva, 22 Chariyev, 63 Jumayeva), and Jeren Atabayeva (49),
+  excluded by Alexander at **10:11:52Z** with `scope_override=excluded_by_admin`. The annual
+  container still holds 86: an H1 exclusion does not remove a person from the year.
 
-  Alexander activated H1 on **2026-08-24 19:07:36Z**. Annual 2026 stays a container — non-activatable, non-closable, both by `child_count` and by `period_type='annual'`. H1 is the active leaf; the remaining gate is «Запустить оценку». Its 89 participant rows are inert until start. Two excluded from H1: Esenova and Balova, hired after 30 June. `evaluation_periods_id_seq` is at 5 with ids 3 and 4 absent — a rejected INSERT still consumes a `nextval`; there is no delete route. Unverified either way, and harmless.
+  Alexander activated H1 on **2026-08-24 19:07:36Z** and started it on
+  **2026-08-26 10:08:54.340312Z**. Annual 2026 stays a container — non-activatable, non-closable,
+  both by `child_count` and by `period_type='annual'`. H1 is the active campaign leaf.
+  `evaluation_periods_id_seq` is at 5 with ids 3 and 4 absent — a rejected INSERT still consumes a
+  `nextval`; there is no delete route. Harmless.
   **Annual 2025 has zero participant rows**, so it can never obtain `period_results`; feeding it to close returns 409. An «Annual 2025» container would render «нет сохранённых результатов» for every person — which is exactly what that cell label was written for.
-- **Live data tables are all empty:** `evaluations` 0, `evaluation_scores` 0, `score_corrections` 0, `period_results` 0. Nothing campaign-shaped has been written.
+- **Live data tables were still empty at 2026-08-26 11:04Z:** `evaluations` 0,
+  `evaluation_scores` 0, `score_corrections` 0, `period_results` 0. The gate is open, so this is a
+  measurement, not a continuing invariant.
 - **Org imported**: 89 users, real hire dates, hierarchy by `Manager's ID`, 0 cycles, 0 people without an evaluator. `can_evaluate` / `can_be_evaluated` as separate columns — the org tree and the evaluation graph are not the same graph. Live roles: 1 admin, 5 c_level, 12 manager, 2 hr, 69 employee.
 - Read-only (evaluate nobody, evaluated by nobody): Cem Durukan (21), Mekan Yusupov (61), Hemra Ashyrov (40). All three are **in H1 scope with `grade_id IS NULL` and `manager_id IS NULL`** — decided and left that way, D-0821-4. `API: Submit Evaluation` carries `AND subj.can_be_evaluated = true` in all three relation filters plus an e-mail denylist on the `c_level_direct` branch, so they can never acquire a `manager_score`; `final_rating` and `bonus_index` would persist as NULL, never a coefficient-1.00 money row. That guard has no static test (BUG-039).
 - **Classification is Alexander's, and he is editing it.** Live `work_category`: **48 general / 41 project** (`is_project_participant` agrees on every row; zero `tender`). On 2026-08-20 it was 46 / 43 — two people moved to general since. «Тендер» is a leftover UI option and an unused Postgres enum label; `API: Admin Save User` allows only `general` / `project` and answers 422 otherwise. Report: `docs/TENDER_CATEGORY_2026-08-2x.md`.
-- **Criteria catalogue: 9 active rows**, all with a positive weight, and 90 `score_coefficients` rows all positive — so the zero-weight trap (BUG-029) is latent, not active. (The ninth, id 14, was created 2026-08-24 through the admin routes with the launch paused; the other eight and all grades stayed byte-identical — `docs/CRITERION9_2026-08-2x.md`.) **20 text fields revised 2026-08-25 (D-0825-1); five level-6 norm labels removed the same day (D-0825-2); latest snapshot `docs/catalogue/H1-2026_catalogue_after_20260825T072316Z.md`; catalogue still freezes at «Запустить оценку».**
+- **Criteria catalogue: 9 active rows**, all with a positive weight, and 90 `score_coefficients`
+  rows all positive. The catalogue is now frozen by the started gate; writes return
+  `EVALUATION_STARTED`. **20 text fields revised 2026-08-25 (D-0825-1); five level-6 norm labels
+  removed the same day (D-0825-2); latest snapshot
+  `docs/catalogue/H1-2026_catalogue_after_20260825T072316Z.md`.**
 
   | id | title | audience | weight | flags |
   |---|---|---|---|---|
@@ -254,9 +279,13 @@ Because criteria count drives bonus share, the project/general classification is
 
 ## 6. Open — Alexander
 
-**Activate is done; these are the things only he can settle.** The campaign itself still waits on «Запустить оценку».
+**Activate and start are done; these are the things only he can settle.**
 
-1. **When to start the evaluation.** Nothing in the system holds a date. Since 2026-08-22 this is **two** clicks in Admin → Периоды, not one (D-0822-1): «Активировать» (done 2026-08-24 19:07:36Z) opened the preparation window — H1 is the current period, employees still see nothing, and the catalogue and coefficients stay editable — and «Запустить оценку» opens the campaign itself, irreversibly. The emergency stop is unchanged: the executor sets H1 back to draft by SQL, which needs his Mac (and which also stops the campaign, because every submit route requires `status='active'` as well as the start mark).
+1. **Evaluation start — done.** Alexander pressed «Запустить оценку» at
+   **2026-08-26 10:08:54.340312Z**. The catalogue is frozen and tasks/submits are open. The
+   emergency stop is unchanged: the executor sets H1 back to draft by SQL, which needs his Mac
+   (and stops the campaign because every submit route requires `status='active'` as well as the
+   start mark).
 2. **The invitation.** He writes and sends it himself, in English, to the company-wide `@sedamedical.com` address. Separate two-line note to Cem Durukan, Mekan Yusupov, Hemra Ashyrov: they submit nothing in H1; their results/calibration views open later. Esenova and Balova get the general email; they are out of H1 scope by hire date and will see no tasks.
 3. **Finish the project/general classification** of the 89 in Admin → Сотрудники — ideally before activating, but since 2026-08-24 (D-0822-3) this is no longer a hard gate: classification stays editable during the campaign, a switch never destroys evaluation data (project-criteria rows are soft-excluded and return on switch-back), and a general→project switch reopens the manager's task for exactly the missing criteria. It is still a money decision — criteria count drives bonus share. Live today: 48 general / 41 project. Criteria count per person (incl. criterion 14 «Ответственность сверх роли», audience `all`, since 2026-08-24): 37 people × 4, 11 × 5, 36 × 6, 5 × 7.
 4. **Second admin for launch day?** Today only Alexander is admin, and only he can close a period. Recommendation unchanged: do not create a standing second admin — admin = access to HR data and money inputs. If he may be unavailable, temporarily give admin to one HR specialist for the day (role is live, no re-login) and revert.
@@ -275,15 +304,24 @@ Because criteria count drives bonus share, the project/general classification is
 
 ## 7. Next work, in order
 
-Done 19–25 Aug, accepted reports through `WELCOME_PERIOD_NOTICE`, `EMPLOYEES_PERIOD_META`, `CATALOGUE_FIX_H1`, `PRELAUNCH_GUIDE_AND_ZONES`. Pre-flight verdict: H1 can be started — **yes**, no blockers on the remaining gate.
+Done 19–26 Aug, accepted through `HIRE_DATE_AND_SCOPE_TOGGLE` and
+`EMPLOYEE_SURFACES_POLISH`. Pre-flight verdict was yes; Alexander has now started H1.
 
-**Activate is done** (2026-08-24 19:07:36Z). The row reads «Активен · подготовка»; «В охвате 87 / 89»; employees still see no tasks, by design.
+**Activate is done** (2026-08-24 19:07:36Z) and **start is done**
+(2026-08-26 10:08:54.340312Z). The row reads «Идёт оценка»; H1 scope is 79 / 89; employee tasks
+are open.
 
 **Remaining, in order:**
 
-1. Classification finished (§6.3) if anything is left — still editable (D-0822-3). Invitation sent (§6.2). Finish the catalogue and the coefficients if anything remains. **Runbook before «Запустить оценку»:** compare the nine live weights, 90 level coefficients and eleven grade coefficients against **`docs/coefficients/H1-2026_coefficients_20260826T044844Z.md`** — one command, `python3 scripts/snapshot_coefficients.py --label H1-2026`, and the three md5 sums in the new file must equal the three in that one. It supersedes the CRITERION9 and RECON appendices as the reference (D-0826-2). If the owner has deliberately changed a value, the snapshot is retaken and the new file becomes the reference. Then **Запустить оценку** (irreversible, typed confirmation dialog): check one manager sees tasks and one employee sees the self-review. Annual 2025 and Annual 2026 show neither control.
-2. During the campaign: no brief needed unless something breaks. Watch the registration count and the first submissions. Leave H1 **active** through September calibration (D-0820-14).
-3. Close H1 only after calibration is quiet — typed confirmation, admin-only, irreversible, and **the close staleness guard counts evaluations but cannot see an edit to an existing one or a fresh correction**, so close when nothing is in flight. **Runbook before close:** the same comparison against the dated coefficient snapshot as in step 1.
+1. Confirm whether the invitation has been sent (§6.2). Classification and coefficients remain
+   editable; the catalogue is frozen. The 11:04Z coefficient fingerprints still equal
+   `docs/coefficients/H1-2026_coefficients_20260826T044844Z.md`.
+2. During the campaign: no brief needed unless something breaks. Watch registration and the first
+   submissions. Leave H1 **active** through September calibration (D-0820-14).
+3. Close H1 only after calibration is quiet — typed confirmation, admin-only, irreversible, and
+   **the close staleness guard counts evaluations but cannot see an edit to an existing one or a
+   fresh correction**, so close when nothing is in flight. Before close, compare the nine weights,
+   90 level coefficients and eleven grade coefficients against the dated snapshot again.
 
 **September queue** — mirrored from the leftovers of the accepted reports, none of it needed on activation day:
 
@@ -373,6 +411,11 @@ When you do start fresh, point it at `AGENTS.md`, this file, and the specific re
 ## 10. Where things are (repo `docs/`)
 
 Reports, in order: `AUTHENTICATION_CORE_2026-08-18.md` · `TLS_CUTOVER_2026-08-19.md` · `CALCULATION_MAP.md` (read §4 of this file first) · `ROUTE_GUARD_H1_2026-08-19.md` · `LAUNCH_PREP_2026-08-19.md` · `MAIL_AND_RUNBOOK_2026-08-19.md` · `THROTTLE_RAISE_2026-08-20.md` · `SHARED_INVITE_2026-08-20.md` · `DRESS_REHEARSAL_2026-08-2x.md` · `COSMETIC_PRELAUNCH_2026-08-2x.md` · `ROUTE_GUARD_DEFERRED_2026-08-2x.md` · `CLEVEL_DIRECT_ENABLE_2026-08-2x.md` · `MATRIX_CALIBRATION_FIX_2026-08-2x.md` · `REPORTING_SURFACE_2026-08-2x.md` · `DRAFTS_UX_2026-08-2x.md` · `DOCS_HYGIENE_2026-08-2x.md` · `USER_FACING_COPY_2026-08-2x.md` · `PRELAUNCH_FIXES_2026-08-2x.md` · `PREFLIGHT_H1_2026-08-2x.md` · `ADMIN_USERS_SORT_2026-08-2x.md` · `TENDER_CATEGORY_2026-08-2x.md` · `PERIODS_HIERARCHY_2026-08-2x.md` · `PERIODS_VERIFY_2026-08-2x.md` · `POSTVERIFY_BATCH_2026-08-2x.md` · `BACKUP_FIX_2026-08-2x.md` · `DOCS_HYGIENE_2026-08-21.md` · `RECON_RECLASS_COEFF_2026-08-2x.md` · `LIFECYCLE_COEFF_2026-08-2x.md` · `GATE_LIFECYCLE_COEFF_2026-08-2x.md` · `RECLASS_2026-08-2x.md` (closes BUG-044) · `GATE_RECLASS_2026-08-2x.md` (files BUG-045/046/047) · `FINALIZE_PRELAUNCH_2026-08-2x.md` (corrections applicability, BUG-046/047 closed, new-criterion path verified) · `GATE_FINALIZE_2026-08-2x.md` (gate on the finalization batch; files BUG-048/049) · `CRITERION9_2026-08-2x.md` (BUG-048 closed by D-0824-1, BUG-049 closed, BUG-050 filed; the ninth criterion — id 14 «Ответственность сверх роли» — created and proven on live the same day, once the texts document arrived). · `BROWSER_WALKTHROUGH_2026-08-2x.md` (the campaign UI walked end-to-end in a real browser on a stand — the last «not browser-driven» debt retired; BUG-052 fixed and deployed, BUG-051/053 filed). · `PRELAUNCH_FIX_BATCH_2026-08-2x.md` (BUG-051 matrix alignment fixed+deployed with browser proof and money reconciled to the digit; BUG-053 `/tmp` dumps cleaned with md5-verified local copies; refresh check answered — no bug; the criterion-14 weight found moved 1.5→2.0 on live by an admin edit, surfaced). · `PRELAUNCH_COPY_BATCH_2026-08-2x.md` (BUG-034/035/036/037 closed on the frontend and deployed; visibility copy mapped to HANDOVER §3; self-review add-criteria control removed). · `WELCOME_PERIOD_NOTICE_2026-08-2x.md` (period-aware Welcome notice; owner visibility wording restored; D-0824-3; upward-channel seal verified). · `EMPLOYEES_PERIOD_META_2026-08-2x.md` (period name + dates on `/api/employees`). · `CATALOGUE_FIX_H1_2026-08-25.md` (20 catalogue fields written on live). · `PRELAUNCH_GUIDE_AND_ZONES_2026-08-25.md` (in-product rating guide; score bands treat 6 as first «хорошо»). · `TERMINATED_EMPLOYEES_2026-08-25.md` (D-0825-7) · `ADMIN_USERS_FILTERS_2026-08-25.md` (D-0825-8) · `MID_YEAR_HIRES_SCOPE_2026-08-25.md` + `MID_YEAR_HIRES_MARKING_SHEET_2026-08-25.md` (D-0825-10; the hand-exclusion route) · **`PRELAUNCH_BATCH_NIGHT_2026-08-26.md`** — the four post-31-March hires taken out of H1 (D-0825-11), a NULL hire date out of scope from the next period on (D-0825-12), «a half-year pays nothing» on Welcome and in the rating guide (D-0825-13), the period state on /admin/users, /admin/final-scores verified then fixed, the bonus budget actually distributed and the pool defined by a predicate (D-0825-14), and the day-one walk (D-0825-15, BUG-069/070/071). · **`CLEVEL_AVERAGING_2026-08-26.md`** — `c_level_direct` is averaged across evaluators with the count carried (D-0826-1, BUG-072 closed); the collision question answered for all four channels; a `c_level` correction on a `c_level_only` criterion measured to be accepted and discarded (BUG-073 filed, the owner's call); the criterion-14 curve on live declared approved (D-0826-2) and the coefficient tables photographed as `docs/coefficients/H1-2026_coefficients_20260826T044844Z.md`. · **`PRELAUNCH_GATE_2026-08-26.md`** — the adversarial acceptance gate before «Запустить оценку»: every money surface recomputed independently from raw rows (1 922 matrix cells, 100 frozen rows, budget to the kopeck — all identical), every boundary case measured, the second gate's semantics established from the live graphs (one writer of the mark, no unsetter, only the catalogue freezes), the coefficient snapshot verified identical to live, BUG-073's refusal shipped (D-0826-3) and proven money-neutral, BUG-074/075 filed; verdict — **the owner can press, nothing must be fixed first**. · **`HIRE_DATE_AND_SCOPE_TOGGLE_2026-08-26.md`** — admin-only hire-date edit with per-period recompute and visible outcomes, manual per-period participation toggle, hard refusal after evaluation data, final-three-month boundary, append-only card audit and unified event reader; two-copy money proof and live zero-drift verification (D-0826-4/5, BUG-076 filed).
+
+Latest: **`EMPLOYEE_SURFACES_POLISH_2026-08-26.md`** — the task icons link to their real pages,
+the employee guide subset reads 1–3 without changing approved words, the own profile carries
+identity/scope/tasks/self score, and D-0820-17 remains sealed. This report also records that
+Alexander started H1 and moved scope to 79 before the brief began.
 
 Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**31 open / 45 closed** after HIRE_DATE_AND_SCOPE_TOGGLE filed BUG-076, the correlated period-list performance debt; PRELAUNCH_GATE before it was 30/45 and filed BUG-074/075). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…017` (015 employment termination, 016 append-only period-scope log, 017 append-only employee-card log plus two-direction manual scope precedence).
 

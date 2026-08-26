@@ -34,11 +34,11 @@ const RatingGuide = ({
       </div>
       <div className="min-w-0">
         <h2 className="text-xl md:text-xl font-bold text-slate-900 leading-normal">
-          {RATING_GUIDE_TITLE}
+          {variant === 'employee' ? 'Краткая инструкция' : RATING_GUIDE_TITLE}
         </h2>
         {variant === 'employee' && (
           <p className="text-sm text-slate-500 mt-0.5 leading-normal">
-            Правила 1, 6 и 7 — для оценки руководителя и самооценки
+            3 правила — для оценки руководителя и самооценки
           </p>
         )}
       </div>
@@ -80,13 +80,14 @@ const RatingGuide = ({
 
       {showBody && (
         <ol className="px-5 pb-5 pt-4 space-y-4 list-none">
-          {rules.map((rule) => {
+          {rules.map((rule, index) => {
             const lines = bodyLines(rule.body);
             const colonLead = rule.lead.endsWith(':');
+            const displayNumber = variant === 'employee' ? index + 1 : rule.n;
             return (
               <li key={rule.n} className="flex gap-2.5 text-sm leading-normal">
                 <span className="font-semibold text-slate-900 tabular-nums w-7 shrink-0 text-right">
-                  {rule.n}.
+                  {displayNumber}.
                 </span>
                 <div className="min-w-0 flex-1">
                   {colonLead ? (

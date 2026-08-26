@@ -165,12 +165,12 @@ test('restored Welcome visibility strings equal the git originals (parent of c02
 test('Welcome period notice is above the task area; out-of-scope still sees it', () => {
   const welcome = read('src/pages/Welcome.jsx');
   const noticeIdx = welcome.indexOf('<PeriodNotice notice={periodNotice} />');
-  const taskIdx = welcome.indexOf('Ваши задачи');
+  const taskIdx = welcome.indexOf('<TaskSummary');
   // D-0825-11: the notice now takes the exclusion reason, so the copy can say
   // the true thing instead of the one sentence that only fits a late hire.
   const outIdx = welcome.indexOf('<OutOfScopeNotice');
   assert.ok(noticeIdx > 0, 'PeriodNotice is mounted');
-  assert.ok(taskIdx > noticeIdx, 'PeriodNotice precedes the task heading');
+  assert.ok(taskIdx > noticeIdx, 'PeriodNotice precedes the task summary');
   assert.ok(outIdx > 0, 'OutOfScopeNotice stays on the out-of-scope path');
   assert.match(welcome, /scopeOverride=\{actorScopeOverride\}/);
   assert.match(welcome, /showManagerTrack/);

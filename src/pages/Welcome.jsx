@@ -15,11 +15,11 @@ import {
   CheckCircle, 
   EyeOff,
   Award,
-  Info,
-  CheckCircle2
+  Info
 } from 'lucide-react';
-import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice, PeriodNotice, RatingGuide } from '../components/common';
+import { LoadingSpinner, OutOfScopeNotice, PeriodNotice, RatingGuide } from '../components/common';
 import { CriteriaOverview } from '../components/profile';
+import TaskSummary from '../components/TaskSummary';
 import { useProfile } from '../hooks/useProfile';
 import { useUser } from '../context/UserContext';
 import { useTaskStatus } from '../context/TaskStatusContext';
@@ -118,116 +118,18 @@ const Welcome = () => {
 
         <PeriodNotice notice={periodNotice} />
 
-        {/* Блок отслеживания задач.
-            Задачи существуют только когда кампания идёт: период активен И
-            оценка запущена (D-0822-1). В окне подготовки — объяснение, а не
-            мёртвые карточки. */}
-        <div className="card p-5">
-          <div className="text-center mb-4">
-            <h2 className="text-lg md:text-lg font-bold text-slate-900 mb-1 leading-normal">Ваши задачи</h2>
-            <p className="text-sm text-slate-500">
-              {campaignActive ? 'Активный период оценки' : 'Оценка не идёт'}
-            </p>
-          </div>
-
-          {!campaignActive && (
-            <CampaignNotStartedNotice inPreparation={periodInPreparation} embedded />
-          )}
-
-          <div className="flex flex-wrap justify-center gap-3">
-            {/* Самооценка */}
-            {needsSelfReview && (
-              <div className={`flex flex-col items-center p-4 rounded-xl transition-all min-w-[110px] ${
-                hasSelfReview 
-                  ? 'bg-success-50 border border-success-200' 
-                  : 'bg-slate-50 border border-slate-200'
-              }`}>
-                <div className={`relative w-12 h-12 rounded-xl flex items-center justify-center mb-2 ${
-                  hasSelfReview ? 'bg-success-500 shadow-success' : 'bg-slate-200'
-                }`}>
-                  <Star className={`w-6 h-6 ${hasSelfReview ? 'text-white' : 'text-slate-400'}`} />
-                  {hasSelfReview && (
-                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center shadow">
-                      <CheckCircle2 className="w-3 h-3 text-success-500" />
-                    </div>
-                  )}
-                </div>
-                <span className={`text-sm font-medium ${hasSelfReview ? 'text-success-700' : 'text-slate-600'}`}>
-                  Самооценка
-                </span>
-                {hasSelfReview && <span className="text-xs text-success-600">Выполнено</span>}
-              </div>
-            )}
-
-            {/* Оценка подчиненных */}
-            {hasSubordinates && (
-              <div className={`flex flex-col items-center p-4 rounded-xl transition-all min-w-[110px] ${
-                hasEvaluatedAllSubordinates 
-                  ? 'bg-success-50 border border-success-200' 
-                  : 'bg-slate-50 border border-slate-200'
-              }`}>
-                <div className={`relative w-12 h-12 rounded-xl flex items-center justify-center mb-2 ${
-                  hasEvaluatedAllSubordinates ? 'bg-success-500 shadow-success' : 'bg-slate-200'
-                }`}>
-                  <Users className={`w-6 h-6 ${hasEvaluatedAllSubordinates ? 'text-white' : 'text-slate-400'}`} />
-                  {hasEvaluatedAllSubordinates && (
-                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center shadow">
-                      <CheckCircle2 className="w-3 h-3 text-success-500" />
-                    </div>
-                  )}
-                </div>
-                <span className={`text-sm font-medium ${hasEvaluatedAllSubordinates ? 'text-success-700' : 'text-slate-600'}`}>
-                  Сотрудники
-                </span>
-                {hasEvaluatedAllSubordinates && <span className="text-xs text-success-600">Выполнено</span>}
-              </div>
-            )}
-
-            {/* Оценка руководителя */}
-            {hasManager && !isManagerCLevel && (
-              <div className={`flex flex-col items-center p-4 rounded-xl transition-all min-w-[110px] ${
-                hasEvaluatedManager 
-                  ? 'bg-success-50 border border-success-200' 
-                  : 'bg-slate-50 border border-slate-200'
-              }`}>
-                <div className={`relative w-12 h-12 rounded-xl flex items-center justify-center mb-2 ${
-                  hasEvaluatedManager ? 'bg-success-500 shadow-success' : 'bg-slate-200'
-                }`}>
-                  <Shield className={`w-6 h-6 ${hasEvaluatedManager ? 'text-white' : 'text-slate-400'}`} />
-                  {hasEvaluatedManager && (
-                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center shadow">
-                      <CheckCircle2 className="w-3 h-3 text-success-500" />
-                    </div>
-                  )}
-                </div>
-                <span className={`text-sm font-medium ${hasEvaluatedManager ? 'text-success-700' : 'text-slate-600'}`}>
-                  Руководитель
-                </span>
-                {hasEvaluatedManager && <span className="text-xs text-success-600">Выполнено</span>}
-              </div>
-            )}
-
-            {/* C-level info */}
-            {hasManager && isManagerCLevel && (
-              <div className="flex flex-col items-center p-4 rounded-xl bg-warning-50 border border-warning-200 min-w-[110px]">
-                <div className="relative w-12 h-12 rounded-xl flex items-center justify-center mb-2 bg-warning-200">
-                  <Shield className="w-6 h-6 text-warning-600" />
-                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-warning-500 rounded-full flex items-center justify-center shadow">
-                    <Info className="w-2.5 h-2.5 text-white" />
-                  </div>
-                </div>
-                <span className="text-sm font-medium text-warning-700">Руководитель</span>
-                <span className="text-xs text-warning-600">C-level</span>
-              </div>
-            )}
-          </div>
-
-          {hasManager && isManagerCLevel && (
-            <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg text-center">
-              <p className="text-xs text-warning-700">C-level менеджеры не оцениваются подчиненными</p>
-            </div>
-          )}
-        </div>
+        <TaskSummary
+          campaignActive={campaignActive}
+          periodInPreparation={periodInPreparation}
+          needsSelfReview={needsSelfReview}
+          hasSelfReview={hasSelfReview}
+          hasSubordinates={hasSubordinates}
+          hasEvaluatedAllSubordinates={hasEvaluatedAllSubordinates}
+          hasManager={hasManager}
+          isManagerCLevel={isManagerCLevel}
+          hasEvaluatedManager={hasEvaluatedManager}
+          isOutOfScope={isOutOfScope}
+        />
 
         {/* Процесс оценки - для менеджеров с подчиненными */}
         {showManagerTrack ? (

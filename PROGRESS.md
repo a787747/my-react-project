@@ -1658,3 +1658,50 @@ Bugs: **30 open / 45 closed**.
   no second-gate call.
 
 **Implementation commit:** `3b951c0`.
+
+## 2026-08-26 — EMPLOYEE_SURFACES_POLISH: linked tasks and complete own profile
+
+**Status:** ✅ Complete — deployed after the owner had already started H1.
+
+**What changed:**
+- The task block was established to live only on `/welcome`, not the owner's
+  reported `/admin/users`; it is now a shared `TaskSummary` on Welcome and
+  Profile. Its three task icons are real links to `/self-review`, `/dashboard`
+  and `/manager-evaluation`.
+- The employee rating-guide variant still selects the approved rules 1/6/7,
+  without one changed word, but displays them as a local 1/2/3 list on Welcome,
+  Self Review and the self-review modal.
+- `my-profile` now carries only the read labels the own profile needed:
+  department, position, manager, grade code, hire date, and current-period
+  scope/reason. The screen adds those fields, participation, owner wording for
+  exclusion, linked tasks/status, and the existing self-assessment.
+- D-0820-17 stayed sealed: a stand manager score of 5.75 existed in Postgres but
+  the manager row in the external profile payload had no numeric score field
+  and the screen showed only `✓ Оценено`. Recursive payload key inspection found
+  zero salary/compensation, bonus-index, grade-coefficient, criteria-weight or
+  score-coefficient keys.
+
+**Proof and deployment:**
+- The brief's baseline was stale before editing: Alexander had started H1 at
+  `10:08:54Z` and excluded Jeren Atabayeva (49) at `10:11:52Z`; the owner
+  authorized continuation against 89/3/79 and a started H1. This session called
+  neither route.
+- Real browser on started stand `epe_walk_20260826_1044`: ordinary employee and
+  manager logins; all three unique task links clicked to their correct pages;
+  self 7/6/8 and manager 7/6/8/2 submitted through real forms; complete in-scope
+  profile and out-of-scope profile with the owner's wording verified. Stand
+  container/database/dump removed; only `epe_2026,postgres` remained.
+- Independent review's one warning (`is_in_scope=null` rendered as green
+  «Не участвуете») was fixed; five additional contract tests added.
+- Tests **423/423**, production build passed, changed-file lint zero errors.
+- Rollback pair `20260826T110252Z`, VPS/Mac md5 equal:
+  `epe_2026 9ffe553448ebb991d77227db17ada5ea`,
+  `n8n_app 5f5a812d142287868134519820e2d526`; VPS staging removed, local copies
+  retained outside the repo.
+- One workflow PUT: My Profile active, same webhook, updated
+  `2026-08-26T11:04:26.001Z`; Auth Guard frozen. Frontend release
+  **`20260826T110433Z`**.
+- Live after: 89/3/79, H1 active/started, 0/0/0/0; all four coefficient md5s
+  equal the dated H1 snapshot; generator drift 32 identical / 0 changed.
+
+**Report:** `docs/EMPLOYEE_SURFACES_POLISH_2026-08-26.md`.

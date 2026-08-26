@@ -18,10 +18,11 @@
  */
 
 import React, { useState } from 'react';
-import { Award, Users, Crown } from 'lucide-react';
+import { Award, BriefcaseBusiness, Building2, CalendarDays, Crown, IdCard, UserRound, Users } from 'lucide-react';
 
 // Компоненты
 import { LoadingSpinner } from '../components/common';
+import TaskSummary from '../components/TaskSummary';
 import { 
   ProfileStats, 
   ProfileChart, 
@@ -33,9 +34,11 @@ import {
 // Хуки
 import { useProfile } from '../hooks/useProfile';
 import { useUser } from '../context/UserContext';
+import { useTaskStatus } from '../context/TaskStatusContext';
 
 // Константы
 import { ADMIN_ROLES } from '../config/constants';
+import { welcomeExclusionText } from '../utils/scopeExclusion';
 
 const Profile = () => {
   // Получаем пользователя из контекста
@@ -54,6 +57,18 @@ const Profile = () => {
     fetchEvaluationDetails,
     clearDetails
   } = useProfile(user?.id);
+  const {
+    campaignActive,
+    periodInPreparation,
+    hasSelfReview,
+    hasEvaluatedManager,
+    hasEvaluatedAllSubordinates,
+    hasSubordinates,
+    hasManager,
+    isManagerCLevel,
+    needsSelfReview,
+    isOutOfScope,
+  } = useTaskStatus();
 
   // Проверяем, является ли пользователь обычным сотрудником
   const isRegularEmployee = user && !ADMIN_ROLES.includes(user.role);
@@ -115,8 +130,94 @@ const Profile = () => {
 
   // Последняя самооценка
   const latestSelfEvaluation = selfEvaluations.length > 0 
-    ? selfEvaluations[selfEvaluations.length - 1] 
+    ? selfEvaluations[0]
     : null;
+  const profileEmployee = profileData.employee || {};
+  const currentPeriod = profileData.current_period;
+  const profileRows = [
+    { label: 'Отдел', value: profileEmployee.department_name, icon: Building2 },
+    { label: 'Должность', value: profileEmployee.job_title, icon: BriefcaseBusiness },
+    { label: 'Руководитель', value: profileEmployee.manager_name, icon: UserRound },
+    { label: 'Грейд', value: profileEmployee.grade_label, icon: IdCard },
+    {
+      label: 'Дата приёма',
+      value: profileEmployee.join_date ? formatDate(profileEmployee.join_date) : null,
+      icon: CalendarDays,
+    },
+  ];
+
+  const profileOverview = (
+    <>
+      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <h2 className="text-xl font-bold text-gray-800 mb-4">Данные сотрудника</h2>
+        <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {profileRows.map(({ label, value, icon }) => (
+            <div key={label} className="flex items-start gap-3 rounded-lg bg-slate-50 p-4">
+              {React.createElement(icon, {
+                className: 'w-5 h-5 text-brand-600 mt-0.5 flex-shrink-0',
+              })}
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+                <dd className="mt-1 font-semibold text-slate-900">{value || 'Не указано'}</dd>
+              </div>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      <div className={`rounded-xl border p-5 mb-6 ${
+        currentPeriod?.is_in_scope === false
+          ? 'bg-info-50 border-info-200'
+          : currentPeriod?.is_in_scope === true
+            ? 'bg-success-50 border-success-200'
+            : 'bg-slate-50 border-slate-200'
+      }`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Участие в текущей оценке</h2>
+            <p className="text-sm text-slate-600">
+              {currentPeriod?.name || 'Текущий период не выбран'}
+            </p>
+          </div>
+          <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+            currentPeriod?.is_in_scope === false
+              ? 'bg-info-100 text-info-800'
+              : currentPeriod?.is_in_scope === true
+                ? 'bg-success-100 text-success-800'
+                : 'bg-slate-200 text-slate-700'
+          }`}>
+            {!currentPeriod
+              ? 'Нет периода'
+              : currentPeriod.is_in_scope === true
+                ? 'Участвуете'
+                : currentPeriod.is_in_scope === false
+                  ? 'Не участвуете'
+                  : 'Статус не определён'}
+          </span>
+        </div>
+        {currentPeriod?.is_in_scope === false && (
+          <p className="mt-3 text-sm leading-relaxed text-info-900" data-testid="profile-scope-reason">
+            {welcomeExclusionText(currentPeriod.exclusion_reason, currentPeriod.scope_override)}
+          </p>
+        )}
+      </div>
+
+      <div className="mb-6">
+        <TaskSummary
+          campaignActive={campaignActive}
+          periodInPreparation={periodInPreparation}
+          needsSelfReview={needsSelfReview}
+          hasSelfReview={hasSelfReview}
+          hasSubordinates={hasSubordinates}
+          hasEvaluatedAllSubordinates={hasEvaluatedAllSubordinates}
+          hasManager={hasManager}
+          isManagerCLevel={isManagerCLevel}
+          hasEvaluatedManager={hasEvaluatedManager}
+          isOutOfScope={isOutOfScope}
+        />
+      </div>
+    </>
+  );
 
   // Если это обычный сотрудник, показываем упрощенный интерфейс
   if (isRegularEmployee) {
@@ -126,9 +227,11 @@ const Profile = () => {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-800 mb-2">Мой профиль</h1>
           <p className="text-gray-600">
-            {user?.full_name} • {user?.job_title}
+            {profileEmployee.full_name || user?.full_name} • {profileEmployee.job_title || user?.job_title}
           </p>
         </div>
+
+        {profileOverview}
 
         {/* Карточка самооценки */}
         <SelfEvaluationCard
@@ -263,9 +366,11 @@ const Profile = () => {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">Мой профиль</h1>
         <p className="text-gray-600">
-          {user?.full_name} • {user?.job_title}
+          {profileEmployee.full_name || user?.full_name} • {profileEmployee.job_title || user?.job_title}
         </p>
       </div>
+
+      {profileOverview}
 
       {/* Карточка самооценки */}
       <SelfEvaluationCard

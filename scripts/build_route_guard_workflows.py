@@ -412,23 +412,79 @@ return {
   json: {
     ok: true,
     sql: `
+      WITH actor AS (
+        SELECT
+          actor_u.id AS employee_id,
+          actor_u.full_name,
+          actor_u.job_title,
+          departments.name AS department_name,
+          manager.full_name AS manager_name,
+          grades.code AS grade_label,
+          to_char(actor_u.join_date, 'YYYY-MM-DD') AS join_date
+        FROM performance_db.users actor_u
+        LEFT JOIN performance_db.departments departments
+          ON departments.id = actor_u.department_id
+        LEFT JOIN performance_db.users manager
+          ON manager.id = actor_u.manager_id
+        LEFT JOIN performance_db.grades grades
+          ON grades.id = actor_u.grade_id
+        WHERE actor_u.id = ${actorId}
+      ),
+      current_period AS (
+        SELECT
+          period.id,
+          period.name,
+          period.status,
+          period.is_active,
+          to_char(period.start_date, 'YYYY-MM-DD') AS start_date,
+          to_char(period.end_date, 'YYYY-MM-DD') AS end_date
+        FROM performance_db.evaluation_periods period
+        WHERE period.is_active = true
+          AND period.status = 'active'
+          AND period.period_type <> 'annual'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM performance_db.evaluation_periods child
+            WHERE child.parent_period_id = period.id
+          )
+        LIMIT 1
+      ),
+      actor_evaluations AS (
+        SELECT
+          e.id AS evaluation_id,
+          e.calculated_score,
+          e.weighted_score,
+          e.updated_at,
+          e.is_self_evaluation,
+          e.evaluation_source,
+          p.name AS period_name,
+          to_char(p.start_date, 'YYYY-MM-DD') AS start_date,
+          to_char(p.end_date, 'YYYY-MM-DD') AS end_date,
+          evaluator.full_name AS evaluator_name,
+          evaluator.job_title AS evaluator_title
+        FROM performance_db.evaluations e
+        LEFT JOIN performance_db.evaluation_periods p ON p.id = e.period_id
+        LEFT JOIN performance_db.users evaluator ON evaluator.id = e.evaluator_id
+        WHERE e.subject_id = ${actorId}
+      )
       SELECT
-        e.id AS evaluation_id,
-        e.calculated_score,
-        e.weighted_score,
-        e.updated_at,
-        e.is_self_evaluation,
-        e.evaluation_source,
-        p.name AS period_name,
-        p.start_date,
-        p.end_date,
-        u.full_name AS evaluator_name,
-        u.job_title AS evaluator_title
-      FROM performance_db.evaluations e
-      LEFT JOIN performance_db.evaluation_periods p ON p.id = e.period_id
-      LEFT JOIN performance_db.users u ON u.id = e.evaluator_id
-      WHERE e.subject_id = ${actorId}
-      ORDER BY e.updated_at DESC
+        actor.*,
+        current_period.id AS current_period_id,
+        current_period.name AS current_period_name,
+        current_period.status AS current_period_status,
+        current_period.start_date AS current_period_start_date,
+        current_period.end_date AS current_period_end_date,
+        participant.is_in_scope,
+        participant.exclusion_reason,
+        participant.scope_override,
+        actor_evaluations.*
+      FROM actor
+      LEFT JOIN current_period ON true
+      LEFT JOIN performance_db.evaluation_period_participants participant
+        ON participant.period_id = current_period.id
+       AND participant.user_id = actor.employee_id
+      LEFT JOIN actor_evaluations ON true
+      ORDER BY actor_evaluations.updated_at DESC NULLS LAST
     `,
   },
 };
@@ -445,21 +501,33 @@ if (!guard.ok) {
   };
 }
 const rows = $input.all().map(item => item.json);
-const data = rows.filter(item => item.evaluation_id !== undefined);
+const first = rows[0] || {};
+const data = rows.filter(item => item.evaluation_id !== undefined && item.evaluation_id !== null);
 
-if (!data.length) {
-  return {
-    json: {
-      http_status: 200,
-      body: {
-        success: true,
-        has_evaluations: false,
-        evaluations: [],
-        stats: { total_evaluations: 0, average_score: null, latest_score: null, latest_period: null, latest_date: null },
-      },
-    },
-  };
-}
+const asBoolean = value => value === true || value === 't';
+const employee = {
+  id: first.employee_id ?? Number(guard.identity.id),
+  full_name: first.full_name ?? guard.identity.full_name ?? null,
+  job_title: first.job_title ?? null,
+  department_name: first.department_name ?? null,
+  manager_name: first.manager_name ?? null,
+  grade_label: first.grade_label ?? null,
+  join_date: first.join_date ?? null,
+};
+const currentPeriod = first.current_period_id === null || first.current_period_id === undefined
+  ? null
+  : {
+      id: first.current_period_id,
+      name: first.current_period_name,
+      status: first.current_period_status,
+      start_date: first.current_period_start_date,
+      end_date: first.current_period_end_date,
+      is_in_scope: first.is_in_scope === null || first.is_in_scope === undefined
+        ? null
+        : asBoolean(first.is_in_scope),
+      exclusion_reason: first.exclusion_reason ?? null,
+      scope_override: first.scope_override ?? null,
+    };
 
 const evaluations = data.map(row => {
   const isSelfEvaluation = row.is_self_evaluation === true || row.is_self_evaluation === 't';
@@ -495,7 +563,9 @@ return {
     http_status: 200,
     body: {
       success: true,
-      has_evaluations: true,
+      employee,
+      current_period: currentPeriod,
+      has_evaluations: evaluations.length > 0,
       evaluations,
       stats: {
         total_evaluations: total,
