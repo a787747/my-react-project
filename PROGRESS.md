@@ -1781,3 +1781,5 @@ deploy (rollback target `20260826T110433Z`).
   snapshot to the digit, Auth Guard `2026-08-18T16:34:30.674Z` unchanged.
 
 **Report:** `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §8. Closed: BUG-013, BUG-042.
+
+**Deploy session commits:** `fd637c1` (D-0826-7 revert), `3b97581` (merge, PR #2), `a59fd35` (deploy + live proof).

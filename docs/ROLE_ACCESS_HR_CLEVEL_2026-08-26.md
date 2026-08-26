@@ -316,5 +316,4 @@ user, scope, termination, evaluation, catalogue, coefficient, grade, criteria or
 written on live. The pre-existing 25678 tunnel found open at session start was this session's own
 first command and was closed.
 
-**Deploy session commits:** revert `fd637c1`, merge `3b97581`, and the follow-up commit carrying
-this section (hash recorded in PROGRESS.md by the closing commit).
+**Deploy session commits:** revert `fd637c1`, merge `3b97581`, deploy+proof `a59fd35`.
