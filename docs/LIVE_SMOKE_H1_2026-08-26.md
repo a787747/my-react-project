@@ -298,3 +298,8 @@ creation) were not re-exercised here and are unchanged.
   `credentials.json`, `tokens.json`, `read_state.sh`.
 - Browser localStorage cleared, viewport emulation reset, `git status` clean at start and (but for
   this report and the docs updates) at end.
+
+---
+
+**Commit:** this report and the `PROGRESS.md` entry landed on `main` as `a9c2c3a` (pushed). A final
+live re-read after the push confirmed the state still matches the anchor — no drift since the undo.
