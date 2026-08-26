@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-22T06:37:57.868Z",
+  "updatedAt": "2026-08-26T13:46:56.606Z",
   "createdAt": "2025-12-15T18:33:12.397Z",
   "id": "zq3dufVhcnjkS7RV",
   "name": "API: Get Score Coefficients",
@@ -26,7 +26,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
       },
       "id": "scorecoeff-guard-input",
       "name": "Prepare Guard Input",
@@ -196,8 +196,8 @@
   "staticData": null,
   "meta": null,
   "pinData": {},
-  "versionId": "310b6176-c411-43db-b2cf-36d754bd123a",
-  "versionCounter": 21,
+  "versionId": "09c16e63-fa45-4696-abf1-258513eba519",
+  "versionCounter": 23,
   "triggerCount": 1,
   "shared": [
     {
@@ -221,7 +221,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-22T06:37:17.199Z",
+              "updatedAt": "2026-08-26T05:16:02.749Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -248,7 +248,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-22",
+              "lastActiveAt": "2026-08-26",
               "isPending": false
             }
           }

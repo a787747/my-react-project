@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-26T08:52:46.921Z",
+  "updatedAt": "2026-08-26T13:46:55.454Z",
   "createdAt": "2025-12-06T16:55:10.673Z",
   "id": "AwID96McjHKyk8WI",
   "name": "API: Admin Get Users Data",
@@ -26,7 +26,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"hr\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
       },
       "id": "adminusers-guard-input",
       "name": "Prepare Guard Input",
@@ -174,7 +174,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Read from Postgres result nodes, not the relay Code nodes that only carry SQL strings.\nconst rawUsers = $('Query Users').all().map(i => i.json);\nconst rawDepts = $('Query Depts').all().map(i => i.json);\nconst rawGrades = $('Query Grades').all().map(i => i.json);\n\nfunction dedup(arr) {\n  const seen = new Map();\n  arr.forEach(item => { if (item.id) seen.set(item.id, item); });\n  return Array.from(seen.values());\n}\n\nconst users = dedup(rawUsers);\nconst departments = dedup(rawDepts);\nconst grades = dedup(rawGrades);\n// A terminated person is never offered as somebody's manager (D-0825-7):\n// pointing a live employee at them would leave that employee evaluated by\n// nobody, because a terminated manager is out of scope and gets no task list.\n// The users array itself is NOT filtered — the page needs the terminated rows\n// to show them behind its filter and to offer reinstatement.\nconst managers = users\n  .filter(u => u.role !== 'employee' && !u.terminated_at)\n  .map(u => ({ id: u.id, name: u.full_name }));\n\nreturn {\n  json: {\n    http_status: 200,\n    body: { users, options: { departments, grades, managers } },\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\n// Read from Postgres result nodes, not the relay Code nodes that only carry SQL strings.\nconst rawUsers = $('Query Users').all().map(i => i.json);\nconst rawDepts = $('Query Depts').all().map(i => i.json);\nconst rawGrades = $('Query Grades').all().map(i => i.json);\n\nfunction dedup(arr) {\n  const seen = new Map();\n  arr.forEach(item => { if (item.id) seen.set(item.id, item); });\n  return Array.from(seen.values());\n}\n\nconst users = dedup(rawUsers);\nconst departments = dedup(rawDepts);\n// Grade coefficients are a money input (D-0822-2). Admin and c_level read them\n// here because the money screens they may open feed from this route; HR reads\n// this roster but never a money input, so HR gets {id, code} only.\nconst actorRole = String(guard.identity.role || '');\nconst grades = dedup(rawGrades).map(g =>\n  actorRole === 'hr' ? { id: g.id, code: g.code } : g\n);\n// A terminated person is never offered as somebody's manager (D-0825-7):\n// pointing a live employee at them would leave that employee evaluated by\n// nobody, because a terminated manager is out of scope and gets no task list.\n// The users array itself is NOT filtered — the page needs the terminated rows\n// to show them behind its filter and to offer reinstatement.\nconst managers = users\n  .filter(u => u.role !== 'employee' && !u.terminated_at)\n  .map(u => ({ id: u.id, name: u.full_name }));\n\nreturn {\n  json: {\n    http_status: 200,\n    body: { users, options: { departments, grades, managers } },\n  },\n};"
       },
       "id": "adminusers-merge",
       "name": "Merge and Format",
@@ -339,8 +339,8 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "422f38ed-368e-4493-8647-7b5cfcd2c3ef",
-  "versionCounter": 64,
+  "versionId": "df24404d-b7ce-4be1-827d-ed6cc70a1f1c",
+  "versionCounter": 66,
   "triggerCount": 1,
   "shared": [
     {

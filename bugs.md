@@ -4,8 +4,8 @@
 | Status | Count |
 |--------|-------|
 | 🔴 Open | 30 |
-| 🟡 In Progress | 2 |
-| 🟢 Closed | 45 |
+| 🟡 In Progress | 0 |
+| 🟢 Closed | 47 |
 
 ---
 
@@ -286,7 +286,7 @@
 - Fix: if wanted later, sweep `epe:evaluation-draft:*` at login for keys that are not the current user, or on logout for all three forms.
 
 ### BUG-013: Typed `/admin` is still `AdminRoute` for HR
-- Status: 🟡 IN PROGRESS (2026-08-26 — fixed on branch, not yet deployed)
+- Status: 🟢 CLOSED (2026-08-26, ROLE_ACCESS_DEPLOY — deployed release 20260826T134725Z; verified live in a real browser: HR typed /admin → redirected to /hr/dashboard, c_level reads the catalogue read-only)
 - Severity: 📝 Low
 - Location: `src/App.jsx` path `/admin` → `AdminRoute` → `AdminSettings`; `canAccessAdminPanel` includes `hr`.
 - Description: Sidebar hides «Критерии» from HR. A typed URL opens the criteria catalogue shell. The API is admin-only (403). Company-wide numbers are not returned.
@@ -353,7 +353,7 @@
 
 ### BUG-042: `useScoreCalculation` still substitutes an empty coefficient set on failure
 
-- Status: 🟡 IN PROGRESS (2026-08-26 — fixed on branch, not yet deployed)
+- Status: 🟢 CLOSED (2026-08-26, ROLE_ACCESS_DEPLOY — deployed release 20260826T134725Z; the allSettled error card is pinned by tests, and the live score-calculator rendered its full 88-employee picker for a real c_level session with no silent fallback path left in the code)
 - Severity: 📌 Medium (admin-only screen since 2026-08-22, and the number is a what-if rather than a payout — but it is the same silent-degradation shape as [BUG-030])
 - Location: `src/hooks/useScoreCalculation.js:79-80` — `apiClient.get(API_ENDPOINTS.SCORE_COEFFICIENTS).catch(() => ({ data: { data: [] } }))` and `apiClient.get(API_ENDPOINTS.ADMIN_USERS_DATA).catch(() => ({ data: { options: { grades: [] } } }))`, consumed by `src/pages/AdminScoreCalculator.jsx` (`/admin/score-calculator`).
 - Description: the money screens were fixed on 2026-08-21 ([BUG-030]) by moving `useFinalScoresMatrix` to `Promise.allSettled` with an explicit error card, and `useScoreCoefficients` got the same treatment on 2026-08-22. The score calculator was in neither pass: a 401, a 500 or a network blip on either call still resolves to an empty array, `weight` falls back to `1.0` per criterion and every grade coefficient to `1.0`, and the calculator renders a full, plausible, **unweighted** breakdown with no error — including the per-criterion `оценка×коэффициент×вес` strings, which will read `×1.0×1.0`.

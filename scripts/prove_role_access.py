@@ -93,7 +93,10 @@ READ_CELLS = [
     ("GET", "/api/periods", None,
      {"admin": 200, "c_level": 200, "c_level_writer": 200, "hr": 200,
       "manager": 403, "employee": 403}),
-    ("GET", "/api/periods/annual-rollup", None,
+    # container_id=5 is Annual 2026 — the one annual container on live and in
+    # every dump of it; without the parameter the route answers 422 before the
+    # data read and the positive cells prove nothing about the read itself.
+    ("GET", "/api/periods/annual-rollup", {"_params": {"container_id": "5"}},
      {"admin": 200, "c_level": 200, "c_level_writer": 200, "hr": 403,
       "manager": 403, "employee": 403}),
     ("GET", "/api/hr/evaluation-status", None,

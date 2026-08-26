@@ -1744,3 +1744,40 @@ the one money input in it is `options.grades[].coefficient`.
 **Report:** `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md`.
 
 **Implementation commit:** `5c46052`.
+
+## 2026-08-26 — ROLE_ACCESS_DEPLOY: the role-access change landed, deployed and proven on live (D-0826-6 + correction D-0826-7)
+
+**Status:** ✅ Live and proven. PR #2 **MERGED** (13:36:01Z, merge `3b97581`); the previous
+session's scheduled PR check-in disabled before it fired.
+
+**The owner's correction, applied before deployment (D-0826-7):** the brief's refusal of role
+`c_level` on score corrections was wrong — D-0820-7 stands, c_level keeps its corrections. Revert
+`fd637c1`; the regenerated score-correction came out byte-identical to live, so that workflow was
+**not** PUT (`changed: false`, updatedAt still 07:57:50.177Z). Every other refusal of D-0826-6
+landed as built. DECISIONS.md carries D-0826-7 and a banner in D-0826-6.
+
+**Deployed:** three workflow PUTs 13:46:55–57Z (`Admin Get Users Data`, `Get Score Coefficients`,
+`Manage Criteria Admin V7`) through `deploy_role_access_hr_clevel.py` (Auth Guard checked both
+sides, invariants byte-identical); frontend release **`20260826T134725Z`** through the locked CAS
+deploy (rollback target `20260826T110433Z`).
+
+**Proven (the part the cloud session could not do):**
+- Fresh dump pair before any live write, md5-identical both sides
+  (`~/EPE_ROLLBACK/2026-08-26-role-access/`, `4afb0ae1…` / `23b8516c…`).
+- Stand `epe_roleaccess_20260826_1341` from that dump: matrix **PASS 151 cells**; a REAL accepted
+  c_level correction stored (Bayram 200 → Jemal upsert — BUG-073's known last-writer-wins residue
+  reproduced). Stand torn down, `/root/epe_stand_tmp` emptied.
+- Live matrix **PASS 151 cells, 0 failures**: manager+employee = 55 × 403 across every admin
+  surface; every write route refused as c_level and as hr one by one; corrections prove ADMISSION
+  by code (Cem 403 CAPABILITY_FORBIDDEN, Bayram 422 CRITERIA_NOT_APPLICABLE, hr 403
+  ROLE_FORBIDDEN); compensation walk over all 23 non-admin 200s — **0 salary keys**, hr grades =
+  `{id, code}`.
+- Real browser on live: Jemal (c_level, 47) opened all seven pages non-empty with zero edit
+  affordances; Liya (hr, 52) got the roster («Найдено: 86») read-only, and typed /admin →
+  /hr/dashboard (BUG-013 closed). Probe sessions deleted.
+- Campaign untouched: `evaluation_started_at` 10:08:54.340312Z, tables 0/0/0/0, population
+  89/3/**78** (the owner excluded Kulmamedova (16) at 12:31Z before the deploy — his page, not
+  drift; roles now 13 manager / 68 employee, Liya registered), coefficient md5s equal the dated
+  snapshot to the digit, Auth Guard `2026-08-18T16:34:30.674Z` unchanged.
+
+**Report:** `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §8. Closed: BUG-013, BUG-042.

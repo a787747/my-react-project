@@ -203,3 +203,118 @@ byte-identical, and the save routes remain admin-only.
   run if its live `updatedAt` differs from the frozen value.
 
 **Implementation commit:** `5c46052`.
+
+---
+
+# §8. DEPLOYED AND PROVEN ON LIVE — follow-up by the Mac session (ROLE_ACCESS_DEPLOY, 2026-08-26)
+
+**Outcome in one line: the change is live and proven — the branch was reviewed, the owner's
+correction applied (D-0826-7: c_level KEEPS its score corrections, D-0820-7 stands), three
+workflows PUT at 13:46:55–57Z, the frontend flipped to `20260826T134725Z`, and the full
+acceptance ran against the running system: 151-cell role×route matrix PASS on the stand and PASS
+on live, a real accepted c_level correction stored on the stand, seven non-empty pages as the real
+c_level account and the roster as the real HR account in a real browser on live, zero compensation
+keys in any payload, and every campaign invariant byte-identical before and after.**
+
+## 8.1 The owner's correction (D-0826-7)
+
+The brief's instruction to refuse role `c_level` on corrections (§4.1 above) was wrong and was
+reverted BEFORE anything reached live: D-0820-7 stands, `c_level` (with `can_evaluate`) is the
+intended author of `c_level`-level corrections. Revert commit `fd637c1` on the branch; the
+regenerated `route_guard_deferred/score-correction.json` came out byte-identical to live (the
+drift check listed it among 29 identical), so the deploy script's UPDATES entry for it reported
+`"changed": false` and no PUT was made — live `API: Score Correction` still reads
+`updatedAt 2026-08-26 07:57:50.177Z`. Recorded in `DECISIONS.md` as **D-0826-7** with a
+strike-through banner in D-0826-6. Corrections are now the ONE write route that admits `c_level`;
+every other refusal of D-0826-6 landed as built.
+
+## 8.2 What was done, in order
+
+1. Branch reviewed as foreign work — no substantive disagreement beyond §4.1 (already corrected
+   by the owner). Landed on main as merge `3b97581`; **PR #2 MERGED 2026-08-26T13:36:01Z**. The
+   previous session's scheduled PR check-in (`trig_01Awcwu6g7iXbL6XREaAamGj`, one-shot 14:25Z)
+   was disabled at 13:31:20Z before it could fire (the API cannot delete routines — the owner can
+   remove the dead row at claude.ai/code/routines).
+2. Live re-read 13:36–13:38Z: tables **0/0/0/0**, population **89/3/78** — the brief said 79, but
+   the owner excluded **Aysoltan Kulmamedova (16)** at 12:31:49Z (`excluded_by_admin`, his page);
+   roles now 1 admin / 5 c_level / **13 manager** / 2 hr / **68 employee** (one employee→manager
+   move since the 24 Aug reading, `employee_card_events` is empty so it predates migration 017's
+   logging path); HR **Liya Dmitriyeva (52) is registered** (third registered account). All owner
+   activity, not drift.
+3. **Fresh dump pair before any live write**: `epe_2026_20260826T133855Z.dump`
+   (md5 `4afb0ae10c4585db6c4d46b4ebad2bbd`) + `n8n_app_20260826T133855Z.dump`
+   (md5 `23b8516cc936b36b48af0deb384c8124`), VPS `/root/epe_stand_tmp` → Mac
+   `~/EPE_ROLLBACK/2026-08-26-role-access/`, md5 identical both sides.
+4. Zero-drift check: exactly the three intended workflows differed from the generators; 29
+   identical, score-correction among them.
+5. **Stand** `epe_roleaccess_20260826_1341` ← that dump (period 2 started, inherited), container
+   `epe-roleaccess-n8n` on VPS loopback :25679 with the working-tree surface
+   (`scripts/setup_roleaccess_throwaway.sh`). Proofs on the stand:
+   `prove_role_access.py` **PASS, 151 cells** (`backups/2026-08-26-role-access/prove_role_access_20260826T134509Z.json`);
+   `prove_roleaccess_stand_accept.py` **PASS** — Bayram (18) stored a real accepted `c_level`
+   correction on criterion 3 (200, row stored), Jemal (47) then upserted over it — the stored row
+   read `evaluator 47, score 6, level c_level`, one row total, which is the known
+   last-writer-wins residue in BUG-073's row, reproduced, not new.
+6. **Deploy**: `deploy_role_access_hr_clevel.py` read-only then `--apply` —
+   `API: Admin Get Users Data` → 13:46:55.454Z, `API: Get Score Coefficients` → 13:46:56.606Z,
+   `API: Manage Criteria Admin V7` → 13:46:57.784Z; score-correction `changed: false`, no PUT;
+   Auth Guard checked before and after; graph/active/webhooks verified after each PUT; the three
+   top-level exports refreshed. Frontend `npm test` 439/439 → build →
+   `./scripts/deploy_epe_frontend.sh` — **FLIPPED `releases/20260826T134725Z`**
+   (was `20260826T110433Z`, which is the rollback target).
+7. **Live proof**: `prove_role_access.py --base https://epe.sedamedical.com/webhook` —
+   **PASS, 151 cells, 0 failures** (`prove_role_access_20260826T134914Z.json`).
+
+## 8.3 The acceptance, item by item
+
+- **Role × route matrix, positive and negative, on live:** 151 cells, every cell a real HTTPS
+  call with its status recorded in the artifact. Ordinary manager and ordinary employee: **55
+  cells of 403** covering every admin surface (roster, coefficients, criteria, matrix,
+  all-evaluations, analytics, details-by-user, periods, annual-rollup, HR status,
+  employee-events).
+- **Every write route as c_level and as hr, refusal by refusal:** save-user, terminate,
+  reinstate, exclude/include-participant, all six period mutations + start-evaluation,
+  manage-criteria save и delete, save-score-coefficients, update-admin-data, create-invite — 403
+  `ROLE_FORBIDDEN` for both roles, every row in the artifact. **Corrections deliberately still
+  accepted for c_level:** the read-only c_level (Cem 21) reads 403 `CAPABILITY_FORBIDDEN` — the
+  role passed the guard, the capability refused (D-0820-7); the can_evaluate writer (Bayram 18)
+  reads **422 `CRITERIA_NOT_APPLICABLE`** — past role AND capability, refused only at criteria
+  applicability (the probe uses c_level_only criterion 1 so nothing can be stored on live,
+  D-0826-3); hr reads 403 `ROLE_FORBIDDEN`. The expected CODES are asserted, not just statuses.
+  The accepted-write half is the stand proof of §8.2 item 5.
+- **A real c_level account on live in a real browser (Jemal Gulberdiyeva, 47, minted session,
+  probe rows deleted after):** `/admin/users` «Найдено: 86» full roster; `/admin` 9 criteria,
+  «только чтение», no Действия column; `/admin/all-evaluations` 83 rows;
+  `/analytics` the true zero-state of the open campaign (0 оценок); `/admin/evaluations-matrix`
+  88 rows; `/admin/final-scores` 88 rows with the weight columns; `/admin/score-calculator`
+  picker «Найдено: 88 из 88». **No edit affordance on any of them** (no Добавить/Excel/
+  Редактировать/Уволить on the roster, no add/cleanup/actions on criteria). Sidebar offers no
+  Периоды, no Коэффициенты, no Калькуляция бонусов.
+- **A real HR account (Liya Dmitriyeva, 52):** `/admin/users` «Найдено: 86», rows rendered, zero
+  edit affordances; typed `/admin` → **redirected to /hr/dashboard** (BUG-013's HR half, now
+  verified on live); typed `/admin/final-scores` → redirected; sidebar offers no money screens.
+- **No salary field in any payload:** the artifact's compensation walk scanned the response keys
+  of **all 23 non-admin 200s** recursively — **0 compensation keys**. `users[0]` keys recorded;
+  `options.grades[0]` = `{code, coefficient, id}` for c_level, **`{code, id}` for hr**.
+- **Campaign untouched:** `evaluation_started_at` = `2026-08-26 10:08:54.340312Z` before and
+  after; tables **0/0/0/0** before and after every step (deploy AND both prover runs);
+  89/3/**78** (the measured population of the day, item 2) unchanged through the window;
+  catalogue/coefficients/grades md5 = `fc618757…` / `317e09e8…` / `946b30a5…` — equal to
+  `docs/coefficients/H1-2026_coefficients_20260826T044844Z.md` to the digit, by the snapshot's
+  own SQL.
+- **Auth Guard:** `updatedAt 2026-08-18 16:34:30.674Z`, `active=false` — unchanged, checked
+  directly and enforced by the deploy script on both sides of the PUTs.
+
+## 8.4 Hygiene
+
+Stand torn down (container removed, `epe_roleaccess_20260826_1341` dropped, live holds
+`epe_2026` + `postgres` only), `/root/epe_stand_tmp` emptied (the kept copies are the local
+md5-verified pair), tunnels killed, minted probe sessions deleted (live `auth_sessions` probe
+rows: 0 left). The prover writes/deletes its own `auth_sessions` rows — that table is session
+state, not campaign data, and the artifact records table counts identical around every run. No
+user, scope, termination, evaluation, catalogue, coefficient, grade, criteria or period row was
+written on live. The pre-existing 25678 tunnel found open at session start was this session's own
+first command and was closed.
+
+**Deploy session commits:** revert `fd637c1`, merge `3b97581`, and the follow-up commit carrying
+this section (hash recorded in PROGRESS.md by the closing commit).

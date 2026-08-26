@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-22T06:38:08.633Z",
+  "updatedAt": "2026-08-26T13:46:57.784Z",
   "createdAt": "2025-12-06T14:25:10.187Z",
   "id": "55BHbXWIS6igHHBT",
   "name": "API: Manage Criteria Admin V7",
@@ -26,7 +26,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\"],\n    required_capability: \"\",\n    request,\n  },\n};"
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [\"admin\", \"c_level\"],\n    required_capability: \"\",\n    request,\n  },\n};"
       },
       "id": "mc-guard-input",
       "name": "Prepare Guard Input",
@@ -53,7 +53,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst action = body.action;\nif (action !== 'get' && action !== 'save' && action !== 'delete') {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_ACTION', message: 'Действие должно быть get, save или delete' },\n    },\n  };\n}\nif (action === 'get') {\n  return {\n    json: {\n      ok: true,\n      mode: 'get',\n      sql: `\n        SELECT\n          c.*,\n          (\n            SELECT json_build_object(\n              'id', p.id,\n              'name', p.name,\n              'status', p.status,\n              'is_active', p.is_active,\n              'period_type', p.period_type,\n              'start_date', p.start_date,\n              'end_date', p.end_date,\n              'evaluation_started_at', p.evaluation_started_at,\n              'evaluation_started', (p.evaluation_started_at IS NOT NULL)\n            )\n            FROM performance_db.evaluation_periods p\n            WHERE p.is_active = true AND p.status = 'active'\n            LIMIT 1\n          ) AS _period\n        FROM performance_db.criteria c\n        ORDER BY c.id ASC\n      `,\n    },\n  };\n}\n// The catalogue freezes when the evaluation STARTS, not when the period is\n// activated (D-0822-1). Draft and the preparation window are both editable.\nreturn {\n  json: {\n    ok: true,\n    mode: 'write',\n    action,\n    sql: `\n      SELECT id, name, status\n      FROM performance_db.evaluation_periods\n      WHERE is_active = true\n        AND status = 'active'\n        AND evaluation_started_at IS NOT NULL\n      LIMIT 1\n    `,\n  },\n};"
+        "jsCode": "const guard = $('Run Auth Guard').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst body = guard.request.body || guard.request;\nconst action = body.action;\nif (action !== 'get' && action !== 'save' && action !== 'delete') {\n  return {\n    json: {\n      http_status: 422,\n      body: { success: false, error: 'INVALID_ACTION', message: 'Действие должно быть get, save или delete' },\n    },\n  };\n}\n// Writes are admin-only. The refusal fires by role, before the freeze check\n// and before any SQL: hiding a button is not access control.\nif (action !== 'get' && String(guard.identity.role || '') !== 'admin') {\n  return {\n    json: {\n      http_status: 403,\n      body: { success: false, error: 'ROLE_FORBIDDEN', message: 'Изменение критериев доступно только администратору' },\n    },\n  };\n}\nif (action === 'get') {\n  return {\n    json: {\n      ok: true,\n      mode: 'get',\n      sql: `\n        SELECT\n          c.*,\n          (\n            SELECT json_build_object(\n              'id', p.id,\n              'name', p.name,\n              'status', p.status,\n              'is_active', p.is_active,\n              'period_type', p.period_type,\n              'start_date', p.start_date,\n              'end_date', p.end_date,\n              'evaluation_started_at', p.evaluation_started_at,\n              'evaluation_started', (p.evaluation_started_at IS NOT NULL)\n            )\n            FROM performance_db.evaluation_periods p\n            WHERE p.is_active = true AND p.status = 'active'\n            LIMIT 1\n          ) AS _period\n        FROM performance_db.criteria c\n        ORDER BY c.id ASC\n      `,\n    },\n  };\n}\n// The catalogue freezes when the evaluation STARTS, not when the period is\n// activated (D-0822-1). Draft and the preparation window are both editable.\nreturn {\n  json: {\n    ok: true,\n    mode: 'write',\n    action,\n    sql: `\n      SELECT id, name, status\n      FROM performance_db.evaluation_periods\n      WHERE is_active = true\n        AND status = 'active'\n        AND evaluation_started_at IS NOT NULL\n      LIMIT 1\n    `,\n  },\n};"
       },
       "id": "mc-route",
       "name": "Route Action",
@@ -255,8 +255,8 @@
     "templateCredsSetupCompleted": true
   },
   "pinData": {},
-  "versionId": "29840cfd-3fe6-49d0-a59b-7b9cdab0d221",
-  "versionCounter": 58,
+  "versionId": "dc0e1ce9-1da3-4b65-bb51-b8ed53a74ac9",
+  "versionCounter": 60,
   "triggerCount": 1,
   "shared": [
     {
@@ -280,7 +280,7 @@
             "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
             "projectId": "etgqxHLuSapoTyiP",
             "user": {
-              "updatedAt": "2026-08-22T06:37:17.199Z",
+              "updatedAt": "2026-08-26T05:16:02.749Z",
               "createdAt": "2025-06-21T12:14:11.974Z",
               "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
               "email": "admin@admin.ru",
@@ -307,7 +307,7 @@
               },
               "disabled": false,
               "mfaEnabled": false,
-              "lastActiveAt": "2026-08-22",
+              "lastActiveAt": "2026-08-26",
               "isPending": false
             }
           }
