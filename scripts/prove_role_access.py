@@ -15,8 +15,9 @@ stand or live) and writes a JSON proof artifact:
 CAMPAIGN-SAFE BY CONSTRUCTION:
   * no evaluation, score, correction, user, scope, period or coefficient row
     is written — write routes are called ONLY with actors their guard refuses,
-    or (score-correction as manager) with a c_level_only criterion the route
-    refuses 422 before any write;
+    or (score-correction as manager/c_level, the one route that deliberately
+    still admits c_level — owner's correction to D-0826-6) with a c_level_only
+    criterion the route refuses 422 before any write;
   * password-reset routes are NOT called: they are unauthenticated self-service
     account recovery (no role dimension exists to refuse), and the request
     route sends mail — D-0820-8 forbids that outside alexander@;
@@ -141,16 +142,25 @@ WRITE_CELLS = [
      {"c_level": 403, "c_level_writer": 403, "hr": 403, "manager": 403, "employee": 403}),
     ("POST", "/api/admin/create-invite", {},
      {"c_level": 403, "c_level_writer": 403, "hr": 403, "manager": 403, "employee": 403}),
-    # criterion 1 is c_level_only: the route 422s it before the period gate and
-    # before ownership, so even the role+capability the design admits (a
-    # skip-level manager) cannot store this probe. c_level — including the
-    # can_evaluate writer — must be refused 403 BY ROLE at the guard. The
-    # manager cell reads 422 CRITERIA_NOT_APPLICABLE when the actor can
-    # evaluate, 403 CAPABILITY_FORBIDDEN when not — refused without a write
-    # either way, so both are accepted.
+    # Corrections are the ONE write route that deliberately still admits role
+    # c_level (owner's correction to D-0826-6: D-0820-7 stands). Criterion 1 is
+    # c_level_only, so the route 422s the probe before the period gate and
+    # before any write — nobody can store it, which is what makes the cell
+    # campaign-safe. The cell proves ADMISSION by the refusal's code, not its
+    # status: the can_evaluate writer (Bayram) sails past the role guard and
+    # the capability check and is refused only at criteria applicability
+    # (422 CRITERIA_NOT_APPLICABLE); the read-only c_level (Cem) is refused at
+    # the capability check (403 CAPABILITY_FORBIDDEN — role admitted), never
+    # ROLE_FORBIDDEN. hr/employee read 403 ROLE_FORBIDDEN. The manager cell
+    # reads 422 when the actor can evaluate, 403 when not — refused without a
+    # write either way, so both are accepted. The stand run additionally
+    # stores a REAL accepted c_level correction (see the report) — live never
+    # does.
     ("POST", "/api/admin/score-correction",
      {"subject_id": 3, "criteria_id": 1, "correction_score": 5},
-     {"c_level": 403, "c_level_writer": 403, "hr": 403, "manager": (422, 403), "employee": 403}),
+     {"c_level": 403, "c_level_writer": 422, "hr": 403, "manager": (422, 403), "employee": 403},
+     {"c_level": "CAPABILITY_FORBIDDEN", "c_level_writer": "CRITERIA_NOT_APPLICABLE",
+      "hr": "ROLE_FORBIDDEN", "employee": "ROLE_FORBIDDEN"}),
 ]
 
 
@@ -279,16 +289,26 @@ def main() -> None:
     comp_walk: dict[str, dict] = {}
     failures: list[str] = []
     try:
-        for method, path, body, expected in READ_CELLS + WRITE_CELLS:
+        for entry in READ_CELLS + WRITE_CELLS:
+            method, path, body, expected = entry[:4]
+            # Optional fifth element: {role: expected error code} — used where
+            # the STATUS alone cannot distinguish "refused by role" from
+            # "role admitted, refused later" (the corrections cell).
+            expected_codes = entry[4] if len(entry) > 4 else {}
             for role, want in expected.items():
                 status, parsed = call(base, method, path, tokens[role], body)
                 code = parsed.get("error") if isinstance(parsed, dict) else None
                 wanted = want if isinstance(want, tuple) else (want,)
                 cell = {"method": method, "path": path, "role": role,
                         "expected": list(wanted), "status": status, "code": code}
+                if role in expected_codes:
+                    cell["expected_code"] = expected_codes[role]
                 matrix.append(cell)
                 if status not in wanted:
                     failures.append(f"{role} {method} {path}: expected {wanted}, got {status} {code}")
+                elif role in expected_codes and code != expected_codes[role]:
+                    failures.append(
+                        f"{role} {method} {path}: expected code {expected_codes[role]}, got {code}")
                 # Compensation walk on every 200 a non-admin role receives.
                 if status == 200 and role != "admin":
                     found: set[str] = set()

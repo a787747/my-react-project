@@ -792,14 +792,29 @@ carries no salary column for anyone; grade coefficients are stripped for HR). An
 forbidden surface names its reason instead of rendering a blank list.
 **Consequence:** C-level reads the money surfaces — this partially supersedes D-0822-2's
 "coefficients are admin-eyes-only" (read-only, for c_level, on the GET route; both save routes
-stay admin-only). The corrections item supersedes the **writer half of D-0820-7**: `c_level`-level
-score corrections are now stored by admin alone, and C-level people calibrate their own channel by
-evaluating (averaged, D-0826-1) — flagged to the owner in
-`docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §4.1 with the one-line revert named, because the brief
-and the earlier decision conflict and the brief was implemented as written. "Password reset
+stay admin-only). ~~The corrections item supersedes the **writer half of D-0820-7**~~ — **corrected
+by D-0826-7 below before deployment: D-0820-7 stands, c_level keeps its score corrections.** The
+conflict was flagged to the owner in `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §4.1 with the
+one-line revert named, and the owner took the revert. "Password reset
 refuses both roles" is unimplementable — the routes are unauthenticated self-service recovery with
 no role dimension; surfaced, unchanged.
 **Implementation:** branch `claude/hr-clevel-access-control-dudin7` (generators + frontend +
 tests + deploy/prove scripts). **Not yet on live** — the executing session had no access to the
 Mac, the VPS or live; the stand proof, deploy and live verification follow the runbook in the
 report §5.
+
+
+### D-0826-7 — Correction to D-0826-6: c_level keeps its score corrections; D-0820-7 stands (owner, 2026-08-26, via the ROLE_ACCESS_DEPLOY brief)
+**Decision (Alexander):** the ROLE_ACCESS_HR_CLEVEL brief's instruction to refuse role `c_level`
+on `api/admin/score-correction` was wrong and is reverted before it ever reached live. D-0820-7
+stands as written: `c_level` (with `can_evaluate`) is the intended author of `c_level`-level
+corrections. Every other refusal of D-0826-6 remains in force — corrections stay the ONE write
+route that admits `c_level`; no write route accepts `hr`.
+**Consequence:** Bayram (18) and Jemal (47) keep their September calibration instrument. What
+still bounds them is unchanged by this brief: `can_evaluate` (the read-only trio get 403
+`CAPABILITY_FORBIDDEN`, D-0820-7), and D-0826-3 (a correction on a `c_level_only` criterion is
+422 `CRITERIA_NOT_APPLICABLE` for everyone — the C-level channel is calibrated by averaging).
+The live workflow `API: Score Correction` is therefore byte-identical before and after this
+batch; the deploy script keeps it as a drift check with an expected `"changed": false`.
+**Implementation:** the revert commit on `claude/hr-clevel-access-control-dudin7` before the
+merge to main; report `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §8.

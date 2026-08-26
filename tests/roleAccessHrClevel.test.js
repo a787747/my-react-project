@@ -82,12 +82,15 @@ test("the criteria page draws its write controls only for admin", () => {
     "the actions column header must be conditional");
 });
 
-test("the correction affordance excludes role c_level (server refuses it by role)", () => {
-  assert.match(scoreDetailModal,
-    /isAdminActor \|\| \(user\.role === 'manager' && user\.has_manager_subordinates\)/,
-    "canCorrect: admin or skip-level manager only");
-  assert.equal(/ADMIN_ROLES\.includes\(user\.role\)/.test(scoreDetailModal), false,
-    "the old admin-or-c_level check must be gone");
+test("the correction affordance includes role c_level (owner's correction to D-0826-6; D-0820-7 stands)", () => {
+  // The brief's first cut removed the c_level correction control; the owner
+  // corrected that before deployment: c_level keeps its corrections, so the
+  // modal keeps the admin-or-c_level affordance (server still gates on
+  // can_evaluate and refuses c_level_only criteria — D-0826-3).
+  assert.match(scoreDetailModal, /ADMIN_ROLES\.includes\(user\.role\)/,
+    "canCorrect: the admin-or-c_level check must be present");
+  assert.match(scoreDetailModal, /isCLevel \|\| user\.has_manager_subordinates/,
+    "canCorrect: admin/c_level or skip-level manager");
 });
 
 // ── 3. A refused or failed read says why ────────────────────────────────────

@@ -171,24 +171,25 @@ test("score-correction uses guard.identity.id and ignores client evaluator_id", 
   assert.ok(js.includes("correctionLevel = 'mid_level'"));
 });
 
-test("score-correction refuses role c_level at the guard (ROLE_ACCESS_HR_CLEVEL)", () => {
-  // Owner's brief, 2026-08-26: C-level is a reader; no write route accepts
-  // c_level or hr. This narrows the writer half of D-0820-7 — c_level-level
-  // corrections are stored by admin alone; the mid_level path (skip-level
-  // manager) and the can_evaluate capability check are unchanged.
+test("score-correction keeps role c_level (owner's correction to D-0826-6; D-0820-7 stands)", () => {
+  // The ROLE_ACCESS_HR_CLEVEL brief dropped role c_level here; the owner
+  // corrected that the same day, before deployment: c_level (with
+  // can_evaluate) is the intended author of c_level-level corrections
+  // (D-0820-7). This is the ONE write route that admits c_level — every other
+  // write route refuses it by role, pinned below and in
+  // routeGuardWorkflows.test.js.
   const js = allJsCode(load("score-correction.json"));
   assert.ok(
-    js.includes('required_roles: ["admin", "manager"]'),
-    'score-correction: required_roles must be exactly ["admin", "manager"]'
+    js.includes('required_roles: ["admin", "c_level", "manager"]'),
+    'score-correction: required_roles must be exactly ["admin", "c_level", "manager"]'
   );
   assert.ok(
     js.includes('required_capability: "can_evaluate"'),
     "score-correction: the can_evaluate capability check must stay"
   );
-  assert.equal(
+  assert.ok(
     js.includes("prev.role === 'admin' || prev.role === 'c_level'"),
-    false,
-    "score-correction: the c_level branch of Decide Level must be gone"
+    "score-correction: Decide Level must store c_level-level corrections for admin and c_level"
   );
 });
 

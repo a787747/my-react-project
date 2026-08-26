@@ -1954,14 +1954,14 @@ def build_employee_self_review(credential_id: str, guard_workflow_id: str) -> di
 # ── 8. POST api/admin/score-correction ───────────────────────────────────────
 # Live unique key is (subject, criteria, level, period). period_id is NOT NULL.
 # That is existing schema, not a new column. Client evaluator_id / correction_level
-# are ignored for privilege. admin → c_level level (2025: Alexander/admin wrote
-# both c_level rows). mid_level → actor is the subject's manager's manager.
-# Role c_level is refused since ROLE_ACCESS_HR_CLEVEL (owner's brief,
-# 2026-08-26: C-level is a reader; no write route accepts c_level or hr). This
-# narrows the writer half of D-0820-7: c_level-level corrections are now stored
-# by admin alone. The C-level channel itself was already correction-free —
-# D-0826-3 refuses corrections on c_level_only criteria — and c_level people
-# keep their own c_level_direct evaluations (submit/update routes, untouched).
+# are ignored for privilege. admin+c_level → c_level level (2025: Alexander/admin
+# wrote both c_level rows). mid_level → actor is the subject's manager's manager.
+# The ROLE_ACCESS_HR_CLEVEL brief (2026-08-26) removed role c_level here; the
+# owner corrected that the same day BEFORE deployment: D-0820-7 stands —
+# c_level (with can_evaluate) is the intended author of c_level-level
+# corrections, and this route keeps admitting it. Every other write route still
+# refuses c_level and hr by role. D-0826-3 is unchanged: corrections on
+# c_level_only criteria are refused 422 for everyone.
 
 CORR_VALIDATE = f"""
 {guard_reject_js()}
@@ -2113,11 +2113,8 @@ if (!row.period_id) {
     },
   };
 }
-// Role c_level never reaches this node since ROLE_ACCESS_HR_CLEVEL (2026-08-26):
-// the guard refuses it with 403 ROLE_FORBIDDEN. c_level-level corrections are
-// stored by admin alone.
 let correctionLevel = 'none';
-if (prev.role === 'admin') {
+if (prev.role === 'admin' || prev.role === 'c_level') {
   correctionLevel = 'c_level';
 } else if (Number(row.skip_level_id) === Number(prev.actor_id)) {
   correctionLevel = 'mid_level';
@@ -2129,7 +2126,7 @@ if (correctionLevel === 'none') {
       body: {
         success: false,
         error: 'OWNERSHIP_FORBIDDEN',
-        message: 'Корректировка доступна руководителю руководителя или администратору',
+        message: 'Корректировка доступна руководителю руководителя, администратору или C-level',
       },
     },
   };
@@ -2199,7 +2196,7 @@ def build_score_correction(credential_id: str, guard_workflow_id: str) -> dict[s
               "responseMode": "responseNode", "options": {}},
              type_version=2.1, webhook_id="score-correction-webhook"),
         node("sc-guard-input", "Prepare Guard Input", "n8n-nodes-base.code",
-             [-480, 0], {"jsCode": guard_input_js(["admin", "manager"], "can_evaluate")}),
+             [-480, 0], {"jsCode": guard_input_js(["admin", "c_level", "manager"], "can_evaluate")}),
         run_guard_node("sc-run-guard", "Run Auth Guard", [-250, 0], guard_workflow_id),
         node("sc-validate", "Validate Input", "n8n-nodes-base.code",
              [0, 0], {"jsCode": CORR_VALIDATE}),

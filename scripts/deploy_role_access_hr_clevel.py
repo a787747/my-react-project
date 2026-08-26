@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deploy ROLE_ACCESS_HR_CLEVEL to LIVE (2026-08-26) — RUN FROM THE MAC.
 
-Four workflows change, all in who-may-read / who-is-refused only:
+Three workflows change, all in who-may-read / who-is-refused only:
 
   API: Admin Get Users Data   — guard admin → admin+hr+c_level; the merge
                                 strips options.grades[].coefficient for hr.
@@ -10,9 +10,13 @@ Four workflows change, all in who-may-read / who-is-refused only:
   API: Manage Criteria Admin V7 — guard admin → admin+c_level; save/delete
                                 refuse every non-admin 403 ROLE_FORBIDDEN
                                 before the freeze check and before any SQL.
-  API: Score Correction       — guard drops c_level (admin+manager with
-                                can_evaluate); Decide Level's c_level branch
-                                removed. Owner's brief: C-level is a reader.
+
+  API: Score Correction stays in UPDATES as a drift check with an expected
+  "changed": false — the brief's first cut dropped role c_level there, and the
+  owner corrected that BEFORE deployment (D-0820-7 stands: c_level keeps its
+  corrections), so the generator at HEAD must regenerate exactly the live
+  definition. A "changed": true on it means live or the generator moved —
+  stop and investigate; --apply would PUT the regenerated definition.
 
 THE CAMPAIGN IS OPEN. Unlike the pre-launch deploy scripts this one does NOT
 require empty data tables or an unpressed gate — it requires instead that the
