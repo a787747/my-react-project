@@ -254,4 +254,4 @@ frontend deploy this session) · `API: Score Correction` active, 9 nodes,
 **Commit:** this report, the D-0826-3 row, the BUG-073 closure and BUG-074/075 rows, the builder
 change, the inverted test pin, `scripts/deploy_correction_refusal.py` and the refreshed export
 land on `main` as one commit; its hash is recorded here by the follow-up commit, per the repo's
-rhythm. Commit: `PENDING`.
+rhythm. Commit: `c9c6342`.

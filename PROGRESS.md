@@ -1609,4 +1609,4 @@ Bugs: **30 open / 45 closed**.
   the archival ratings (BUG-074) but never the cells.
 - Stand DBs and containers removed; this brief's VPS dump deleted; `SELECT datname` reads
   `epe_2026, postgres`. The second gate on live was never pressed.
-- Committed as the PRELAUNCH_GATE commit (hash recorded in the follow-up).
+- Committed as `c9c6342`.
