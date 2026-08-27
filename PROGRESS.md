@@ -39,6 +39,7 @@ Annual 2026 86/89, roles 1/5/13/68/2, coefficients **`079177fb…`** identical t
 edited. Anchor dump `307b08dd…` (11:48:06Z) on the Mac outside the repo.
 
 **Report:** `docs/PEER_RECOGNITION_2026-08-27.md`. **Decision:** D-0827-4.
+**Commit:** `c38d597641bf750e124de6f3bbec67b2fd04d91f`.
 
 ## 2026-08-27 — CLEAR_TEST_EVALUATIONS: pre-invite H1 test row removed
 

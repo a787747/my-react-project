@@ -374,4 +374,6 @@ Proven by walking payloads, not by asserting:
 - Stand: two databases, two containers — all four gone. `postgres_n8n` holds
   `epe_2026, postgres`.
 - No extension created on live. No container restarted outside the stand.
-- `git status` clean at start.
+- `git status` clean at start and at the end.
+
+**Commit:** `c38d597641bf750e124de6f3bbec67b2fd04d91f` (pushed).
