@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 30 |
+| 🔴 Open | 31 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 48 |
 
@@ -849,3 +849,12 @@
 - How to fix: start empty like the other forms (dash, no zone, submit blocked until every applicable C-level criterion is touched); do not invent 5. Owner decides — this brief did not change the default.
 - Source: `docs/EVALUATION_FORM_READABILITY_2026-08-27.md` §1.4.
 - Fix (2026-08-27, D-0827-3): same rule as the ordinary forms. Badge `—`, no zone, submit disabled until every applicable C-level criterion is touched; existing actor scores stay shown and editable; payload never invents a 5. Demonstrated in Chrome on the throwaway stand (untouched 1309 refused, then accepted after touch; existing 1303 still editable). Frontend `20260827T075704Z`.
+
+### BUG-079: The completeness counter can read 100% while the mandatory C-level criteria are filed on nobody
+- Status: 🔴 OPEN
+- Severity: 🟡 Medium (campaign-completeness visibility — no money is computed wrong, but the owner cannot see the gap)
+- Location: `src/utils/campaignSummary.js` (`isFullyEvaluatedByOwed`), surfaced on `/admin/users` as «их оценили все, кто должен N из M».
+- Description: the counter includes exactly two channels — the manager evaluation (only when the manager can evaluate) and upward — by explicit design («C-level_direct is a shared channel, not a 1:1 assigned debt. It is not in either counter»). Under the owner's stated model (CLEVEL_COVERAGE_CHECK brief), criteria 1 and 10 are **mandatory** for every evaluated person, which makes `c_level_direct` an owed channel too: the counter can show 72 из 72 while zero of the 72 have criterion 1 (weight 5.00, the heaviest in the catalogue) or criterion 10 filed, and their `c_level_only` money cells are NULL.
+- Why it matters: the one number the owner will read as «campaign complete» is blind to the channel he declared mandatory; H1 could be closed on a green counter with the weight-5.00 criterion missing from every bonus index.
+- How to fix: owner's decision — either a third named counter for `c_level_direct` coverage (subjects with both c_level_only criteria scored, out of 72), or fold it into the existing counter's definition. Deliberately **not** fixed by the read-only check that filed this row.
+- Source: `docs/CLEVEL_COVERAGE_CHECK_2026-08-27.md` §5.

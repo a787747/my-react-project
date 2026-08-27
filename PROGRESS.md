@@ -1,5 +1,23 @@
 # Evaluation Portal Progress
 
+## 2026-08-27 — CLEVEL_COVERAGE_CHECK: live coverage vs the owner's model (read-only)
+
+**Status:** ✅ Done. **Zero writes** — SELECT/GET only; live measured 08:24–08:29Z, campaign
+tables 0/0/0/0 at both ends, scope 78/89 unchanged.
+
+No launch-blocking gap. The admin account (2) **can** file manager-channel evaluations on its six
+direct reports (5, 27, 33, 65, 76, 88) — the live `Submit Evaluation` manager branch carries no
+role predicate, only subordination + `can_be_evaluated` + both-in-scope + `can_evaluate`. All 72
+evaluable in-scope people have a working manager channel (two independent queries, both empty).
+Only 2/18/47 report to Durukan (21) — one of them is the **admin** account, refining the owner's
+«only C-level» statement; nobody reports to 40 or 61. Criteria 1+10 need **72 people**, one modal
+per person from the matrix, no bulk path (72 opens / 144 sliders / 72 saves); missing = star
+cells, no dedicated filter. The «их оценили все, кто должен» counter includes manager+upward
+only — it can read 72/72 with criterion 1 (weight 5.00) filed on nobody; confirmed from
+`campaignSummary.js`, not fixed, **BUG-079 filed**. Nobody in scope lacks an evaluator.
+
+**Report:** `docs/CLEVEL_COVERAGE_CHECK_2026-08-27.md`.
+
 ## 2026-08-27 — ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL: C-level dash + named campaign line
 
 **Status:** ✅ Done and on live. Frontend `20260827T075704Z`. Workflow
