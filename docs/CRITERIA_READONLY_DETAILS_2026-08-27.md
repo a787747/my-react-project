@@ -175,4 +175,4 @@ cleared. No mail. No container restarted. No schema write.
 - Owner files in this checkout: **none**. Built files are this brief's only.
 - `EPE: Auth Guard` untouched.
 - Decision: **D-0827-1**.
-- Implementation commit: recorded after push (follow-up line in PROGRESS).
+- Implementation commit: `1a57b81f87c4f4160bc5aecdf1e45404cc5ce42e`.

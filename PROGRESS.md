@@ -17,6 +17,7 @@ coefficient md5s identical to the 2026-08-26 snapshot. No dump — nothing was
 written to campaign or catalogue tables. D-0827-1.
 
 **Report:** `docs/CRITERIA_READONLY_DETAILS_2026-08-27.md`.
+**Commit:** `1a57b81f87c4f4160bc5aecdf1e45404cc5ce42e`.
 
 ## 2026-08-26 — LIVE_SMOKE_H1: the real campaign exercised once on live, then removed to the byte
 
