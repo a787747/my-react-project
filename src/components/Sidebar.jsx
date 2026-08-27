@@ -21,7 +21,7 @@ import {
   LayoutDashboard, Settings, LogOut, Users, ClipboardList, Calendar, 
   Star, User, BarChart3, TrendingUp, Grid3x3, Calculator, Award, 
   UserCheck, BookOpen, ClipboardCheck, CheckCircle2, Shield, Info, 
-  Coins, Menu, X, ChevronDown, CalendarRange
+  Coins, Menu, X, ChevronDown, CalendarRange, HeartHandshake
 } from 'lucide-react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
@@ -210,6 +210,11 @@ const Sidebar = ({ user }) => {
             {!isOutOfScope && (
               <NavItem to="/manager-evaluation" icon={UserCheck} label="Оценить руководителя" onClick={closeMobileMenu} />
             )}
+            {/* PEER_RECOGNITION (2026-08-27): виден ВСЕМ авторизованным, в том
+                числе вне охвата H1 — у них нет задач по оценке, но помощь между
+                отделами видят как раз они. Поэтому пункт не завёрнут в
+                !isOutOfScope и не зависит от campaignActive. */}
+            <NavItem to="/recognition" icon={HeartHandshake} label="Отметить коллегу" onClick={closeMobileMenu} />
           </NavGroup>
         )}
 
@@ -248,6 +253,9 @@ const Sidebar = ({ user }) => {
             )}
             <NavItem to="/admin/annual-rollup" icon={CalendarRange} label="Годовые итоги" onClick={closeMobileMenu} />
             <NavItem to="/admin/score-calculator" icon={Calculator} label="Калькуляция баллов" onClick={closeMobileMenu} />
+            {/* Отметки коллег — чтение, admin + c_level. Не аналитика в смысле
+                чисел: там нет ни одного счётчика, только тексты. */}
+            <NavItem to="/admin/recognition" icon={HeartHandshake} label="Отметки коллег" onClick={closeMobileMenu} />
           </NavGroup>
         )}
 

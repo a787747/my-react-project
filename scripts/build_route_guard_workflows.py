@@ -7027,6 +7027,670 @@ def build_manage_period_scope(credential_id: str, guard_workflow_id: str) -> dic
 
 
 
+# ── 20. Peer recognition — «Отметить коллегу» (brief PEER_RECOGNITION) ─────────
+#
+# The owner's surface: any employed, registered person may name ONE colleague
+# whose help genuinely mattered in the period, and describe it as a situation,
+# an action and an outcome. It is not a vote, not a rating and not money.
+#
+# Three things this workflow must never become, all of them enforced here rather
+# than left to the client:
+#
+#   * A money path. It writes exactly one table — performance_db.peer_recognitions
+#     (migration 018) — which has no numeric column and no foreign key into
+#     evaluations, evaluation_scores, score_corrections or period_results. No
+#     node in this file reads or writes any of those four, nor criteria,
+#     score_coefficients, grades or evaluation_period_participants.
+#
+#   * A popularity contest. No route here returns a count of nominations, in any
+#     form: not a total, not a per-nominee tally, not a rank, not an ordering by
+#     frequency. The reader lists rows newest-first, by time alone.
+#
+#   * A picker that only LOOKS safe. Self, one's own manager and one's own direct
+#     report are refused by the save route from the live graph read at write
+#     time, and re-asserted inside the writing statement's target CTE, so a
+#     direct call with a hand-made body is refused exactly as the UI is. A
+#     terminated person is refused the same way and never appears among the
+#     candidates.
+#
+# Scope binding: the ACTIVE LEAF period — is_active AND status='active' AND
+# period_type <> 'annual' AND no children — the same expression the employment
+# and period-scope routes already use. Deliberately NOT gated on
+# evaluation_started_at: people who are out of scope of H1 have no evaluation
+# tasks at all and are exactly the population the owner wants to hear from, and
+# a nomination is not an evaluation. Close ends it: once the period is closed
+# there is no active leaf, and the save route answers NO_ACTIVE_PERIOD.
+
+RECOGNITION_BLOCK_MESSAGES = {
+    # The own-manager sentence is the owner's, verbatim, and is the only one of
+    # the three he wrote. The other two are this brief's wording and are
+    # reported as such.
+    "own_manager": (
+        "Своего руководителя здесь отметить нельзя — для этого есть оценка "
+        "«снизу вверх» в ваших задачах."
+    ),
+    "self": "Себя отметить нельзя.",
+    "own_report": "Своего подчинённого здесь отметить нельзя.",
+}
+
+RECOGNITION_MAX_TEXT = 2000
+
+RECOGNITION_FORM_BUILD = """
+const guard = $('Run Auth Guard FORM').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const actorId = Number(guard.identity.id);
+
+// One read for the whole page: the period, the actor's own nomination if it
+// exists, and the two candidate lists. `blocked` is returned rather than
+// silently dropped so the screen can say WHY somebody cannot be named — the
+// owner asked for that sentence about a manager specifically.
+return {
+  json: {
+    ok: true,
+    sql: `
+WITH current_period AS (
+  SELECT p.id,
+         p.name,
+         to_char(p.start_date, 'YYYY-MM-DD') AS start_date_text,
+         to_char(p.end_date, 'YYYY-MM-DD') AS end_date_text
+  FROM performance_db.evaluation_periods p
+  WHERE p.is_active = true
+    AND p.status = 'active'
+    AND p.period_type <> 'annual'
+    AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                    WHERE child.parent_period_id = p.id)
+  LIMIT 1
+),
+actor AS (
+  SELECT u.id, u.manager_id, (u.terminated_at IS NOT NULL) AS is_terminated
+  FROM performance_db.users u
+  WHERE u.id = ${actorId}
+),
+candidates AS (
+  SELECT
+    u.id,
+    u.full_name,
+    u.job_title,
+    d.name AS department_name,
+    CASE
+      WHEN u.id = a.id THEN 'self'
+      WHEN a.manager_id IS NOT NULL AND u.id = a.manager_id THEN 'own_manager'
+      WHEN u.manager_id = a.id THEN 'own_report'
+      ELSE NULL
+    END AS blocked_reason
+  FROM performance_db.users u
+  CROSS JOIN actor a
+  LEFT JOIN performance_db.departments d ON d.id = u.department_id
+  -- A terminated person is not a candidate at all: they are not in the list and
+  -- not in the blocked list either. They have left.
+  WHERE u.terminated_at IS NULL
+),
+mine AS (
+  SELECT
+    r.id,
+    r.nominee_id,
+    n.full_name AS nominee_name,
+    r.situation,
+    r.action,
+    r.outcome,
+    to_char(r.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at
+  FROM performance_db.peer_recognitions r
+  JOIN performance_db.users n ON n.id = r.nominee_id
+  JOIN current_period cp ON cp.id = r.period_id
+  WHERE r.author_id = ${actorId}
+  LIMIT 1
+)
+SELECT
+  (SELECT id FROM current_period) AS period_id,
+  (SELECT name FROM current_period) AS period_name,
+  (SELECT start_date_text FROM current_period) AS period_start_date,
+  (SELECT end_date_text FROM current_period) AS period_end_date,
+  (SELECT is_terminated FROM actor) AS actor_terminated,
+  COALESCE((SELECT json_agg(row_to_json(c) ORDER BY c.full_name)
+            FROM candidates c WHERE c.blocked_reason IS NULL), '[]'::json) AS colleagues,
+  COALESCE((SELECT json_agg(row_to_json(c) ORDER BY c.full_name)
+            FROM candidates c WHERE c.blocked_reason IS NOT NULL), '[]'::json) AS blocked,
+  (SELECT row_to_json(m) FROM mine m) AS my_nomination
+    `,
+  },
+};
+""".strip()
+
+
+RECOGNITION_FORM_FORMAT = """
+const guard = $('Run Auth Guard FORM').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const BLOCK_MESSAGES = __BLOCK_MESSAGES__;
+const parseJson = (value, fallback) => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+};
+const row = $input.first().json || {};
+const colleagues = parseJson(row.colleagues, []);
+const blockedRaw = parseJson(row.blocked, []);
+const mine = parseJson(row.my_nomination, null);
+
+const clean = person => ({
+  id: Number(person.id),
+  full_name: person.full_name,
+  job_title: person.job_title || null,
+  department_name: person.department_name || null,
+});
+const blocked = (Array.isArray(blockedRaw) ? blockedRaw : []).map(person => ({
+  ...clean(person),
+  blocked_reason: person.blocked_reason,
+  message: BLOCK_MESSAGES[person.blocked_reason] || 'Этого человека здесь отметить нельзя.',
+}));
+
+return {
+  json: {
+    http_status: 200,
+    body: {
+      success: true,
+      actor_user_id: Number(guard.identity.id),
+      period: row.period_id
+        ? {
+            id: Number(row.period_id),
+            name: row.period_name || null,
+            start_date: row.period_start_date || null,
+            end_date: row.period_end_date || null,
+          }
+        : null,
+      colleagues: (Array.isArray(colleagues) ? colleagues : []).map(clean),
+      blocked,
+      my_nomination: mine
+        ? {
+            id: Number(mine.id),
+            nominee_id: Number(mine.nominee_id),
+            nominee_name: mine.nominee_name,
+            situation: mine.situation,
+            action: mine.action,
+            outcome: mine.outcome,
+            updated_at: mine.updated_at,
+          }
+        : null,
+    },
+  },
+};
+""".strip()
+
+
+RECOGNITION_SAVE_VALIDATE = """
+const guard = $('Run Auth Guard SAVE').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const actorId = Number(guard.identity.id);
+const body = guard.request.body || guard.request;
+
+const nomineeId = parseInt(body.nominee_id, 10);
+if (!Number.isFinite(nomineeId) || nomineeId < 1) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'INVALID_NOMINEE_ID', message: 'Выберите коллегу из списка' },
+    },
+  };
+}
+const MAX = __MAX_TEXT__;
+// U+0000 cannot be stored in a Postgres text column at all; stripping it here
+// turns a 500 from the driver into an ordinary, saved nomination.
+const field = value => String(value ?? '').replace(/\\u0000/g, '').trim();
+const situation = field(body.situation);
+const action = field(body.action);
+const outcome = field(body.outcome);
+if (!situation || !action || !outcome) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'RECOGNITION_TEXT_REQUIRED',
+        message: 'Заполните все три поля: ситуацию, действие и результат',
+      },
+    },
+  };
+}
+if (situation.length > MAX || action.length > MAX || outcome.length > MAX) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'RECOGNITION_TEXT_TOO_LONG',
+        message: `Каждое поле не длиннее ${MAX} символов`,
+      },
+    },
+  };
+}
+
+return {
+  json: {
+    ok: true,
+    actor_id: actorId,
+    nominee_id: nomineeId,
+    situation,
+    action,
+    outcome,
+    sql: `
+      SELECT
+        a.id AS actor_id,
+        a.manager_id AS actor_manager_id,
+        (a.terminated_at IS NOT NULL) AS actor_terminated,
+        n.id AS nominee_id,
+        n.full_name AS nominee_name,
+        n.manager_id AS nominee_manager_id,
+        (n.terminated_at IS NOT NULL) AS nominee_terminated,
+        (SELECT cp.id FROM performance_db.evaluation_periods cp
+          WHERE cp.is_active = true AND cp.status = 'active'
+            AND cp.period_type <> 'annual'
+            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                            WHERE child.parent_period_id = cp.id)
+          LIMIT 1) AS period_id,
+        (SELECT r.id FROM performance_db.peer_recognitions r
+          WHERE r.author_id = a.id
+            AND r.period_id = (SELECT cp.id FROM performance_db.evaluation_periods cp
+              WHERE cp.is_active = true AND cp.status = 'active'
+                AND cp.period_type <> 'annual'
+                AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                                WHERE child.parent_period_id = cp.id)
+              LIMIT 1)) AS existing_id
+      FROM performance_db.users a
+      LEFT JOIN performance_db.users n ON n.id = ${nomineeId}
+      WHERE a.id = ${actorId}
+    `,
+  },
+};
+""".strip()
+
+
+RECOGNITION_SAVE_BUILD = """
+const prev = $('Validate Save').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const BLOCK_MESSAGES = __BLOCK_MESSAGES__;
+const check = $input.all().map(item => item.json).find(item => item.actor_id !== undefined);
+if (!check) {
+  // The actor's own row is gone. The guard read it a moment ago, so this is a
+  // race, not a normal state.
+  return {
+    json: {
+      http_status: 404,
+      body: { success: false, error: 'ACTOR_NOT_FOUND', message: 'Ваша учётная запись не найдена' },
+    },
+  };
+}
+const truthy = value => value === true || value === 't';
+const actorId = Number(prev.actor_id);
+const nomineeId = Number(prev.nominee_id);
+
+// Refusal order, most-general first: no period at all → the actor is not
+// allowed to write → the nominee does not exist → the three relationship
+// refusals → the nominee has left.
+if (check.period_id === null || check.period_id === undefined) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'NO_ACTIVE_PERIOD',
+        message: 'Сейчас нет открытого периода — отметить коллегу можно только внутри периода',
+      },
+    },
+  };
+}
+if (truthy(check.actor_terminated)) {
+  return {
+    json: {
+      http_status: 403,
+      body: { success: false, error: 'ACTOR_TERMINATED', message: 'Учётная запись неактивна' },
+    },
+  };
+}
+if (check.nominee_id === null || check.nominee_id === undefined) {
+  return {
+    json: {
+      http_status: 404,
+      body: { success: false, error: 'NOMINEE_NOT_FOUND', message: 'Сотрудник не найден' },
+    },
+  };
+}
+if (nomineeId === actorId) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'RECOGNITION_SELF', message: BLOCK_MESSAGES.self },
+    },
+  };
+}
+if (check.actor_manager_id !== null && check.actor_manager_id !== undefined
+    && Number(check.actor_manager_id) === nomineeId) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'RECOGNITION_OWN_MANAGER', message: BLOCK_MESSAGES.own_manager },
+    },
+  };
+}
+if (check.nominee_manager_id !== null && check.nominee_manager_id !== undefined
+    && Number(check.nominee_manager_id) === actorId) {
+  return {
+    json: {
+      http_status: 422,
+      body: { success: false, error: 'RECOGNITION_OWN_REPORT', message: BLOCK_MESSAGES.own_report },
+    },
+  };
+}
+if (truthy(check.nominee_terminated)) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'NOMINEE_TERMINATED',
+        message: 'Этот сотрудник больше не работает в компании',
+      },
+    },
+  };
+}
+
+const periodId = Number(check.period_id);
+const quote = value => `'${String(value).replace(/'/g, "''")}'`;
+// Cosmetic only: it decides «сохранена» vs «обновлена». The uniqueness that
+// makes "exactly one" true is the constraint, not this read.
+const replaced = check.existing_id !== null && check.existing_id !== undefined;
+
+// One statement. Every refusal above is re-asserted inside `target`, so a body
+// hand-made against a graph that changed a moment ago writes zero rows instead
+// of writing the wrong one.
+return {
+  json: {
+    ok: true,
+    nominee_name: check.nominee_name,
+    replaced,
+    sql: `
+WITH target AS (
+  SELECT p.id AS period_id, a.id AS author_id, n.id AS nominee_id
+  FROM performance_db.evaluation_periods p
+  JOIN performance_db.users a
+    ON a.id = ${actorId} AND a.terminated_at IS NULL
+  JOIN performance_db.users n
+    ON n.id = ${nomineeId} AND n.terminated_at IS NULL
+  WHERE p.id = ${periodId}
+    AND p.is_active = true
+    AND p.status = 'active'
+    AND n.id <> a.id
+    AND (a.manager_id IS NULL OR n.id <> a.manager_id)
+    AND (n.manager_id IS NULL OR n.manager_id <> a.id)
+),
+saved AS (
+  INSERT INTO performance_db.peer_recognitions
+    (period_id, author_id, nominee_id, situation, action, outcome)
+  SELECT t.period_id, t.author_id, t.nominee_id,
+         ${quote(prev.situation)}, ${quote(prev.action)}, ${quote(prev.outcome)}
+  FROM target t
+  ON CONFLICT ON CONSTRAINT uq_peer_recognitions_period_author DO UPDATE
+    SET nominee_id = EXCLUDED.nominee_id,
+        situation  = EXCLUDED.situation,
+        action     = EXCLUDED.action,
+        outcome    = EXCLUDED.outcome,
+        updated_at = now()
+  RETURNING id, nominee_id, period_id
+)
+SELECT
+  (SELECT count(*)::integer FROM saved) AS written,
+  (SELECT id FROM saved LIMIT 1) AS recognition_id,
+  (SELECT period_id FROM saved LIMIT 1) AS period_id
+    `,
+  },
+};
+""".strip()
+
+
+RECOGNITION_SAVE_FORMAT = """
+const prev = $('Build Save SQL').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.written !== undefined);
+if (!row || Number(row.written) === 0) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'RECOGNITION_CONFLICT',
+        message: 'Состояние изменилось во время сохранения — обновите страницу и повторите',
+      },
+    },
+  };
+}
+return {
+  json: {
+    http_status: 200,
+    body: {
+      success: true,
+      recognition_id: Number(row.recognition_id),
+      period_id: Number(row.period_id),
+      nominee_name: prev.nominee_name,
+      replaced: prev.replaced === true,
+      message: prev.replaced === true ? 'Отметка обновлена' : 'Отметка сохранена',
+    },
+  },
+};
+""".strip()
+
+
+RECOGNITION_LIST_BUILD = """
+const guard = $('Run Auth Guard LIST').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const query = (guard.request || {}).query || {};
+const requested = parseInt(query.period_id ?? query.periodId, 10);
+const periodExpression = Number.isFinite(requested) && requested > 0
+  ? String(requested)
+  : `(SELECT cp.id FROM performance_db.evaluation_periods cp
+      WHERE cp.is_active = true AND cp.status = 'active'
+        AND cp.period_type <> 'annual'
+        AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                        WHERE child.parent_period_id = cp.id)
+      LIMIT 1)`;
+
+// Newest first, by time alone. There is deliberately no GROUP BY, no count and
+// no ordering that could be read as a ranking: the moment this list can be
+// sorted by how often somebody was named it becomes the popularity contest the
+// whole design exists to avoid.
+return {
+  json: {
+    ok: true,
+    sql: `
+      SELECT
+        r.id,
+        r.period_id,
+        p.name AS period_name,
+        r.author_id,
+        au.full_name AS author_name,
+        au.job_title AS author_job_title,
+        ad.name AS author_department,
+        r.nominee_id,
+        nu.full_name AS nominee_name,
+        nu.job_title AS nominee_job_title,
+        nd.name AS nominee_department,
+        r.situation,
+        r.action,
+        r.outcome,
+        to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+        to_char(r.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at
+      FROM performance_db.peer_recognitions r
+      JOIN performance_db.users au ON au.id = r.author_id
+      JOIN performance_db.users nu ON nu.id = r.nominee_id
+      JOIN performance_db.evaluation_periods p ON p.id = r.period_id
+      LEFT JOIN performance_db.departments ad ON ad.id = au.department_id
+      LEFT JOIN performance_db.departments nd ON nd.id = nu.department_id
+      WHERE r.period_id = ${periodExpression}
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 500
+    `,
+  },
+};
+""".strip()
+
+
+RECOGNITION_LIST_FORMAT = """
+const guard = $('Run Auth Guard LIST').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const items = $input.all().map(item => item.json).filter(item => item.id !== undefined);
+return {
+  json: {
+    http_status: 200,
+    body: {
+      success: true,
+      period_id: items.length ? Number(items[0].period_id) : null,
+      period_name: items.length ? items[0].period_name : null,
+      recognitions: items,
+    },
+  },
+};
+""".strip()
+
+
+def _recognition_js(source: str) -> str:
+    return (source
+            .replace("__BLOCK_MESSAGES__",
+                     json.dumps(RECOGNITION_BLOCK_MESSAGES, ensure_ascii=False))
+            .replace("__MAX_TEXT__", str(RECOGNITION_MAX_TEXT)))
+
+
+def build_peer_recognition(credential_id: str, guard_workflow_id: str) -> dict[str, Any]:
+    def pg(node_id: str, name: str, position: list[int], empty_column: str) -> dict[str, Any]:
+        return node(
+            node_id, name, "n8n-nodes-base.postgres", position,
+            {"operation": "executeQuery",
+             "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS "
+                      + empty_column + " WHERE false' }}",
+             "options": {}},
+            type_version=2.6,
+            credentials=postgres_credentials(credential_id), always_output=True)
+
+    nodes_list = [
+        # FORM — everything the page needs, for any authenticated person.
+        # No required role: an employee, a manager, HR, C-level and the admin all
+        # see the same surface, and so does somebody out of scope of H1 who has
+        # no evaluation tasks at all.
+        node("recognition-webhook-form", "Webhook FORM", "n8n-nodes-base.webhook",
+             [-700, 0],
+             {"httpMethod": "GET", "path": "api/recognition/form",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-recognition-form"),
+        node("recognition-guard-input-form", "Prepare Guard Input FORM",
+             "n8n-nodes-base.code", [-480, 0], {"jsCode": guard_input_js([])}),
+        run_guard_node("recognition-run-guard-form", "Run Auth Guard FORM",
+                       [-250, 0], guard_workflow_id),
+        node("recognition-form-build", "Build Form Query", "n8n-nodes-base.code",
+             [0, 0], {"jsCode": _recognition_js(RECOGNITION_FORM_BUILD)}),
+        pg("recognition-form-load", "Load Form", [250, 0], "period_id"),
+        node("recognition-form-format", "Format Form Response", "n8n-nodes-base.code",
+             [500, 0], {"jsCode": _recognition_js(RECOGNITION_FORM_FORMAT)}),
+        respond_node("recognition-respond-form", "Respond FORM", [740, 0]),
+        # SAVE — one nomination per author per period, replaceable.
+        node("recognition-webhook-save", "Webhook SAVE", "n8n-nodes-base.webhook",
+             [-700, 300],
+             {"httpMethod": "POST", "path": "api/recognition/save",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-recognition-save"),
+        node("recognition-guard-input-save", "Prepare Guard Input SAVE",
+             "n8n-nodes-base.code", [-480, 300], {"jsCode": guard_input_js([])}),
+        run_guard_node("recognition-run-guard-save", "Run Auth Guard SAVE",
+                       [-250, 300], guard_workflow_id),
+        node("recognition-save-validate", "Validate Save", "n8n-nodes-base.code",
+             [0, 300], {"jsCode": _recognition_js(RECOGNITION_SAVE_VALIDATE)}),
+        pg("recognition-save-check", "Load Save Target", [250, 300], "actor_id"),
+        node("recognition-save-build", "Build Save SQL", "n8n-nodes-base.code",
+             [500, 300], {"jsCode": _recognition_js(RECOGNITION_SAVE_BUILD)}),
+        pg("recognition-save-execute", "Execute Save", [750, 300], "written"),
+        node("recognition-save-format", "Format Save Response", "n8n-nodes-base.code",
+             [1000, 300], {"jsCode": _recognition_js(RECOGNITION_SAVE_FORMAT)}),
+        respond_node("recognition-respond-save", "Respond SAVE", [1240, 300]),
+        # LIST — the readers. admin + c_level and nobody else: not HR, not the
+        # named person, not their manager. The guard refuses by role before a
+        # single row is read.
+        node("recognition-webhook-list", "Webhook LIST", "n8n-nodes-base.webhook",
+             [-700, 600],
+             {"httpMethod": "GET", "path": "api/recognition/list",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-recognition-list"),
+        node("recognition-guard-input-list", "Prepare Guard Input LIST",
+             "n8n-nodes-base.code", [-480, 600],
+             {"jsCode": guard_input_js(["admin", "c_level"])}),
+        run_guard_node("recognition-run-guard-list", "Run Auth Guard LIST",
+                       [-250, 600], guard_workflow_id),
+        node("recognition-list-build", "Build List Query", "n8n-nodes-base.code",
+             [0, 600], {"jsCode": _recognition_js(RECOGNITION_LIST_BUILD)}),
+        pg("recognition-list-load", "Load List", [250, 600], "id"),
+        node("recognition-list-format", "Format List Response", "n8n-nodes-base.code",
+             [500, 600], {"jsCode": _recognition_js(RECOGNITION_LIST_FORMAT)}),
+        respond_node("recognition-respond-list", "Respond LIST", [740, 600]),
+    ]
+    connections = {
+        "Webhook FORM": connect("Prepare Guard Input FORM"),
+        "Prepare Guard Input FORM": connect("Run Auth Guard FORM"),
+        "Run Auth Guard FORM": connect("Build Form Query"),
+        "Build Form Query": connect("Load Form"),
+        "Load Form": connect("Format Form Response"),
+        "Format Form Response": connect("Respond FORM"),
+        "Webhook SAVE": connect("Prepare Guard Input SAVE"),
+        "Prepare Guard Input SAVE": connect("Run Auth Guard SAVE"),
+        "Run Auth Guard SAVE": connect("Validate Save"),
+        "Validate Save": connect("Load Save Target"),
+        "Load Save Target": connect("Build Save SQL"),
+        "Build Save SQL": connect("Execute Save"),
+        "Execute Save": connect("Format Save Response"),
+        "Format Save Response": connect("Respond SAVE"),
+        "Webhook LIST": connect("Prepare Guard Input LIST"),
+        "Prepare Guard Input LIST": connect("Run Auth Guard LIST"),
+        "Run Auth Guard LIST": connect("Build List Query"),
+        "Build List Query": connect("Load List"),
+        "Load List": connect("Format List Response"),
+        "Format List Response": connect("Respond LIST"),
+    }
+    return workflow("API: Peer Recognition", nodes_list, connections)
+
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -7075,6 +7739,7 @@ def main() -> None:
         "manage-periods.json": build_manage_periods(cred, guard),
         "manage-employment.json": build_manage_employment(cred, guard),
         "manage-period-scope.json": build_manage_period_scope(cred, guard),
+        "peer-recognition.json": build_peer_recognition(cred, guard),
     }
 
     for filename, payload in workflows.items():

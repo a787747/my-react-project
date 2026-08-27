@@ -1,11 +1,13 @@
 # EPE — Handover
 
-**As of:** 2026-08-27 (CLEAR_TEST_EVALUATIONS) · **H1: active and started**
+**As of:** 2026-08-27 (PEER_RECOGNITION) · **H1: active and started**
 H1 (id 2) has been **active** since **2026-08-24 19:07:36Z** (`POST /webhook/api/periods/activate`, Caddy 200,
 from `/admin/periods`) and Alexander started the campaign at **2026-08-26 10:08:54.340312Z**. Employee
-tasks are open and submit routes accept writes. The four campaign tables are **0/0/0/0** again
-after the 2026-08-27 pre-invite clear (`docs/CLEAR_TEST_EVALUATIONS_2026-08-27.md`); the invitation
-has not been sent. An earlier 11:04Z empty reading is historical. §7 is the remaining order of work.
+tasks are open and submit routes accept writes. **The invitation has gone out and real employees are
+answering it:** the four campaign tables read **3/7/0/0** and registered accounts **13** at
+**2026-08-27 11:51:03Z**, having been 0/0/0/0 and 5 at 11:05:08Z the same morning. Both are moving
+measurements, not invariants — re-read them before assuming anything, and never edit a row you find
+there. Every earlier empty reading is historical. §7 is the remaining order of work.
 
 Every number in §§1–3 and §§5–10 was re-measured against the live system on 2026-08-24 17:14–17:16 UTC,
 read-only (SELECT / GET / `readlink` / `openssl` / `crontab -l`). **§4 is copied verbatim and was not
@@ -20,8 +22,8 @@ docs-vs-docs differences this pass found.
 Employees Performance Evaluation for SEDA Medical Turkmenistan. 89 people. React SPA + n8n as the entire backend + PostgreSQL.
 
 **Live now:** H1-2026 is the current period (`status=active`, `is_active=true`) and the campaign has
-been running since **2026-08-26 10:08:54.340312Z**. Four campaign tables are **0/0/0/0**
-(re-cleared 2026-08-27 09:59Z before the invitation).
+been running since **2026-08-26 10:08:54.340312Z**. Four campaign tables are **3/7/0/0**
+(2026-08-27 11:51:03Z) and rising: the invitation is out and people are submitting.
 
 It ran exactly one cycle: a single annual period, "Annual Review 2025", 234 evaluations all dated December 2025. It has never run a half-year cycle. The season goal — H1 → H2 → annual aggregation — is new capability, not a repeat.
 
@@ -48,7 +50,7 @@ Since 2026-08-21 periods form a **hierarchy**: a half-year period may hang under
 | Portainer | Reachable only via SSH tunnel `127.0.0.1:29000` |
 | Backups | **Two daily jobs since 2026-08-21.** 03:00 MSK `backup-performance-db.sh` → the 2025 archive (`postgres -n performance_db`), **13** dumps on disk (`retained=13` in the 2026-08-24 00:00Z log). 03:20 MSK `backup-epe-live.sh` → **`epe_2026` in full** and the **n8n application schema** (`postgres -n public`: 58 workflows, 7 credentials, 8 settings). Today's live job: `backup-epe-live.status` = **`OK 2026-08-24T00:20:01Z`**; `epe_2026` 24 100 B retained=4; `n8n_app` 366 338 B retained=4. 14-day stem-scoped prune on both; failure = non-zero exit + `FAIL` in `backup.log` and in `backup-epe-live.status` (no MTA on the host, so that file is the alarm). Restore-proven 2026-08-21: 17/17 and 52/52 tables row-matched from a cron-produced dump. BUG-032 **closed**, `docs/BACKUP_FIX_2026-08-2x.md`. **Off-host copy still missing (BUG-014)** — one disk now holds live, n8n and every backup of both |
 
-Workflows: **60 total** = **35 active** + 3 inactive unarchived (`EPE: Auth Guard`, `API: Global CORS Handler`, `My workflow 10`) + **22 archived**. **49** registered webhooks (22 GET / 25 POST / 2 OPTIONS). Re-measured 2026-08-26 after HIRE_DATE_AND_SCOPE_TOGGLE. Five workflows were rewritten at 08:52:42–08:52:50Z — `Admin Save User`, `Manage Periods`, `Admin Get Users Data`, `Manage Period Scope`, `Get Employees (Smart Role Based)` — with a final actor-id guard correction on `Admin Save User` at **09:04:31Z**; the one new webhook is admin-only `GET /api/admin/employee-events`, a unified read over the three append-only event families. Earlier the same day two were rewritten at 05:16Z by CLEVEL_AVERAGING (`Manage Periods`, `evaluations-matrix`) and one at 07:57:50Z by PRELAUNCH_GATE (`API: Score Correction`, D-0826-3). The two workflows added since the 58/42 reading remain `API: Manage Employment Status` (D-0825-7) and `API: Manage Period Scope` (D-0825-10). **ROLE_ACCESS_DEPLOY rewrote three at 2026-08-26 13:46:55–57Z** — `Admin Get Users Data` (guard admin→admin+hr+c_level, grades coefficient stripped for hr), `Get Score Coefficients` (GET admin→admin+c_level), `Manage Criteria Admin V7` (admin+c_level; save/delete refuse every non-admin by role before the freeze) — D-0826-6; `Score Correction` was deliberately NOT touched (D-0826-7: c_level keeps its corrections, updatedAt still 07:57:50.177Z).
+Workflows: **61 total** = **36 active** (PEER_RECOGNITION added `API: Peer Recognition`, `KLDk6WmWZKsZ8GVX`, active 2026-08-27T11:48:58.060Z; it UPDATED no existing workflow — the 19 generated files at HEAD came out byte-identical). Before that: **60 total** = **35 active** + 3 inactive unarchived (`EPE: Auth Guard`, `API: Global CORS Handler`, `My workflow 10`) + **22 archived**. **49** registered webhooks (22 GET / 25 POST / 2 OPTIONS). Re-measured 2026-08-26 after HIRE_DATE_AND_SCOPE_TOGGLE. Five workflows were rewritten at 08:52:42–08:52:50Z — `Admin Save User`, `Manage Periods`, `Admin Get Users Data`, `Manage Period Scope`, `Get Employees (Smart Role Based)` — with a final actor-id guard correction on `Admin Save User` at **09:04:31Z**; the one new webhook is admin-only `GET /api/admin/employee-events`, a unified read over the three append-only event families. Earlier the same day two were rewritten at 05:16Z by CLEVEL_AVERAGING (`Manage Periods`, `evaluations-matrix`) and one at 07:57:50Z by PRELAUNCH_GATE (`API: Score Correction`, D-0826-3). The two workflows added since the 58/42 reading remain `API: Manage Employment Status` (D-0825-7) and `API: Manage Period Scope` (D-0825-10). **ROLE_ACCESS_DEPLOY rewrote three at 2026-08-26 13:46:55–57Z** — `Admin Get Users Data` (guard admin→admin+hr+c_level, grades coefficient stripped for hr), `Get Score Coefficients` (GET admin→admin+c_level), `Manage Criteria Admin V7` (admin+c_level; save/delete refuse every non-admin by role before the freeze) — D-0826-6; `Score Correction` was deliberately NOT touched (D-0826-7: c_level keeps its corrections, updatedAt still 07:57:50.177Z).
 
 Active set (live names, 2026-08-24 — identical to the 2026-08-20/21 set):
 
@@ -151,7 +153,7 @@ Unauthenticated `GET /webhook/api/periods` and `GET …/annual-rollup` → **401
 - **`detail_type` is a real filter** (`all` / `self` / `received_from_manager` / `from_subordinates` / `gave_to_manager` / `gave_to_subordinates`; unknown → 422).
 - **Company-wide reporting audience = admin + c_level.** `ReportingRoute` on `/analytics`, `/admin/all-evaluations`, `/admin/evaluations-matrix`, `/admin/annual-rollup`. HR keeps `/hr/dashboard` and the employee table. Typed `/admin` (criteria) is still `AdminRoute` (BUG-013); its API is admin-only (403).
 - **Analytics** is period-bound. Company avg is still `AVG(calculated_score)` over **all sources mixed**.
-- **scrypt** (N=16384, r=8, p=1) in registration and login. No plaintext passwords anywhere. **85 of 89 users have `password_hash = NULL`; four are registered** (measured 2026-08-27): Alexander (id 2, admin), Jemal Gulberdiyeva (id 47, c_level), Liya Dmitriyeva (id 52, hr), Oksana Borisenkova (id 70, employee). Session rows move with ordinary login and are **not an invariant**. Everyone else registers via the shared invite.
+- **scrypt** (N=16384, r=8, p=1) in registration and login. No plaintext passwords anywhere. **13 of 89 users are registered as of 2026-08-27 11:51Z** (5 at 11:05Z the same morning) — the invitation is out and this number climbs on its own; it is a measurement, not an invariant, and so are session rows. Everyone else registers via the shared invite.
 - **One-time password reset** with `token_version` invalidating prior JWTs. Fails closed unless `EPE_FRONTEND_URL` is HTTPS — configured.
 - **Login throttling**: 5 failures / 15 min → 15 min lock, generic 401, dummy scrypt for unknown emails. `GET /api/verify-invite` is 600 / 5 min / IP.
 - **Shared invite id=4** is reusable (`is_used` stays false), unexpired until **2026-09-18**. Register validator `[A-Za-z0-9_-]{16,128}`; the live token is 43-char base64url.
@@ -180,10 +182,21 @@ Unauthenticated `GET /webhook/api/periods` and `GET …/annual-rollup` → **401
   `evaluation_periods_id_seq` is at 5 with ids 3 and 4 absent — a rejected INSERT still consumes a
   `nextval`; there is no delete route. Harmless.
   **Annual 2025 has zero participant rows**, so it can never obtain `period_results`; feeding it to close returns 409. An «Annual 2025» container would render «нет сохранённых результатов» for every person — which is exactly what that cell label was written for.
-- **Live campaign tables are empty again as of 2026-08-27 09:59Z:** `evaluations` 0,
-  `evaluation_scores` 0, `score_corrections` 0, `period_results` 0. The gate is open, so this is a
-  measurement, not a continuing invariant. One pre-invite upward test row (eval 39) was removed
-  by id — `docs/CLEAR_TEST_EVALUATIONS_2026-08-27.md`.
+- **Live campaign tables carry REAL employee work as of 2026-08-27 11:51:03Z:** `evaluations` **3**,
+  `evaluation_scores` **7**, `score_corrections` 0, `period_results` 0 — up from 0/0/0/0 at 11:05:08Z
+  the same morning. These rows belong to real people: never delete, edit or recompute one. The
+  earlier 09:59Z empty reading (`docs/CLEAR_TEST_EVALUATIONS_2026-08-27.md`) is historical.
+- **Peer recognition is live and is not part of any of this (D-0827-4, 2026-08-27).**
+  `performance_db.peer_recognitions` (migration 018) holds at most one nomination per person per
+  period — three free-text fields, no numeric column, no foreign key into `evaluations`,
+  `evaluation_scores`, `score_corrections` or `period_results`. Routes live in
+  `API: Peer Recognition` (`KLDk6WmWZKsZ8GVX`): `GET api/recognition/form` and
+  `POST api/recognition/save` for any authenticated session (including people out of H1 scope),
+  `GET api/recognition/list` for `admin` + `c_level` only. Refused server-side: self, own manager,
+  own direct report, terminated. **No count of nominations is displayed anywhere, ever** — adding
+  one turns the surface into a popularity contest and destroys its purpose. Proven money-neutral by
+  closing two copies of one database side by side: 89 frozen rows md5-identical.
+  Report: `docs/PEER_RECOGNITION_2026-08-27.md`.
 - **Org imported**: 89 users, real hire dates, hierarchy by `Manager's ID`, 0 cycles, 0 people without an evaluator. `can_evaluate` / `can_be_evaluated` as separate columns — the org tree and the evaluation graph are not the same graph. Live roles re-measured 2026-08-26 13:37Z: 1 admin, 5 c_level, **13 manager, 68 employee**, 2 hr (one employee→manager move by the owner since 24 Aug, predates the card-events log). Registered accounts now **4**: Alexander (2), Jemal (47), Liya Dmitriyeva (52, hr), **Oksana Borisenkova (70, employee)** — measured 2026-08-27; she stays registered after the clear.
 - Read-only (evaluate nobody, evaluated by nobody): Cem Durukan (21), Mekan Yusupov (61), Hemra Ashyrov (40). All three are **in H1 scope with `grade_id IS NULL` and `manager_id IS NULL`** — decided and left that way, D-0821-4. `API: Submit Evaluation` carries `AND subj.can_be_evaluated = true` in all three relation filters plus an e-mail denylist on the `c_level_direct` branch, so they can never acquire a `manager_score`; `final_rating` and `bonus_index` would persist as NULL, never a coefficient-1.00 money row. That guard has no static test (BUG-039).
 - **Classification is Alexander's, and he is editing it.** Live `work_category`: **48 general / 41 project** (`is_project_participant` agrees on every row; zero `tender`). On 2026-08-20 it was 46 / 43 — two people moved to general since. «Тендер» is a leftover UI option and an unused Postgres enum label; `API: Admin Save User` allows only `general` / `project` and answers 422 otherwise. Report: `docs/TENDER_CATEGORY_2026-08-2x.md`.
@@ -421,7 +434,12 @@ Reports, in order: `AUTHENTICATION_CORE_2026-08-18.md` · `TLS_CUTOVER_2026-08-1
 the employee guide subset reads 1–3 without changing approved words, the own profile carries
 identity/scope/tasks/self score, and D-0820-17 remains sealed.
 
-Latest: **`CLEAR_TEST_EVALUATIONS_2026-08-27.md`** — one pre-invite upward
+Latest: **`PEER_RECOGNITION_2026-08-27.md`** — «Отметить коллегу»: a separate
+page and menu item, one replaceable nomination per person per period, four
+server-side refusals, readers `admin`+`c_level` only, **no count anywhere**, and
+money isolation proven by two side-by-side closes (89 frozen rows md5-identical).
+Migration 018, workflow `API: Peer Recognition`, frontend `20260827T114910Z`
+(D-0827-4). Previous: **`CLEAR_TEST_EVALUATIONS_2026-08-27.md`** — one pre-invite upward
 test evaluation (id 39, Oksana 70 → Aysha 15) deleted by recorded id;
 campaign tables **0/0/0/0**; no `c_level_direct`; registered **4** untouched;
 coefficients still `079177fb…`. Previous:
@@ -451,7 +469,7 @@ real-browser walkthrough as c_level (7 pages non-empty, no edit affordance) and
 HR (roster, read-only), zero compensation keys, campaign invariants
 byte-identical. BUG-013/BUG-042 closed, BUG-077 filed.
 
-Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**30 open / 48 closed** after ADMIN_USERS_SUMMARY closed BUG-078). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…017` (015 employment termination, 016 append-only period-scope log, 017 append-only employee-card log plus two-direction manual scope precedence).
+Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**30 open / 48 closed** after ADMIN_USERS_SUMMARY closed BUG-078). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…018` (015 employment termination, 016 append-only period-scope log, 017 append-only employee-card log plus two-direction manual scope precedence, **018 peer recognition — additive, no FK into any campaign table**).
 
 **`docs/EVALUATION_METHODOLOGY.md` does not exist.** `AGENTS.md` calls it the business contract Alexander owns — role groups, criteria, weights, scale, aggregation, calibration — and says code conforms to it, never the reverse. There is no such file anywhere in the repo, and there never has been. A draft v1.0 exists outside the repository (chat-side architect, 2026-08-24) and is pending the owner's approval of four wording points; on approval it is committed verbatim as docs/EVALUATION_METHODOLOGY.md with a DECISIONS.md row. Until then the de facto contract remains HANDOVER §3–§4. Do not create the file.
 

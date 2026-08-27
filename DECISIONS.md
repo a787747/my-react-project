@@ -879,3 +879,41 @@ labelled numerators and denominators, not from an unlabelled mix. BUG-070
 **Implementation:** `docs/ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL_2026-08-27.md`;
 frontend `20260827T075704Z`; `API: Admin Get Users Data` read-payload
 extension.
+
+### D-0827-4 — Peer recognition is a separate surface, and it never becomes a count (2026-08-27)
+
+**Decision:** any employed, registered person may name **one** colleague per
+period whose help mattered, in three free-text fields (situation → action →
+outcome), on a **separate page** with its own menu entry «Отметить коллегу» —
+not a field inside the evaluation form, which is not touched while the campaign
+runs. The nomination is replaceable until the period closes and is physically
+one row: `UNIQUE (period_id, author_id)`.
+
+Refused, server-side and re-asserted inside the writing statement: oneself,
+one's own manager, one's own direct report, and anyone terminated. Readers are
+`admin` and `c_level` only — HR is refused 403, the nominated person is refused
+403, their manager is refused 403.
+
+**No count of nominations is displayed anywhere, for anybody, ever** — not a
+number, not a badge, not a sort order, not a leaderboard, not a column in an
+export. The reader's list is ordered by time alone, and the table carries no
+index on `nominee_id`, because the only query such an index makes cheap is the
+one that must never run.
+
+Scope binding is the **active leaf period**, deliberately NOT gated on
+`evaluation_started_at`: people out of scope of H1 have no evaluation tasks at
+all and are exactly the population the surface is for. Close ends it — with no
+active leaf the save route answers 409 `NO_ACTIVE_PERIOD`.
+
+**Consequence:** it is not a vote, not a rating and not money. Migration 018's
+table has no numeric column and no foreign key into `evaluations`,
+`evaluation_scores`, `score_corrections` or `period_results`. Proven, not
+asserted: two copies of one database — identical in every money input, differing
+only by the two nomination rows — were closed side by side by the real route and
+froze **89 `period_results` rows md5-identical** (`565faa99…`), including the
+rows of both nominated people.
+
+**Implementation:** `docs/PEER_RECOGNITION_2026-08-27.md`; migration 018;
+workflow `API: Peer Recognition` (`KLDk6WmWZKsZ8GVX`, 3 routes); frontend
+`20260827T114910Z`. Two of the three refusal sentences are the executor's
+wording, not the owner's, and are flagged in §9 of the report.

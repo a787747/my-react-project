@@ -1,5 +1,45 @@
 # Evaluation Portal Progress
 
+## 2026-08-27 — PEER_RECOGNITION: «Отметить коллегу» live
+
+**Status:** ✅ Done and on live. Migration **018**, workflow **`API: Peer
+Recognition`** (`KLDk6WmWZKsZ8GVX`, 3 routes, active 11:48:58Z), frontend
+**`20260827T114910Z`**. Workflows 60 → **61**, active 35 → **36**.
+
+A separate page and its own menu item — not a field in the evaluation form,
+which was not touched. Any employed, registered person may name **one**
+colleague per period in three free-text fields, replaceable until close;
+`UNIQUE (period_id, author_id)` makes "exactly one" a database fact. Refused
+server-side and re-asserted inside the writing statement: self, own manager,
+own direct report, terminated. Readers **`admin` + `c_level` only** — HR 403,
+the nominated person 403, their manager 403, unauthenticated 401. **No count of
+nominations is shown anywhere**: no number, badge, sort order, leaderboard or
+export column; the reader lists by time alone and the table has no index on
+`nominee_id`. Owner's texts rendered verbatim; two refusal sentences are the
+executor's wording and are flagged (report §9).
+
+Money isolation proven, not asserted: two databases restored from ONE seeded
+dump, identical in every money input (`9d24671e…`), differing only by the two
+nomination rows, closed side by side by the real route — **89 frozen
+`period_results` rows md5-identical `565faa99…`**, including both nominated
+people's rows (index 207.4800 and 92.2320). Plus 19 other route payloads walked
+for the nomination's marker (none), and 15 admin screens + the nominee's profile
++ their manager's three team surfaces walked in a browser (none).
+
+Stand proof 37/37, close proof 10/10, live verification 17/17 — the live run
+stored **zero** nominations (`peer_recognitions` 0 before and after). Both stand
+databases and both containers dropped; `/root/epe_stand_tmp` emptied.
+
+**Campaign moved under the session — real employees, not drift:** campaign
+tables **0/0/0/0 (11:05Z) → 2/4/0/0 (11:47Z) → 3/7/0/0 (11:51Z)**; registered
+**5 → 12 → 13**. Unchanged: `evaluation_started_at`
+`2026-08-26 10:08:54.340312Z`, 89 users, 3 terminated, H1 **78/89** in scope,
+Annual 2026 86/89, roles 1/5/13/68/2, coefficients **`079177fb…`** identical to
+`docs/coefficients/H1-2026_coefficients_20260826T044844Z.md`. §4 of HANDOVER not
+edited. Anchor dump `307b08dd…` (11:48:06Z) on the Mac outside the repo.
+
+**Report:** `docs/PEER_RECOGNITION_2026-08-27.md`. **Decision:** D-0827-4.
+
 ## 2026-08-27 — CLEAR_TEST_EVALUATIONS: pre-invite H1 test row removed
 
 **Status:** ✅ Done. Campaign tables **0/0/0/0**. One upward test evaluation

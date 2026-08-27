@@ -56,6 +56,11 @@ const GuidePreview = import.meta.env.DEV
 const HRDashboard = lazy(() => import('./pages/HRDashboard'));
 const TeamView = lazy(() => import('./pages/TeamView'));
 const AdminScoreCalculator = lazy(() => import('./pages/AdminScoreCalculator'));
+// «Отметить коллегу» (PEER_RECOGNITION, 2026-08-27) — отдельная страница, а не
+// поле внутри формы оценки: люди уже сдали оценки и поле бы не увидели, а
+// трогать форму во время идущей кампании нельзя.
+const PeerRecognition = lazy(() => import('./pages/PeerRecognition'));
+const AdminPeerRecognition = lazy(() => import('./pages/AdminPeerRecognition'));
 
 const ProtectedRoute = ({ children, user }) => {
   if (!user) {
@@ -220,6 +225,18 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          {/* Отметить коллегу — любой авторизованный, включая тех, кто вне
+              охвата H1 и не имеет ни одной задачи по оценке. Сервер проверяет
+              все три отказа (себя, своего руководителя, своего подчинённого) и
+              уволенных заново при сохранении. */}
+          <Route
+            path="/recognition"
+            element={
+              <ProtectedRoute user={user}>
+                <PeerRecognition user={user} />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/manager-evaluation"
             element={
@@ -334,6 +351,16 @@ function AppContent() {
               <HRRoute user={user}>
                 <HRDashboard />
               </HRRoute>
+            }
+          />
+          {/* Чтение отметок: admin + c_level. HR сюда не пускают ни маршрут,
+              ни API (403 ROLE_FORBIDDEN). */}
+          <Route
+            path="/admin/recognition"
+            element={
+              <ReportingRoute user={user}>
+                <AdminPeerRecognition />
+              </ReportingRoute>
             }
           />
           <Route

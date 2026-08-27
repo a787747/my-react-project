@@ -110,6 +110,19 @@ export const API_ENDPOINTS = {
   UPDATE_ADMIN_DATA: `${API_BASE_URL}/update-admin-data`,
   
   // ============================================
+  // ОТМЕТИТЬ КОЛЛЕГУ (PEER_RECOGNITION, 2026-08-27)
+  // ============================================
+  // Не оценка, не голосование, не деньги. Отдельная таблица
+  // performance_db.peer_recognitions без единой числовой колонки и без внешних
+  // ключей в evaluations / evaluation_scores / score_corrections /
+  // period_results. Количество отметок не возвращает ни один из трёх маршрутов.
+  RECOGNITION_FORM: `${API_BASE_URL}/api/recognition/form`,
+  RECOGNITION_SAVE: `${API_BASE_URL}/api/recognition/save`,
+  // Читают только admin и c_level — сервер отказывает по роли (403), а не
+  // прячет пункт меню.
+  RECOGNITION_LIST: `${API_BASE_URL}/api/recognition/list`,
+
+  // ============================================
   // АДМИН: ОЧИСТКА ТЕСТОВЫХ ДАННЫХ
   // ============================================
   ADMIN_CLEAR_TEST_EVALUATIONS: `${API_BASE_URL}/api/admin/clear-test-evaluations`
