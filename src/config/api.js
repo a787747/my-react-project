@@ -118,6 +118,9 @@ export const API_ENDPOINTS = {
   // period_results. Количество отметок не возвращает ни один из трёх маршрутов.
   RECOGNITION_FORM: `${API_BASE_URL}/api/recognition/form`,
   RECOGNITION_SAVE: `${API_BASE_URL}/api/recognition/save`,
+  // Автор снимает свою отметку, пока период открыт. Сервер удаляет строку
+  // по identity из токена, а не по author_id из тела.
+  RECOGNITION_WITHDRAW: `${API_BASE_URL}/api/recognition/withdraw`,
   // Читают только admin и c_level — сервер отказывает по роли (403), а не
   // прячет пункт меню.
   RECOGNITION_LIST: `${API_BASE_URL}/api/recognition/list`,

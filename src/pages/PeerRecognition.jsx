@@ -12,9 +12,11 @@
  * увидели, а трогать форму во время идущей кампании нельзя.
  *
  * Данные: usePeerRecognition → GET /api/recognition/form (один запрос),
- * сохранение → POST /api/recognition/save. Списки «можно» и «нельзя» строит
+ * сохранение → POST /api/recognition/save, снятие → POST
+ * /api/recognition/withdraw. Списки «можно» и «нельзя» строит
  * сервер; те же три отказа он проверяет заново при сохранении, поэтому прямой
- * вызов маршрута мимо экрана отказывает так же.
+ * вызов маршрута мимо экрана отказывает так же. Снять можно только свою
+ * отметку и только пока период открыт — это проверяет сервер.
  *
  * Тексты заголовка, пояснения, подписей полей и подсказок — владельца, дословно.
  * Менять их нельзя: форма, которая спрашивает ситуацию, действие и результат,
@@ -40,6 +42,11 @@ const COPY = {
     'Это не голосование и не рейтинг. Количество отметок нигде не подсчитывается и ни на чью премию не влияет. Смысл в другом: руководство почти не видит помощь, которая происходит между отделами, — а видите её вы.',
     'Не нужно отмечать за то, что с человеком приятно работать или он выручил по мелочи. Это нормальные рабочие отношения, а не то, о чём стоит сообщать отдельно.'
   ],
+  // Brief PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW — owner's sentence, verbatim.
+  disclosure:
+    'Отметку читает только высшее руководство компании. Отмеченный человек и его руководитель её не видят.',
+  withdrawButton: 'Снять отметку',
+  withdrawConfirm: 'Снять отметку? Текст будет удалён, и вы снова будете без отметки.',
   nomineeLabel: 'Кого вы отмечаете',
   fields: [
     {
@@ -74,8 +81,10 @@ const PeerRecognition = ({ user }) => {
     myNomination,
     loading,
     saving,
+    withdrawing,
     error,
-    save
+    save,
+    withdraw
   } = usePeerRecognition(user);
 
   const [search, setSearch] = useState('');
@@ -99,6 +108,10 @@ const PeerRecognition = ({ user }) => {
       action: myNomination.action || '',
       outcome: myNomination.outcome || ''
     });
+  } else if (!nominationKey && hydratedFrom) {
+    setHydratedFrom(null);
+    setNomineeId(null);
+    setTexts({ situation: '', action: '', outcome: '' });
   }
 
   const allPeople = useMemo(
@@ -140,7 +153,8 @@ const PeerRecognition = ({ user }) => {
     !!texts.situation.trim() &&
     !!texts.action.trim() &&
     !!texts.outcome.trim() &&
-    !saving;
+    !saving &&
+    !withdrawing;
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -151,6 +165,17 @@ const PeerRecognition = ({ user }) => {
       action: texts.action.trim(),
       outcome: texts.outcome.trim()
     });
+    if (result.ok) {
+      toast.success(result.message);
+    } else {
+      toast.error(result.message);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!myNomination || withdrawing || saving) return;
+    if (!window.confirm(COPY.withdrawConfirm)) return;
+    const result = await withdraw({ recognitionId: myNomination.id });
     if (result.ok) {
       toast.success(result.message);
     } else {
@@ -194,6 +219,7 @@ const PeerRecognition = ({ user }) => {
               {COPY.intro.map((paragraph) => (
                 <p key={paragraph.slice(0, 24)}>{paragraph}</p>
               ))}
+              <p>{COPY.disclosure}</p>
             </div>
           </div>
         </div>
@@ -342,6 +368,20 @@ const PeerRecognition = ({ user }) => {
             >
               {saving ? 'Сохранение...' : myNomination ? 'Заменить отметку' : 'Отметить'}
             </button>
+            {myNomination && (
+              <button
+                type="button"
+                onClick={handleWithdraw}
+                disabled={withdrawing || saving}
+                className={`px-5 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+                  withdrawing || saving
+                    ? 'border-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {withdrawing ? 'Снятие...' : COPY.withdrawButton}
+              </button>
+            )}
             <span className="text-xs text-gray-400">
               Одна отметка на период. Её можно заменить, пока период не закрыт.
             </span>

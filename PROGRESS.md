@@ -1,5 +1,34 @@
 # Evaluation Portal Progress
 
+## 2026-08-27 — PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW
+
+**Status:** ✅ Done and on live. Workflow `API: Peer Recognition`
+(`KLDk6WmWZKsZ8GVX`) PUT **2026-08-27T12:43:34.472Z** (32 nodes, 4 webhooks),
+frontend **`20260827T124349Z`**. No migration. Auth Guard frozen
+`2026-08-18T16:34:30.674Z`.
+
+The owner's disclosure sentence sits verbatim above the fields; the three
+existing intro paragraphs are unchanged. The author can withdraw their own
+nomination while the period is open — physical `DELETE`, identity from the
+token, 409 `NO_ACTIVE_PERIOD` once closed (same as replace). Executor texts:
+button «Снять отметку», confirm «Снять отметку? Текст будет удалён, и вы снова
+будете без отметки.», success «Отметка снята».
+
+Stand: dump md5 `f5e8968e…` both sides; API 403/409/422/404/401 proven;
+browser walk 15/15; live verify 8/8 and **zero** live rows deleted
+(`peer_recognitions` ids 1,3 before and after). Retention reported, not
+resolved — BUG-080. Both stand DBs and containers dropped.
+
+**Campaign moved under the session — real employees:** tables
+**11/23/0/0 (12:18Z) → 23/68/0/0 (12:43–12:44Z)**; registered **16 → 18**;
+peer **1 → 2** (the second row is author 12, not this brief). Unchanged:
+`evaluation_started_at` `2026-08-26 10:08:54.340312Z`, 89 users, 3 terminated,
+H1 **78/89** in scope, roles 1/5/13/68/2, coefficients **`079177fb…`**.
+§4 of HANDOVER not edited.
+
+**Report:** `docs/PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW_2026-08-27.md`.
+**Decision:** D-0827-5.
+
 ## 2026-08-27 — PEER_RECOGNITION: «Отметить коллегу» live
 
 **Status:** ✅ Done and on live. Migration **018**, workflow **`API: Peer

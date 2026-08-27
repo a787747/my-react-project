@@ -7059,7 +7059,10 @@ def build_manage_period_scope(credential_id: str, guard_workflow_id: str) -> dic
 # evaluation_started_at: people who are out of scope of H1 have no evaluation
 # tasks at all and are exactly the population the owner wants to hear from, and
 # a nomination is not an evaluation. Close ends it: once the period is closed
-# there is no active leaf, and the save route answers NO_ACTIVE_PERIOD.
+# there is no active leaf, and the save and withdraw routes answer
+# NO_ACTIVE_PERIOD. Withdraw deletes the author's own row — it does not
+# blank it — so the author returns to having none. The DELETE is keyed on
+# the token actor, not on a client-supplied author id.
 
 RECOGNITION_BLOCK_MESSAGES = {
     # The own-manager sentence is the owner's, verbatim, and is the only one of
@@ -7588,6 +7591,202 @@ return {
 """.strip()
 
 
+RECOGNITION_WITHDRAW_VALIDATE = """
+const guard = $('Run Auth Guard WITHDRAW').first().json;
+if (!guard.ok) {
+  return {
+    json: {
+      http_status: guard.status,
+      body: { success: false, error: guard.code, message: guard.message },
+    },
+  };
+}
+const actorId = Number(guard.identity.id);
+const body = guard.request.body || guard.request;
+const recognitionId = parseInt(body.recognition_id, 10);
+if (!Number.isFinite(recognitionId) || recognitionId < 1) {
+  return {
+    json: {
+      http_status: 422,
+      body: {
+        success: false,
+        error: 'INVALID_RECOGNITION_ID',
+        message: 'Не указана отметка',
+      },
+    },
+  };
+}
+
+// Identity is the token actor. A client-supplied author_id is ignored: the
+// only row this route can ever delete is the actor's own.
+return {
+  json: {
+    ok: true,
+    actor_id: actorId,
+    recognition_id: recognitionId,
+    sql: `
+      SELECT
+        a.id AS actor_id,
+        (a.terminated_at IS NOT NULL) AS actor_terminated,
+        (SELECT cp.id FROM performance_db.evaluation_periods cp
+          WHERE cp.is_active = true AND cp.status = 'active'
+            AND cp.period_type <> 'annual'
+            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                            WHERE child.parent_period_id = cp.id)
+          LIMIT 1) AS period_id,
+        r.id AS recognition_id,
+        r.author_id AS row_author_id,
+        r.period_id AS row_period_id
+      FROM performance_db.users a
+      LEFT JOIN performance_db.peer_recognitions r ON r.id = ${recognitionId}
+      WHERE a.id = ${actorId}
+    `,
+  },
+};
+""".strip()
+
+
+RECOGNITION_WITHDRAW_BUILD = """
+const prev = $('Validate Withdraw').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const check = $input.all().map(item => item.json).find(item => item.actor_id !== undefined);
+if (!check) {
+  return {
+    json: {
+      http_status: 404,
+      body: { success: false, error: 'ACTOR_NOT_FOUND', message: 'Ваша учётная запись не найдена' },
+    },
+  };
+}
+const truthy = value => value === true || value === 't';
+const actorId = Number(prev.actor_id);
+const recognitionId = Number(prev.recognition_id);
+
+// Same gate as replace: no active leaf → 409. A closed period keeps the row.
+if (check.period_id === null || check.period_id === undefined) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'NO_ACTIVE_PERIOD',
+        message: 'Сейчас нет открытого периода — отметить коллегу можно только внутри периода',
+      },
+    },
+  };
+}
+if (truthy(check.actor_terminated)) {
+  return {
+    json: {
+      http_status: 403,
+      body: { success: false, error: 'ACTOR_TERMINATED', message: 'Учётная запись неактивна' },
+    },
+  };
+}
+if (check.recognition_id === null || check.recognition_id === undefined) {
+  return {
+    json: {
+      http_status: 404,
+      body: { success: false, error: 'RECOGNITION_NOT_FOUND', message: 'Отметки нет' },
+    },
+  };
+}
+if (Number(check.row_author_id) !== actorId) {
+  return {
+    json: {
+      http_status: 403,
+      body: {
+        success: false,
+        error: 'RECOGNITION_NOT_OWN',
+        message: 'Снять можно только свою отметку',
+      },
+    },
+  };
+}
+if (Number(check.row_period_id) !== Number(check.period_id)) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'NO_ACTIVE_PERIOD',
+        message: 'Сейчас нет открытого периода — отметить коллегу можно только внутри периода',
+      },
+    },
+  };
+}
+
+const periodId = Number(check.period_id);
+// One statement. Author identity and the open leaf are re-asserted inside
+// the DELETE, so a hand-made body against a row that is not the actor's
+// writes zero rows (BUG-041).
+return {
+  json: {
+    ok: true,
+    sql: `
+WITH current_period AS (
+  SELECT p.id
+  FROM performance_db.evaluation_periods p
+  WHERE p.id = ${periodId}
+    AND p.is_active = true
+    AND p.status = 'active'
+    AND p.period_type <> 'annual'
+    AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child
+                    WHERE child.parent_period_id = p.id)
+),
+deleted AS (
+  DELETE FROM performance_db.peer_recognitions r
+  USING current_period cp, performance_db.users a
+  WHERE r.id = ${recognitionId}
+    AND r.author_id = ${actorId}
+    AND r.period_id = cp.id
+    AND a.id = ${actorId}
+    AND a.terminated_at IS NULL
+  RETURNING r.id
+)
+SELECT
+  (SELECT count(*)::integer FROM deleted) AS written,
+  (SELECT id FROM deleted LIMIT 1) AS recognition_id
+    `,
+  },
+};
+""".strip()
+
+
+RECOGNITION_WITHDRAW_FORMAT = """
+const prev = $('Build Withdraw SQL').first().json;
+if (prev.http_status) {
+  return { json: prev };
+}
+const row = $input.all().map(item => item.json).find(item => item.written !== undefined);
+if (!row || Number(row.written) === 0) {
+  return {
+    json: {
+      http_status: 409,
+      body: {
+        success: false,
+        error: 'RECOGNITION_CONFLICT',
+        message: 'Состояние изменилось во время сохранения — обновите страницу и повторите',
+      },
+    },
+  };
+}
+return {
+  json: {
+    http_status: 200,
+    body: {
+      success: true,
+      withdrawn: true,
+      recognition_id: Number(row.recognition_id),
+      message: 'Отметка снята',
+    },
+  },
+};
+""".strip()
+
+
 def _recognition_js(source: str) -> str:
     return (source
             .replace("__BLOCK_MESSAGES__",
@@ -7664,6 +7863,27 @@ def build_peer_recognition(credential_id: str, guard_workflow_id: str) -> dict[s
         node("recognition-list-format", "Format List Response", "n8n-nodes-base.code",
              [500, 600], {"jsCode": _recognition_js(RECOGNITION_LIST_FORMAT)}),
         respond_node("recognition-respond-list", "Respond LIST", [740, 600]),
+        # WITHDRAW — the author removes their own row while the period is open.
+        # Not an admin delete: the actor is the token identity, and a body
+        # pointing at somebody else's row is refused 403.
+        node("recognition-webhook-withdraw", "Webhook WITHDRAW", "n8n-nodes-base.webhook",
+             [-700, 900],
+             {"httpMethod": "POST", "path": "api/recognition/withdraw",
+              "responseMode": "responseNode", "options": {}},
+             type_version=2.1, webhook_id="epe-recognition-withdraw"),
+        node("recognition-guard-input-withdraw", "Prepare Guard Input WITHDRAW",
+             "n8n-nodes-base.code", [-480, 900], {"jsCode": guard_input_js([])}),
+        run_guard_node("recognition-run-guard-withdraw", "Run Auth Guard WITHDRAW",
+                       [-250, 900], guard_workflow_id),
+        node("recognition-withdraw-validate", "Validate Withdraw", "n8n-nodes-base.code",
+             [0, 900], {"jsCode": _recognition_js(RECOGNITION_WITHDRAW_VALIDATE)}),
+        pg("recognition-withdraw-check", "Load Withdraw Target", [250, 900], "actor_id"),
+        node("recognition-withdraw-build", "Build Withdraw SQL", "n8n-nodes-base.code",
+             [500, 900], {"jsCode": _recognition_js(RECOGNITION_WITHDRAW_BUILD)}),
+        pg("recognition-withdraw-execute", "Execute Withdraw", [750, 900], "written"),
+        node("recognition-withdraw-format", "Format Withdraw Response", "n8n-nodes-base.code",
+             [1000, 900], {"jsCode": _recognition_js(RECOGNITION_WITHDRAW_FORMAT)}),
+        respond_node("recognition-respond-withdraw", "Respond WITHDRAW", [1240, 900]),
     ]
     connections = {
         "Webhook FORM": connect("Prepare Guard Input FORM"),
@@ -7686,6 +7906,14 @@ def build_peer_recognition(credential_id: str, guard_workflow_id: str) -> dict[s
         "Build List Query": connect("Load List"),
         "Load List": connect("Format List Response"),
         "Format List Response": connect("Respond LIST"),
+        "Webhook WITHDRAW": connect("Prepare Guard Input WITHDRAW"),
+        "Prepare Guard Input WITHDRAW": connect("Run Auth Guard WITHDRAW"),
+        "Run Auth Guard WITHDRAW": connect("Validate Withdraw"),
+        "Validate Withdraw": connect("Load Withdraw Target"),
+        "Load Withdraw Target": connect("Build Withdraw SQL"),
+        "Build Withdraw SQL": connect("Execute Withdraw"),
+        "Execute Withdraw": connect("Format Withdraw Response"),
+        "Format Withdraw Response": connect("Respond WITHDRAW"),
     }
     return workflow("API: Peer Recognition", nodes_list, connections)
 

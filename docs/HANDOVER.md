@@ -1,13 +1,14 @@
 # EPE — Handover
 
-**As of:** 2026-08-27 (PEER_RECOGNITION) · **H1: active and started**
+**As of:** 2026-08-27 (PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW) · **H1: active and started**
 H1 (id 2) has been **active** since **2026-08-24 19:07:36Z** (`POST /webhook/api/periods/activate`, Caddy 200,
 from `/admin/periods`) and Alexander started the campaign at **2026-08-26 10:08:54.340312Z**. Employee
 tasks are open and submit routes accept writes. **The invitation has gone out and real employees are
-answering it:** the four campaign tables read **3/7/0/0** and registered accounts **13** at
-**2026-08-27 11:51:03Z**, having been 0/0/0/0 and 5 at 11:05:08Z the same morning. Both are moving
-measurements, not invariants — re-read them before assuming anything, and never edit a row you find
-there. Every earlier empty reading is historical. §7 is the remaining order of work.
+answering it:** the four campaign tables read **23/68/0/0** and registered accounts **18** at
+**2026-08-27 12:44:58Z**, having been 3/7/0/0 and 13 at 11:51:03Z and 0/0/0/0 and 5 at 11:05:08Z
+the same morning. Both are moving measurements, not invariants — re-read them before assuming
+anything, and never edit a row you find there. Every earlier empty reading is historical. §7 is
+the remaining order of work.
 
 Every number in §§1–3 and §§5–10 was re-measured against the live system on 2026-08-24 17:14–17:16 UTC,
 read-only (SELECT / GET / `readlink` / `openssl` / `crontab -l`). **§4 is copied verbatim and was not
@@ -22,8 +23,8 @@ docs-vs-docs differences this pass found.
 Employees Performance Evaluation for SEDA Medical Turkmenistan. 89 people. React SPA + n8n as the entire backend + PostgreSQL.
 
 **Live now:** H1-2026 is the current period (`status=active`, `is_active=true`) and the campaign has
-been running since **2026-08-26 10:08:54.340312Z**. Four campaign tables are **3/7/0/0**
-(2026-08-27 11:51:03Z) and rising: the invitation is out and people are submitting.
+been running since **2026-08-26 10:08:54.340312Z**. Four campaign tables are **23/68/0/0**
+(2026-08-27 12:44:58Z) and rising: the invitation is out and people are submitting.
 
 It ran exactly one cycle: a single annual period, "Annual Review 2025", 234 evaluations all dated December 2025. It has never run a half-year cycle. The season goal — H1 → H2 → annual aggregation — is new capability, not a repeat.
 
@@ -44,13 +45,16 @@ Since 2026-08-21 periods form a **hierarchy**: a half-year period may hang under
 | Live DB | `epe_2026`, schema `performance_db`, own credential `EPE 2026 Postgres` |
 | Archived DB | `postgres.performance_db` — 2025 data, **read-only forever**. This session by SELECT: **73 users, 234 evaluations, 644 scores, 3 corrections**. Fingerprint not re-hashed today (no dump taken); last computed `21d323b0…` in `docs/DRAFTS_UX_2026-08-2x.md` |
 | Databases on `postgres_n8n` | **`epe_2026` and `postgres` only** — every throwaway stand DB is gone |
-| Frontend | This host. Current release **`20260827T065624Z`** (EVALUATION_FORM_READABILITY); rollback target `20260827T060913Z`. Deploy: `./scripts/deploy_epe_frontend.sh` — it holds an exclusive lock locally and on the host and refuses a flip that started from a stale `current` (BUG-062), and its safety gates use `grep -r`, not `rg` (BUG-040). |
+| Frontend | This host. Current release **`20260827T124349Z`** (PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW); rollback target `20260827T114910Z`. Deploy: `./scripts/deploy_epe_frontend.sh` — it holds an exclusive lock locally and on the host and refuses a flip that started from a stale `current` (BUG-062), and its safety gates use `grep -r`, not `rg` (BUG-040). |
 | Azure VM | `135.232.120.40`, untouched fallback, still serves the old build on :8080. **Not re-probed this session** (last measured `docs/TLS_CUTOVER_2026-08-19.md`: TCP 3389 RDP open). September queue. |
 | Firewall | `DOCKER-USER` → `EPE-DOCKER-USER` (ufw does not filter Docker ports). 80/443 open; 5432/5431/8000/9000/2377/7946/4789 restricted to one allowlisted IP; 5678 DROP on `eth0`. **The allowlisted source is a single home IP (`188.137.254.191`) that changes — use the SSH tunnel, not the allowlist** |
 | Portainer | Reachable only via SSH tunnel `127.0.0.1:29000` |
 | Backups | **Two daily jobs since 2026-08-21.** 03:00 MSK `backup-performance-db.sh` → the 2025 archive (`postgres -n performance_db`), **13** dumps on disk (`retained=13` in the 2026-08-24 00:00Z log). 03:20 MSK `backup-epe-live.sh` → **`epe_2026` in full** and the **n8n application schema** (`postgres -n public`: 58 workflows, 7 credentials, 8 settings). Today's live job: `backup-epe-live.status` = **`OK 2026-08-24T00:20:01Z`**; `epe_2026` 24 100 B retained=4; `n8n_app` 366 338 B retained=4. 14-day stem-scoped prune on both; failure = non-zero exit + `FAIL` in `backup.log` and in `backup-epe-live.status` (no MTA on the host, so that file is the alarm). Restore-proven 2026-08-21: 17/17 and 52/52 tables row-matched from a cron-produced dump. BUG-032 **closed**, `docs/BACKUP_FIX_2026-08-2x.md`. **Off-host copy still missing (BUG-014)** — one disk now holds live, n8n and every backup of both |
 
-Workflows: **61 total** = **36 active** (PEER_RECOGNITION added `API: Peer Recognition`, `KLDk6WmWZKsZ8GVX`, active 2026-08-27T11:48:58.060Z; it UPDATED no existing workflow — the 19 generated files at HEAD came out byte-identical). Before that: **60 total** = **35 active** + 3 inactive unarchived (`EPE: Auth Guard`, `API: Global CORS Handler`, `My workflow 10`) + **22 archived**. **49** registered webhooks (22 GET / 25 POST / 2 OPTIONS). Re-measured 2026-08-26 after HIRE_DATE_AND_SCOPE_TOGGLE. Five workflows were rewritten at 08:52:42–08:52:50Z — `Admin Save User`, `Manage Periods`, `Admin Get Users Data`, `Manage Period Scope`, `Get Employees (Smart Role Based)` — with a final actor-id guard correction on `Admin Save User` at **09:04:31Z**; the one new webhook is admin-only `GET /api/admin/employee-events`, a unified read over the three append-only event families. Earlier the same day two were rewritten at 05:16Z by CLEVEL_AVERAGING (`Manage Periods`, `evaluations-matrix`) and one at 07:57:50Z by PRELAUNCH_GATE (`API: Score Correction`, D-0826-3). The two workflows added since the 58/42 reading remain `API: Manage Employment Status` (D-0825-7) and `API: Manage Period Scope` (D-0825-10). **ROLE_ACCESS_DEPLOY rewrote three at 2026-08-26 13:46:55–57Z** — `Admin Get Users Data` (guard admin→admin+hr+c_level, grades coefficient stripped for hr), `Get Score Coefficients` (GET admin→admin+c_level), `Manage Criteria Admin V7` (admin+c_level; save/delete refuse every non-admin by role before the freeze) — D-0826-6; `Score Correction` was deliberately NOT touched (D-0826-7: c_level keeps its corrections, updatedAt still 07:57:50.177Z).
+Workflows: **61 total** = **36 active**. `API: Peer Recognition` (`KLDk6WmWZKsZ8GVX`) was
+**UPDATED** 2026-08-27T12:43:34.472Z — still active, 32 nodes, four webhooks including
+`POST api/recognition/withdraw` (D-0827-5). Auth Guard `updatedAt` still `2026-08-18T16:34:30.674Z`.
+Created earlier the same day at 11:48:58.060Z (D-0827-4; it UPDATED no existing workflow then). Before that: **60 total** = **35 active** + 3 inactive unarchived (`EPE: Auth Guard`, `API: Global CORS Handler`, `My workflow 10`) + **22 archived**. **49** registered webhooks (22 GET / 25 POST / 2 OPTIONS). Re-measured 2026-08-26 after HIRE_DATE_AND_SCOPE_TOGGLE. Five workflows were rewritten at 08:52:42–08:52:50Z — `Admin Save User`, `Manage Periods`, `Admin Get Users Data`, `Manage Period Scope`, `Get Employees (Smart Role Based)` — with a final actor-id guard correction on `Admin Save User` at **09:04:31Z**; the one new webhook is admin-only `GET /api/admin/employee-events`, a unified read over the three append-only event families. Earlier the same day two were rewritten at 05:16Z by CLEVEL_AVERAGING (`Manage Periods`, `evaluations-matrix`) and one at 07:57:50Z by PRELAUNCH_GATE (`API: Score Correction`, D-0826-3). The two workflows added since the 58/42 reading remain `API: Manage Employment Status` (D-0825-7) and `API: Manage Period Scope` (D-0825-10). **ROLE_ACCESS_DEPLOY rewrote three at 2026-08-26 13:46:55–57Z** — `Admin Get Users Data` (guard admin→admin+hr+c_level, grades coefficient stripped for hr), `Get Score Coefficients` (GET admin→admin+c_level), `Manage Criteria Admin V7` (admin+c_level; save/delete refuse every non-admin by role before the freeze) — D-0826-6; `Score Correction` was deliberately NOT touched (D-0826-7: c_level keeps its corrections, updatedAt still 07:57:50.177Z).
 
 Active set (live names, 2026-08-24 — identical to the 2026-08-20/21 set):
 
@@ -182,22 +186,28 @@ Unauthenticated `GET /webhook/api/periods` and `GET …/annual-rollup` → **401
   `evaluation_periods_id_seq` is at 5 with ids 3 and 4 absent — a rejected INSERT still consumes a
   `nextval`; there is no delete route. Harmless.
   **Annual 2025 has zero participant rows**, so it can never obtain `period_results`; feeding it to close returns 409. An «Annual 2025» container would render «нет сохранённых результатов» for every person — which is exactly what that cell label was written for.
-- **Live campaign tables carry REAL employee work as of 2026-08-27 11:51:03Z:** `evaluations` **3**,
-  `evaluation_scores` **7**, `score_corrections` 0, `period_results` 0 — up from 0/0/0/0 at 11:05:08Z
-  the same morning. These rows belong to real people: never delete, edit or recompute one. The
-  earlier 09:59Z empty reading (`docs/CLEAR_TEST_EVALUATIONS_2026-08-27.md`) is historical.
-- **Peer recognition is live and is not part of any of this (D-0827-4, 2026-08-27).**
+- **Live campaign tables carry REAL employee work as of 2026-08-27 12:44:58Z:** `evaluations` **23**,
+  `evaluation_scores` **68**, `score_corrections` 0, `period_results` 0 — up from 3/7/0/0 at 11:51:03Z
+  and 0/0/0/0 at 11:05:08Z the same morning. These rows belong to real people: never delete, edit or
+  recompute one. The earlier 09:59Z empty reading (`docs/CLEAR_TEST_EVALUATIONS_2026-08-27.md`) is
+  historical.
+- **Peer recognition is live and is not part of any of this (D-0827-4, D-0827-5, 2026-08-27).**
   `performance_db.peer_recognitions` (migration 018) holds at most one nomination per person per
   period — three free-text fields, no numeric column, no foreign key into `evaluations`,
   `evaluation_scores`, `score_corrections` or `period_results`. Routes live in
   `API: Peer Recognition` (`KLDk6WmWZKsZ8GVX`): `GET api/recognition/form` and
   `POST api/recognition/save` for any authenticated session (including people out of H1 scope),
-  `GET api/recognition/list` for `admin` + `c_level` only. Refused server-side: self, own manager,
-  own direct report, terminated. **No count of nominations is displayed anywhere, ever** — adding
-  one turns the surface into a popularity contest and destroys its purpose. Proven money-neutral by
-  closing two copies of one database side by side: 89 frozen rows md5-identical.
-  Report: `docs/PEER_RECOGNITION_2026-08-27.md`.
-- **Org imported**: 89 users, real hire dates, hierarchy by `Manager's ID`, 0 cycles, 0 people without an evaluator. `can_evaluate` / `can_be_evaluated` as separate columns — the org tree and the evaluation graph are not the same graph. Live roles re-measured 2026-08-26 13:37Z: 1 admin, 5 c_level, **13 manager, 68 employee**, 2 hr (one employee→manager move by the owner since 24 Aug, predates the card-events log). Registered accounts now **4**: Alexander (2), Jemal (47), Liya Dmitriyeva (52, hr), **Oksana Borisenkova (70, employee)** — measured 2026-08-27; she stays registered after the clear.
+  `POST api/recognition/withdraw` for the author of their own row while the period is open
+  (physical delete; 409 once closed; 403 if it is not theirs),
+  `GET api/recognition/list` for `admin` + `c_level` only. The page states, verbatim, that only
+  senior leadership reads the text. Refused server-side: self, own manager, own direct report,
+  terminated. **No count of nominations is displayed anywhere, ever** — adding one turns the
+  surface into a popularity contest and destroys its purpose. Proven money-neutral by closing two
+  copies of one database side by side: 89 frozen rows md5-identical.
+  Reports: `docs/PEER_RECOGNITION_2026-08-27.md`,
+  `docs/PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW_2026-08-27.md`. Retention after close is
+  **not decided** (BUG-080).
+- **Org imported**: 89 users, real hire dates, hierarchy by `Manager's ID`, 0 cycles, 0 people without an evaluator. `can_evaluate` / `can_be_evaluated` as separate columns — the org tree and the evaluation graph are not the same graph. Live roles re-measured 2026-08-26 13:37Z: 1 admin, 5 c_level, **13 manager, 68 employee**, 2 hr (one employee→manager move by the owner since 24 Aug, predates the card-events log). Registered accounts now **18** (measured 2026-08-27 12:44:58Z; was 13 at 11:51Z and 4 before the invitation). Do not treat the named four as the live set.
 - Read-only (evaluate nobody, evaluated by nobody): Cem Durukan (21), Mekan Yusupov (61), Hemra Ashyrov (40). All three are **in H1 scope with `grade_id IS NULL` and `manager_id IS NULL`** — decided and left that way, D-0821-4. `API: Submit Evaluation` carries `AND subj.can_be_evaluated = true` in all three relation filters plus an e-mail denylist on the `c_level_direct` branch, so they can never acquire a `manager_score`; `final_rating` and `bonus_index` would persist as NULL, never a coefficient-1.00 money row. That guard has no static test (BUG-039).
 - **Classification is Alexander's, and he is editing it.** Live `work_category`: **48 general / 41 project** (`is_project_participant` agrees on every row; zero `tender`). On 2026-08-20 it was 46 / 43 — two people moved to general since. «Тендер» is a leftover UI option and an unused Postgres enum label; `API: Admin Save User` allows only `general` / `project` and answers 422 otherwise. Report: `docs/TENDER_CATEGORY_2026-08-2x.md`.
 - **Criteria catalogue: 9 active rows**, all with a positive weight, and 90 `score_coefficients`
@@ -434,7 +444,12 @@ Reports, in order: `AUTHENTICATION_CORE_2026-08-18.md` · `TLS_CUTOVER_2026-08-1
 the employee guide subset reads 1–3 without changing approved words, the own profile carries
 identity/scope/tasks/self score, and D-0820-17 remains sealed.
 
-Latest: **`PEER_RECOGNITION_2026-08-27.md`** — «Отметить коллегу»: a separate
+Latest: **`PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW_2026-08-27.md`** — the page
+says who reads the text (owner's sentence, verbatim, above the fields); the
+author can withdraw their own nomination while the period is open (physical
+delete, token identity, 409 after close). Frontend `20260827T124349Z`,
+workflow PUT 12:43:34Z (D-0827-5). Retention after close reported, not
+resolved (BUG-080). Previous: **`PEER_RECOGNITION_2026-08-27.md`** — «Отметить коллегу»: a separate
 page and menu item, one replaceable nomination per person per period, four
 server-side refusals, readers `admin`+`c_level` only, **no count anywhere**, and
 money isolation proven by two side-by-side closes (89 frozen rows md5-identical).

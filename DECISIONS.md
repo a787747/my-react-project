@@ -917,3 +917,26 @@ rows of both nominated people.
 workflow `API: Peer Recognition` (`KLDk6WmWZKsZ8GVX`, 3 routes); frontend
 `20260827T114910Z`. Two of the three refusal sentences are the executor's
 wording, not the owner's, and are flagged in §9 of the report.
+
+### D-0827-5 — The author can withdraw their own nomination; the page says who reads it (2026-08-27)
+
+**Decision:** the «Отметить коллегу» page tells the author, before they write,
+that only senior leadership reads the text — owner's sentence, verbatim:
+
+«Отметку читает только высшее руководство компании. Отмеченный человек и его
+руководитель её не видят.»
+
+The author may **withdraw** their own nomination while the period is open.
+The row is deleted, not blanked; the author returns to having none. Enforcement
+is the token identity on `POST api/recognition/withdraw`, not a hidden button.
+A closed period refuses 409 `NO_ACTIVE_PERIOD`, the same as replace. Another
+person withdrawing someone else's row is 403 `RECOGNITION_NOT_OWN` even if they
+send that person's `author_id` in the body.
+
+**Not decided:** what happens to the free text after the period closes. Rows
+survive close; there is no retention rule. Options and the accumulation rate
+are in `docs/PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW_2026-08-27.md` §6
+(BUG-080). The owner decides later.
+
+**Implementation:** same workflow, fourth webhook; frontend
+`20260827T124349Z`; no migration; no foreign key into evaluations.

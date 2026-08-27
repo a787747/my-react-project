@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-27T11:48:58.060Z",
+  "updatedAt": "2026-08-27T12:43:34.472Z",
   "createdAt": "2026-08-27T11:48:57.317Z",
   "id": "KLDk6WmWZKsZ8GVX",
   "name": "API: Peer Recognition",
@@ -368,6 +368,150 @@
         740,
         600
       ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/recognition/withdraw",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "recognition-webhook-withdraw",
+      "name": "Webhook WITHDRAW",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        900
+      ],
+      "webhookId": "epe-recognition-withdraw"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn {\n  json: {\n    authorization: request.headers?.authorization || '',\n    required_roles: [],\n    required_capability: \"\",\n    request,\n  },\n};"
+      },
+      "id": "recognition-guard-input-withdraw",
+      "name": "Prepare Guard Input WITHDRAW",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "recognition-run-guard-withdraw",
+      "name": "Run Auth Guard WITHDRAW",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard WITHDRAW').first().json;\nif (!guard.ok) {\n  return {\n    json: {\n      http_status: guard.status,\n      body: { success: false, error: guard.code, message: guard.message },\n    },\n  };\n}\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request;\nconst recognitionId = parseInt(body.recognition_id, 10);\nif (!Number.isFinite(recognitionId) || recognitionId < 1) {\n  return {\n    json: {\n      http_status: 422,\n      body: {\n        success: false,\n        error: 'INVALID_RECOGNITION_ID',\n        message: 'Не указана отметка',\n      },\n    },\n  };\n}\n\n// Identity is the token actor. A client-supplied author_id is ignored: the\n// only row this route can ever delete is the actor's own.\nreturn {\n  json: {\n    ok: true,\n    actor_id: actorId,\n    recognition_id: recognitionId,\n    sql: `\n      SELECT\n        a.id AS actor_id,\n        (a.terminated_at IS NOT NULL) AS actor_terminated,\n        (SELECT cp.id FROM performance_db.evaluation_periods cp\n          WHERE cp.is_active = true AND cp.status = 'active'\n            AND cp.period_type <> 'annual'\n            AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child\n                            WHERE child.parent_period_id = cp.id)\n          LIMIT 1) AS period_id,\n        r.id AS recognition_id,\n        r.author_id AS row_author_id,\n        r.period_id AS row_period_id\n      FROM performance_db.users a\n      LEFT JOIN performance_db.peer_recognitions r ON r.id = ${recognitionId}\n      WHERE a.id = ${actorId}\n    `,\n  },\n};"
+      },
+      "id": "recognition-withdraw-validate",
+      "name": "Validate Withdraw",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS actor_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "recognition-withdraw-check",
+      "name": "Load Withdraw Target",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        900
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Withdraw').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst check = $input.all().map(item => item.json).find(item => item.actor_id !== undefined);\nif (!check) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'ACTOR_NOT_FOUND', message: 'Ваша учётная запись не найдена' },\n    },\n  };\n}\nconst truthy = value => value === true || value === 't';\nconst actorId = Number(prev.actor_id);\nconst recognitionId = Number(prev.recognition_id);\n\n// Same gate as replace: no active leaf → 409. A closed period keeps the row.\nif (check.period_id === null || check.period_id === undefined) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'NO_ACTIVE_PERIOD',\n        message: 'Сейчас нет открытого периода — отметить коллегу можно только внутри периода',\n      },\n    },\n  };\n}\nif (truthy(check.actor_terminated)) {\n  return {\n    json: {\n      http_status: 403,\n      body: { success: false, error: 'ACTOR_TERMINATED', message: 'Учётная запись неактивна' },\n    },\n  };\n}\nif (check.recognition_id === null || check.recognition_id === undefined) {\n  return {\n    json: {\n      http_status: 404,\n      body: { success: false, error: 'RECOGNITION_NOT_FOUND', message: 'Отметки нет' },\n    },\n  };\n}\nif (Number(check.row_author_id) !== actorId) {\n  return {\n    json: {\n      http_status: 403,\n      body: {\n        success: false,\n        error: 'RECOGNITION_NOT_OWN',\n        message: 'Снять можно только свою отметку',\n      },\n    },\n  };\n}\nif (Number(check.row_period_id) !== Number(check.period_id)) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'NO_ACTIVE_PERIOD',\n        message: 'Сейчас нет открытого периода — отметить коллегу можно только внутри периода',\n      },\n    },\n  };\n}\n\nconst periodId = Number(check.period_id);\n// One statement. Author identity and the open leaf are re-asserted inside\n// the DELETE, so a hand-made body against a row that is not the actor's\n// writes zero rows (BUG-041).\nreturn {\n  json: {\n    ok: true,\n    sql: `\nWITH current_period AS (\n  SELECT p.id\n  FROM performance_db.evaluation_periods p\n  WHERE p.id = ${periodId}\n    AND p.is_active = true\n    AND p.status = 'active'\n    AND p.period_type <> 'annual'\n    AND NOT EXISTS (SELECT 1 FROM performance_db.evaluation_periods child\n                    WHERE child.parent_period_id = p.id)\n),\ndeleted AS (\n  DELETE FROM performance_db.peer_recognitions r\n  USING current_period cp, performance_db.users a\n  WHERE r.id = ${recognitionId}\n    AND r.author_id = ${actorId}\n    AND r.period_id = cp.id\n    AND a.id = ${actorId}\n    AND a.terminated_at IS NULL\n  RETURNING r.id\n)\nSELECT\n  (SELECT count(*)::integer FROM deleted) AS written,\n  (SELECT id FROM deleted LIMIT 1) AS recognition_id\n    `,\n  },\n};"
+      },
+      "id": "recognition-withdraw-build",
+      "name": "Build Withdraw SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.ok ? $json.sql : 'SELECT NULL::integer AS written WHERE false' }}",
+        "options": {}
+      },
+      "id": "recognition-withdraw-execute",
+      "name": "Execute Withdraw",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        750,
+        900
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Withdraw SQL').first().json;\nif (prev.http_status) {\n  return { json: prev };\n}\nconst row = $input.all().map(item => item.json).find(item => item.written !== undefined);\nif (!row || Number(row.written) === 0) {\n  return {\n    json: {\n      http_status: 409,\n      body: {\n        success: false,\n        error: 'RECOGNITION_CONFLICT',\n        message: 'Состояние изменилось во время сохранения — обновите страницу и повторите',\n      },\n    },\n  };\n}\nreturn {\n  json: {\n    http_status: 200,\n    body: {\n      success: true,\n      withdrawn: true,\n      recognition_id: Number(row.recognition_id),\n      message: 'Отметка снята',\n    },\n  },\n};"
+      },
+      "id": "recognition-withdraw-format",
+      "name": "Format Withdraw Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "recognition-respond-withdraw",
+      "name": "Respond WITHDRAW",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        900
+      ]
     }
   ],
   "connections": {
@@ -590,6 +734,94 @@
           }
         ]
       ]
+    },
+    "Webhook WITHDRAW": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input WITHDRAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input WITHDRAW": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard WITHDRAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard WITHDRAW": {
+      "main": [
+        [
+          {
+            "node": "Validate Withdraw",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Withdraw": {
+      "main": [
+        [
+          {
+            "node": "Load Withdraw Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Withdraw Target": {
+      "main": [
+        [
+          {
+            "node": "Build Withdraw SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Withdraw SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Withdraw",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Withdraw": {
+      "main": [
+        [
+          {
+            "node": "Format Withdraw Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Withdraw Response": {
+      "main": [
+        [
+          {
+            "node": "Respond WITHDRAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -603,9 +835,9 @@
   "staticData": null,
   "meta": null,
   "pinData": null,
-  "versionId": "7b49df45-7396-4a55-a665-083e1b7382b6",
-  "versionCounter": 3,
-  "triggerCount": 3,
+  "versionId": "596a4a6d-7a09-4fc0-929f-e5be05a31c3d",
+  "versionCounter": 5,
+  "triggerCount": 4,
   "shared": [
     {
       "updatedAt": "2026-08-27T11:48:57.317Z",

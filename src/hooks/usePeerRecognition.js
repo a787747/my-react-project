@@ -10,7 +10,9 @@
  * словами. Списки строит сервер, а не клиент: те же три отказа (себя, своего
  * руководителя, своего подчинённого) и уволенные проверяются заново в
  * `POST /api/recognition/save`, поэтому прямой вызов маршрута с чужим
- * `nominee_id` отказывает ровно так же, как экран.
+ * `nominee_id` отказывает ровно так же, как экран. Снятие — `POST
+ * /api/recognition/withdraw` — удаляет собственную строку автора; чужую
+ * сервер отказывает, закрытый период тоже.
  *
  * Чего здесь нет и не должно появиться: любого счётчика отметок. Ни общего
  * числа, ни числа по человеку, ни сортировки по частоте. Маршрут их не отдаёт,
@@ -22,8 +24,8 @@
  * - colleagues: [{ id, full_name, job_title, department_name }]
  * - blocked: то же + { blocked_reason, message }
  * - myNomination: { id, nominee_id, nominee_name, situation, action, outcome, updated_at } | null
- * - loading / error / saving
- * - save(payload) / refresh()
+ * - loading / error / saving / withdrawing
+ * - save(payload) / withdraw({ recognitionId }) / refresh()
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -42,6 +44,7 @@ export const usePeerRecognition = (user) => {
   const [myNomination, setMyNomination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
   const [error, setError] = useState(null);
 
   const refresh = useCallback(async () => {
@@ -103,6 +106,31 @@ export const usePeerRecognition = (user) => {
     }
   }, [refresh]);
 
+  /**
+   * Снять собственную отметку. Сервер удаляет строку по identity из токена
+   * и по id отметки; чужую отметку отказывает, закрытый период — тоже.
+   */
+  const withdraw = useCallback(async ({ recognitionId }) => {
+    try {
+      setWithdrawing(true);
+      const res = await apiClient.post(API_ENDPOINTS.RECOGNITION_WITHDRAW, {
+        recognition_id: recognitionId
+      });
+      const body = unwrap(res.data);
+      await refresh();
+      return { ok: true, message: body.message || 'Отметка снята' };
+    } catch (err) {
+      const body = unwrap(err.response?.data);
+      logger.error('usePeerRecognition: не удалось снять отметку', err);
+      return {
+        ok: false,
+        message: body.message || err.userMessage || 'Не удалось снять отметку'
+      };
+    } finally {
+      setWithdrawing(false);
+    }
+  }, [refresh]);
+
   return {
     period,
     colleagues,
@@ -110,8 +138,10 @@ export const usePeerRecognition = (user) => {
     myNomination,
     loading,
     saving,
+    withdrawing,
     error,
     save,
+    withdraw,
     refresh
   };
 };

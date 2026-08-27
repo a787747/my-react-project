@@ -11,7 +11,7 @@ SSH=(ssh -o BatchMode=yes "$HOST")
 PREFIX="epe_recognition_"
 
 # Both containers: the treatment stand and the control the close proof adds.
-for C in epe-recognition-n8n epe-recognition-n8n-ctl; do
+for C in epe-recognition-n8n epe-recognition-n8n-ctl epe-recognition-n8n-ui; do
   "${SSH[@]}" "docker rm -f $C 2>/dev/null || true" >/dev/null
   echo "container $C removed"
 done

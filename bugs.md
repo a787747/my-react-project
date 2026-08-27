@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 31 |
+| 🔴 Open | 32 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 48 |
 
@@ -858,3 +858,12 @@
 - Why it matters: the one number the owner will read as «campaign complete» is blind to the channel he declared mandatory; H1 could be closed on a green counter with the weight-5.00 criterion missing from every bonus index.
 - How to fix: owner's decision — either a third named counter for `c_level_direct` coverage (subjects with both c_level_only criteria scored, out of 72), or fold it into the existing counter's definition. Deliberately **not** fixed by the read-only check that filed this row.
 - Source: `docs/CLEVEL_COVERAGE_CHECK_2026-08-27.md` §5.
+
+### BUG-080: Peer-recognition free text has no retention policy
+- Status: 🔴 OPEN
+- Severity: 🔵 Low (policy — not an H1 correctness defect; the owner must decide)
+- Location: `performance_db.peer_recognitions`; `GET api/recognition/list` still serves a closed period via `?period_id=`.
+- Description: a nomination is free text about a named colleague, written by a named author. The row survives the close of the period. There is no delete-after-close, no anonymise, no ageing job, and (as of D-0827-5) the author can remove their own row only while the period is open. Annual containers are not nomination periods; each closed leaf half-year keeps its pile. After this season that is H1-2026 + H2-2026 (2); then +2 per year, unbounded.
+- Why it matters: every extra year is another set of named remarks sitting in the database and on the c_level list, with no rule for how long they stay or who may erase them after close.
+- How to fix: owner's call — keep forever / drop on close / retain N years / anonymise after close / drop children when the annual container closes / allow a grace-period withdraw after close. Reported, not built, in `docs/PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW_2026-08-27.md` §6.
+- Source: brief PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW (2026-08-27); also surfaced this morning in `docs/PEER_RECOGNITION_2026-08-27.md` §9.4.
