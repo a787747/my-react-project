@@ -21,6 +21,7 @@ md5s identical to the 2026-08-26 snapshot. Live campaign tables were not
 written.
 
 **Report:** `docs/EVALUATION_FORM_READABILITY_2026-08-27.md`.
+**Commit:** `54c2cebf89bdde5989ffcb67f60a070ccfeeb328`.
 
 ## 2026-08-27 — CRITERIA_READONLY_DETAILS: C-level can read the ten level texts
 

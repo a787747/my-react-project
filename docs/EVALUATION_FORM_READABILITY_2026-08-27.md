@@ -262,4 +262,4 @@ stand, which was removed. No schema write.
 - `EPE: Auth Guard` untouched. No write-route PUT.
 - Decision: **D-0827-2**.
 - Finding filed, not fixed: **BUG-078** (C-level modal prefills 5).
-- Implementation commit: recorded in the follow-up hash commit.
+- Implementation commit: `54c2cebf89bdde5989ffcb67f60a070ccfeeb328`.
