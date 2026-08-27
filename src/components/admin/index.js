@@ -15,6 +15,7 @@ export { default as EmploymentStatusModal } from './EmploymentStatusModal';
 // Компоненты для управления критериями
 export { default as CriteriaTable } from './CriteriaTable';
 export { default as CriteriaForm } from './CriteriaForm';
+export { default as CriteriaReadout } from './CriteriaReadout';
 export { default as RoleCheckbox } from './RoleCheckbox';
 export { default as LevelDescriptions } from './LevelDescriptions';
 

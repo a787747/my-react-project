@@ -1,5 +1,23 @@
 # Evaluation Portal Progress
 
+## 2026-08-27 — CRITERIA_READONLY_DETAILS: C-level can read the ten level texts
+
+**Status:** ✅ Done and on live. Frontend `20260827T060913Z`.
+
+C-level could open `/admin` after ROLE_ACCESS but the ten level texts sat only
+inside the admin edit form. The GET payload already carried them (`SELECT c.*`,
+proven on live as Jemal 47). A read-only «Показать шкалу (1–10)» now shows
+description + levels 1–10 with no write control. Admin CriteriaForm unchanged
+(Save still there; cancelled, nothing written). Other granted C-level surfaces
+checked — same gap does not exist there.
+
+`npm test` 443/443. Deploy via locked CAS. Browser on live as Jemal and as
+Alexander. H1 still `2026-08-26 10:08:54.340312Z`; tables 0/0/0/0; 89/3/78;
+coefficient md5s identical to the 2026-08-26 snapshot. No dump — nothing was
+written to campaign or catalogue tables. D-0827-1.
+
+**Report:** `docs/CRITERIA_READONLY_DETAILS_2026-08-27.md`.
+
 ## 2026-08-26 — LIVE_SMOKE_H1: the real campaign exercised once on live, then removed to the byte
 
 **Status:** ✅ Done and fully reversed. **Verdict: the campaign is safe to invite 78 people into.**

@@ -19,9 +19,10 @@
  *   запись не-администратора, поэтому кнопки для него не рисуются вовсе.
  */
 
-import React from 'react';
-import { Edit3, Trash2, Check, User, Users, Shield } from 'lucide-react';
+import React, { useState } from 'react';
+import { Edit3, Trash2, Check, User, Users, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import CriteriaForm from './CriteriaForm';
+import CriteriaReadout from './CriteriaReadout';
 
 const CriteriaTable = ({
   criteria,
@@ -35,7 +36,11 @@ const CriteriaTable = ({
   onDelete,
   canEdit = true
 }) => {
-  
+  // Read-only scale: the ten level texts live on the GET payload but used
+  // to sit only inside CriteriaForm, which a non-admin cannot open.
+  const [openId, setOpenId] = useState(null);
+  const columnCount = canEdit ? 5 : 4;
+
   // Отображение бейджей доступа
   const renderAccessBadges = (crit) => {
     const badges = [];
@@ -111,7 +116,8 @@ const CriteriaTable = ({
 
           {/* Список критериев */}
           {criteria.map((crit) => (
-            <tr key={crit.id} className={!crit.is_active ? 'opacity-50 bg-slate-50' : ''}>
+            <React.Fragment key={crit.id}>
+            <tr className={!crit.is_active ? 'opacity-50 bg-slate-50' : ''}>
               {/* Форма редактирования */}
               {editingId === crit.id ? (
                 <CriteriaForm
@@ -128,6 +134,24 @@ const CriteriaTable = ({
                   <td className="p-4">
                     <div className="font-bold text-slate-900">{crit.title}</div>
                     <div className="text-sm text-slate-500 mt-1">{crit.description}</div>
+                    <button
+                      type="button"
+                      onClick={() => setOpenId(openId === crit.id ? null : crit.id)}
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
+                      aria-expanded={openId === crit.id}
+                    >
+                      {openId === crit.id ? (
+                        <>
+                          <ChevronUp className="w-4 h-4" />
+                          Скрыть шкалу
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-4 h-4" />
+                          Показать шкалу (1–10)
+                        </>
+                      )}
+                    </button>
                   </td>
                   
                   {/* Аудитория */}
@@ -173,6 +197,14 @@ const CriteriaTable = ({
                 </>
               )}
             </tr>
+            {openId === crit.id && editingId !== crit.id && (
+              <tr className="bg-slate-50">
+                <td colSpan={columnCount} className="p-4 pt-0">
+                  <CriteriaReadout criterion={crit} />
+                </td>
+              </tr>
+            )}
+            </React.Fragment>
           ))}
         </tbody>
       </table>

@@ -418,13 +418,19 @@ Reports, in order: `AUTHENTICATION_CORE_2026-08-18.md` · `TLS_CUTOVER_2026-08-1
 the employee guide subset reads 1–3 without changing approved words, the own profile carries
 identity/scope/tasks/self score, and D-0820-17 remains sealed.
 
-Latest: **`ROLE_ACCESS_HR_CLEVEL_2026-08-26.md`** — C-level reads the seven admin surfaces, HR
-reads the roster, neither writes (D-0826-6); built by a cloud session (§0–§7), then landed,
-deployed and proven on live by the Mac session (§8): the owner's correction D-0826-7 keeps
-c_level's score corrections (D-0820-7 stands), three workflow PUTs at 13:46Z, frontend
-`20260826T134725Z`, 151-cell role×route matrix PASS on a stand and on live, real-browser
-walkthrough as c_level (7 pages non-empty, no edit affordance) and HR (roster, read-only), zero
-compensation keys, campaign invariants byte-identical. BUG-013/BUG-042 closed, BUG-077 filed.
+Latest: **`CRITERIA_READONLY_DETAILS_2026-08-27.md`** — C-level on `/admin` can open a
+criterion and read its description and all ten level texts without any edit
+affordance (D-0827-1). The texts were already on `manage-criteria` GET; no
+backend change. Frontend `20260827T060913Z`. Admin editing unchanged. H1
+invariants held. Previous: **`ROLE_ACCESS_HR_CLEVEL_2026-08-26.md`** — C-level
+reads the seven admin surfaces, HR reads the roster, neither writes (D-0826-6);
+built by a cloud session (§0–§7), then landed, deployed and proven on live by
+the Mac session (§8): the owner's correction D-0826-7 keeps c_level's score
+corrections (D-0820-7 stands), three workflow PUTs at 13:46Z, frontend
+`20260826T134725Z`, 151-cell role×route matrix PASS on a stand and on live,
+real-browser walkthrough as c_level (7 pages non-empty, no edit affordance) and
+HR (roster, read-only), zero compensation keys, campaign invariants
+byte-identical. BUG-013/BUG-042 closed, BUG-077 filed.
 
 Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**30 open / 47 closed** after ROLE_ACCESS closed BUG-013/BUG-042 and filed BUG-077, the stale generator-snapshot debt; HIRE_DATE_AND_SCOPE_TOGGLE before it was 31/45). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…017` (015 employment termination, 016 append-only period-scope log, 017 append-only employee-card log plus two-direction manual scope precedence).
 

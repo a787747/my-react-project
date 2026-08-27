@@ -818,3 +818,19 @@ The live workflow `API: Score Correction` is therefore byte-identical before and
 batch; the deploy script keeps it as a drift check with an expected `"changed": false`.
 **Implementation:** the revert commit on `claude/hr-clevel-access-control-dudin7` before the
 merge to main; report `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §8.
+
+### D-0827-1 — Criteria catalogue readers see the ten level texts without opening the edit form (2026-08-27)
+
+**Decision:** a `c_level` (or any non-admin) reader of `/admin` must be able to
+open each criterion and read its description and `level_1_desc`…`level_10_desc`
+from the payload they already receive. No edit affordance on that path. Admin
+editing stays the existing `CriteriaForm`. Completes the C-level read of the
+criteria page granted by D-0826-6; does not change who may write, and does not
+add fields to `manage-criteria` GET.
+
+**Consequence:** C-level can read the same scale texts an evaluator already sees
+on the scoring form, without being able to change a frozen catalogue. Weights
+remain on the money screens, not newly promoted onto this page.
+
+**Implementation:** `docs/CRITERIA_READONLY_DETAILS_2026-08-27.md`; frontend
+`20260827T060913Z`.
