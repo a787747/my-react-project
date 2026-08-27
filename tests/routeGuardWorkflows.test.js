@@ -1275,6 +1275,33 @@ test("admin-users-data exposes is_registered without password_hash", () => {
   );
 });
 
+test("admin-users-data exposes the named campaign-progress flags", () => {
+  const wf = load("admin-users-data.json");
+  const js = allJsCode(wf);
+  for (const flag of [
+    "can_be_evaluated",
+    "can_evaluate",
+    "has_evaluated_manager",
+    "assigned_subordinate_count",
+    "completed_subordinate_count",
+    "received_manager_eval_complete",
+    "expected_upward_count",
+    "received_upward_count",
+    "manager_role",
+    "manager_can_evaluate",
+  ]) {
+    assert.ok(js.includes(flag), `admin-users-data must expose ${flag}`);
+  }
+  assert.ok(
+    js.includes("evaluation_source = 'manager'"),
+    "admin-users-data: manager-path completeness must key on source=manager, not any non-self row",
+  );
+  assert.ok(
+    js.includes("c_level_only = false"),
+    "admin-users-data: manager-path applicable set excludes c_level_only",
+  );
+});
+
 test("self-review enforces final_score 1-10 inclusive", () => {
   const wf = load("self-review-submit.json");
   const js = allJsCode(wf);

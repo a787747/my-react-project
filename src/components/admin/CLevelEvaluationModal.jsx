@@ -1,59 +1,67 @@
 /**
- * CLevelEvaluationModal - Модальное окно C-level оценки
- * 
- * Назначение: Форма для проведения C-level оценки сотрудника
- * Используется в: AdminEvaluationsMatrix
- * 
- * Props:
- * - isOpen: boolean - открыто ли окно
- * - employee: object - сотрудник для оценки
- * - submitting: boolean - статус отправки
- * - onClose: function - закрыть окно
- * - onSubmit: function(grades) - отправить оценку
+ * CLevelEvaluationModal - C-level evaluation form
+ *
+ * Same untouched-criterion rule as the ordinary forms (D-0827-2 / D-0827-3):
+ * the slider thumb may rest at the left end, but until the evaluator touches
+ * it the criterion shows a dash and no zone, and submit stays blocked.
+ * An existing actor score is a prior choice — it is shown and is editable.
+ * The payload omits untouched keys; it never invents a 5.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Save, Loader2 } from 'lucide-react';
 import { groupCriteria } from '../../utils/matrixUtils';
+import { getScoreZone } from '../../utils/evaluationUtils';
+import {
+  gradesPayloadFromState,
+  isCriterionTouched,
+  untouchedCriterionIds,
+} from '../../utils/evaluationGrades';
 import CriterionScaleToggle from '../CriterionScaleToggle';
 
 const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit }) => {
   const [grades, setGrades] = useState({});
 
-  // Инициализация оценок при открытии
   useEffect(() => {
     if (isOpen && employee) {
       const cLevelCriteria = groupCriteria(employee.criteria).c_level;
       const initialGrades = {};
-      
-      cLevelCriteria.forEach(c => {
-        initialGrades[c.criteria_id] = c.actor_c_level_score || 5;
+      cLevelCriteria.forEach((c) => {
+        const raw = c.actor_c_level_score;
+        if (isCriterionTouched(raw)) {
+          initialGrades[c.criteria_id] = parseInt(raw, 10);
+        }
       });
-      
       setGrades(initialGrades);
     }
   }, [isOpen, employee]);
 
+  const cLevelCriteria = employee ? groupCriteria(employee.criteria).c_level : [];
+  const visibleCriteria = useMemo(
+    () => cLevelCriteria.map((c) => ({ id: c.criteria_id })),
+    [cLevelCriteria],
+  );
+  const unevaluated = untouchedCriterionIds(grades, visibleCriteria);
+  const allCriteriaEvaluated = visibleCriteria.length > 0 && unevaluated.length === 0;
+
   if (!isOpen || !employee) return null;
 
-  const cLevelCriteria = groupCriteria(employee.criteria).c_level;
-
   const handleSliderChange = (criteriaId, value) => {
-    setGrades(prev => ({
+    setGrades((prev) => ({
       ...prev,
-      [criteriaId]: parseInt(value)
+      [criteriaId]: parseInt(value, 10),
     }));
   };
 
   const handleSubmit = () => {
-    onSubmit(grades);
+    if (untouchedCriterionIds(grades, visibleCriteria).length > 0) return;
+    onSubmit(gradesPayloadFromState(grades, visibleCriteria));
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
-        
-        {/* Header */}
+
         <div className="bg-gradient-to-r from-orange-600 to-red-600 text-white p-4 flex justify-between items-start shrink-0">
           <div>
             <h2 className="text-xl font-bold">
@@ -69,15 +77,16 @@ const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-4 overflow-y-auto flex-1 min-h-0 space-y-4">
           {cLevelCriteria.map((criterion) => {
-            const currentScore = grades[criterion.criteria_id] || 5;
-            const levelDesc = criterion[`level_${currentScore}_desc`];
-            
+            const raw = grades[criterion.criteria_id];
+            const isSelected = isCriterionTouched(raw);
+            const currentScore = isSelected ? parseInt(raw, 10) : null;
+            const zone = isSelected ? getScoreZone(currentScore, criterion) : null;
+            const levelDesc = isSelected ? criterion[`level_${currentScore}_desc`] : null;
+
             return (
               <div key={criterion.criteria_id} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                {/* Заголовок критерия */}
                 <div className="flex justify-between items-start mb-2">
                   <div className="flex-1 pr-3">
                     <h3 className="text-base font-bold text-gray-900">{criterion.criteria_title}</h3>
@@ -87,31 +96,36 @@ const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit
                       </p>
                     )}
                   </div>
-                  <span className="text-2xl font-bold text-orange-600">{currentScore}</span>
+                  <span
+                    data-testid="clevel-score-badge"
+                    className={`text-2xl font-bold ${isSelected ? 'text-orange-600' : 'text-gray-400'}`}
+                  >
+                    {isSelected ? currentScore : '—'}
+                  </span>
                 </div>
-                
-                {/* Слайдер */}
+
                 <input
                   type="range"
                   min="1"
                   max="10"
-                  value={currentScore}
+                  value={currentScore ?? 1}
                   onChange={(e) => handleSliderChange(criterion.criteria_id, e.target.value)}
                   className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-orange-600"
+                  aria-label={`Оценка по критерию ${criterion.criteria_title}`}
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1 px-0.5">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
                     <span key={n} className={`w-3 text-center ${currentScore === n ? 'text-orange-600 font-bold' : ''}`}>
                       {n}
                     </span>
                   ))}
                 </div>
-                
-                {/* Описание текущего уровня */}
-                {levelDesc && (
-                  <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded-lg">
-                    <p className="text-xs text-orange-800">
-                      <span className="font-semibold">Уровень {currentScore}:</span> {levelDesc}
+
+                {isSelected && zone && (
+                  <div className={`mt-2 p-2 rounded-lg border ${zone.bg} ${zone.border}`}>
+                    <p className={`text-xs ${zone.text}`}>
+                      <span className="font-semibold">{zone.label}</span>
+                      {levelDesc ? ` — Уровень ${currentScore}: ${levelDesc}` : ''}
                     </p>
                   </div>
                 )}
@@ -126,7 +140,6 @@ const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit
           })}
         </div>
 
-        {/* Footer */}
         <div className="p-3 border-t border-gray-100 bg-gray-50 flex gap-3 shrink-0">
           <button
             onClick={onClose}
@@ -135,20 +148,27 @@ const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit
             Отмена
           </button>
           <button
+            data-testid="clevel-submit"
             onClick={handleSubmit}
-            disabled={submitting}
-            className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-xl font-medium hover:bg-orange-700 transition-colors flex items-center justify-center gap-2 text-sm"
+            disabled={submitting || !allCriteriaEvaluated}
+            className={`flex-1 px-4 py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 text-sm ${
+              allCriteriaEvaluated
+                ? 'bg-orange-600 text-white hover:bg-orange-700'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
           >
             {submitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Сохранение...
               </>
-            ) : (
+            ) : allCriteriaEvaluated ? (
               <>
                 <Save className="w-4 h-4" />
                 Сохранить
               </>
+            ) : (
+              `Оцените все критерии (${unevaluated.length})`
             )}
           </button>
         </div>
@@ -158,4 +178,3 @@ const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit
 };
 
 export default CLevelEvaluationModal;
-

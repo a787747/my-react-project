@@ -64,6 +64,17 @@ test("submit stays blocked while any visible criterion is untouched", () => {
   assert.match(upward, /untouchedCriterionIds\(evaluations, criteria\)/);
   assert.match(upward, /gradesPayloadFromState\(evaluations, criteria\)/);
   assert.match(upward, /disabled=\{!isFormValid \|\| submitting\}/);
+  assert.match(clevel, /disabled=\{submitting \|\| !allCriteriaEvaluated\}/);
+  assert.match(clevel, /untouchedCriterionIds\(grades, visibleCriteria\)/);
+  assert.match(clevel, /gradesPayloadFromState\(grades, visibleCriteria\)/);
+});
+
+test("C-level modal does not invent a 5 and shows a dash until touched", () => {
+  assert.doesNotMatch(clevel, /actor_c_level_score\s*\|\|\s*5/);
+  assert.match(clevel, /isCriterionTouched\(raw\)/);
+  assert.match(clevel, /isSelected \? currentScore : '—'/);
+  assert.match(clevel, /currentScore \?\? 1/);
+  assert.match(clevel, /isSelected \? getScoreZone/);
 });
 
 test("the ten-level scale opens from the form without cluttering it", () => {

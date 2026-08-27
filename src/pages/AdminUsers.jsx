@@ -28,6 +28,7 @@ import { UserTable, UserFilters, UserModal, UserImportModal, EmploymentStatusMod
 // Хуки
 import { useUsers } from '../hooks/useUsers';
 import { useUserFilters } from '../hooks/useUserFilters';
+import { buildCampaignSummary, formatCampaignSummaryLines } from '../utils/campaignSummary';
 
 // Константы
 import { UI_CONFIG } from '../config/constants';
@@ -122,6 +123,13 @@ const AdminUsers = ({ user }) => {
     sortDirection,
     handleSort
   } = useUserFilters(visibleUsers, UI_CONFIG.ITEMS_PER_PAGE);
+
+  // Company campaign line uses the full roster the route returned, not the
+  // filtered «Найдено» set — a search must not rewrite the campaign totals.
+  const campaignLines = useMemo(
+    () => (isFullAccess ? formatCampaignSummaryLines(buildCampaignSummary(users)) : []),
+    [isFullAccess, users],
+  );
 
   // Состояние модального окна
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -297,6 +305,13 @@ const AdminUsers = ({ user }) => {
             {' · '}работают {counts.active}
             {' · '}уволены {counts.terminated}
           </p>
+          {isFullAccess && campaignLines.length > 0 && (
+            <div data-testid="campaign-summary" className="text-xs text-gray-400 mt-0.5 space-y-0.5">
+              {campaignLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          )}
         </div>
         
         {canEdit && (

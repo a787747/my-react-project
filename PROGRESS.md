@@ -1,5 +1,29 @@
 # Evaluation Portal Progress
 
+## 2026-08-27 — ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL: C-level dash + named campaign line
+
+**Status:** ✅ Done and on live. Frontend `20260827T075704Z`. Workflow
+`API: Admin Get Users Data` PUT 2026-08-27T07:56:39.858Z.
+
+BUG-078: the C-level modal no longer prefills 5. Untouched criteria 1 and 10
+show a dash and no zone; submit stays blocked until both are touched
+(demonstrated in Chrome on the stand). An existing C-level evaluation stays
+editable.
+
+`/admin/users` now has a named campaign line: in-scope vs evaluated-by-someone,
+registration against employed, tasks TO them vs fully evaluated BY those who
+owe them. `c_level_direct` is in neither counter. Read-payload only. Stand
+SQL/API/JS matched; 25 (out of scope) and 21 (one of the six) are not folded
+into a completion denominator.
+
+`npm test` 463/463. Throwaway stand proved and dropped. Deploy via locked CAS
+plus one workflow PUT. H1 still `2026-08-26 10:08:54.340312Z`; tables 0/0/0/0;
+89/3/78; coefficient md5s identical to the 2026-08-26 snapshot. Live campaign
+tables were not written.
+
+**Report:** `docs/ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL_2026-08-27.md`.
+**Commit:** (recorded in the follow-up hash commit).
+
 ## 2026-08-27 — EVALUATION_FORM_READABILITY: full criterion text, untouched is a dash
 
 **Status:** ✅ Done and on live. Frontend `20260827T065624Z`.

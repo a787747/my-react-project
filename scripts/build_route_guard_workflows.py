@@ -2933,12 +2933,55 @@ return {
     ok: true,
     users_sql: `
       WITH active_period AS (
-        SELECT id FROM performance_db.evaluation_periods
+        SELECT id, name FROM performance_db.evaluation_periods
         WHERE is_active = true AND status = 'active' LIMIT 1
+      ),
+      in_scope AS (
+        SELECT epp.user_id
+        FROM performance_db.evaluation_period_participants epp
+        JOIN active_period ap ON ap.id = epp.period_id
+        WHERE epp.is_in_scope = true
+      ),
+      -- Manager-path applicable set: same predicate as /api/employees
+      -- evaluated_by_actor (D-0822-3). c_level_direct is a shared channel
+      -- and is deliberately not in these campaign counters.
+      manager_applicable AS (
+        SELECT u.id AS subject_id, c.id AS criteria_id
+        FROM performance_db.users u
+        JOIN performance_db.criteria c
+          ON c.is_active = true AND c.c_level_only = false
+        WHERE (c.target_audience <> 'project_participants' OR u.is_project_participant = true)
+          AND (c.target_audience <> 'managers_only' OR u.has_subordinates = true)
+      ),
+      manager_scored AS (
+        SELECT e.evaluator_id, e.subject_id, es.criteria_id
+        FROM performance_db.evaluations e
+        JOIN performance_db.evaluation_scores es ON es.evaluation_id = e.id
+        JOIN active_period ap ON ap.id = e.period_id
+        WHERE e.is_self_evaluation = false
+          AND e.evaluation_source = 'manager'
+      ),
+      manager_eval_complete AS (
+        SELECT ms.evaluator_id, ms.subject_id
+        FROM manager_applicable ma
+        JOIN manager_scored ms
+          ON ms.subject_id = ma.subject_id AND ms.criteria_id = ma.criteria_id
+        GROUP BY ms.evaluator_id, ms.subject_id
+        HAVING count(*) = (
+          SELECT count(*) FROM manager_applicable ma2
+          WHERE ma2.subject_id = ms.subject_id
+        )
+      ),
+      upward_done AS (
+        SELECT e.evaluator_id, e.subject_id
+        FROM performance_db.evaluations e
+        JOIN active_period ap ON ap.id = e.period_id
+        WHERE e.evaluation_source = 'subordinate'
       )
       SELECT
         u.id, u.full_name, u.email, u.role, u.work_category, u.is_project_participant,
         u.job_title, u.manager_id, u.department_id, u.grade_id, u.has_subordinates,
+        u.can_evaluate, u.can_be_evaluated,
         (u.password_hash IS NOT NULL) AS is_registered,
         -- D-0825-11 / D-0825-12. The evaluation state of the row, for the period
         -- the admin is looking at. Text, never a date object (BUG-031).
@@ -2985,15 +3028,15 @@ return {
         d.name AS department_name,
         g.code AS grade_name,
         m.full_name AS manager_name,
+        m.role AS manager_role,
+        m.can_evaluate AS manager_can_evaluate,
+        (SELECT name FROM active_period) AS period_name,
         COALESCE(
           (SELECT CASE WHEN e.status = 'completed' THEN true ELSE false END
            FROM performance_db.evaluations e
            WHERE e.subject_id = u.id
              AND e.is_self_evaluation = true
-             AND e.period_id = (
-               SELECT id FROM performance_db.evaluation_periods
-               WHERE is_active = true AND status = 'active' LIMIT 1
-             )
+             AND e.period_id = (SELECT id FROM active_period)
            LIMIT 1),
           false
         ) AS self_review_done,
@@ -3001,12 +3044,45 @@ return {
          FROM performance_db.evaluations e
          WHERE e.subject_id = u.id
            AND e.is_self_evaluation = false
-           AND e.period_id = (
-             SELECT id FROM performance_db.evaluation_periods
-             WHERE is_active = true AND status = 'active' LIMIT 1
-           )
+           AND e.period_id = (SELECT id FROM active_period)
          LIMIT 1
-        ) AS manager_review_status
+        ) AS manager_review_status,
+        EXISTS (
+          SELECT 1 FROM upward_done ud
+          WHERE ud.evaluator_id = u.id AND ud.subject_id = u.manager_id
+        ) AS has_evaluated_manager,
+        (
+          SELECT count(*)::integer
+          FROM performance_db.users sub
+          JOIN in_scope ss ON ss.user_id = sub.id
+          WHERE sub.manager_id = u.id AND sub.can_be_evaluated = true
+        ) AS assigned_subordinate_count,
+        (
+          SELECT count(*)::integer
+          FROM manager_eval_complete mec
+          JOIN performance_db.users sub ON sub.id = mec.subject_id
+          JOIN in_scope ss ON ss.user_id = sub.id
+          WHERE mec.evaluator_id = u.id
+            AND sub.manager_id = u.id
+            AND sub.can_be_evaluated = true
+        ) AS completed_subordinate_count,
+        EXISTS (
+          SELECT 1 FROM manager_eval_complete mec
+          WHERE mec.subject_id = u.id AND mec.evaluator_id = u.manager_id
+        ) AS received_manager_eval_complete,
+        CASE WHEN u.role IN ('admin', 'c_level') THEN 0 ELSE (
+          SELECT count(*)::integer
+          FROM performance_db.users sub
+          JOIN in_scope ss ON ss.user_id = sub.id
+          WHERE sub.manager_id = u.id
+        ) END AS expected_upward_count,
+        CASE WHEN u.role IN ('admin', 'c_level') THEN 0 ELSE (
+          SELECT count(*)::integer
+          FROM upward_done ud
+          JOIN performance_db.users sub ON sub.id = ud.evaluator_id
+          JOIN in_scope ss ON ss.user_id = sub.id
+          WHERE ud.subject_id = u.id AND sub.manager_id = u.id
+        ) END AS received_upward_count
       FROM performance_db.users u
       LEFT JOIN performance_db.departments d ON d.id = u.department_id
       LEFT JOIN performance_db.grades g ON g.id = u.grade_id

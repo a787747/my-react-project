@@ -418,7 +418,12 @@ Reports, in order: `AUTHENTICATION_CORE_2026-08-18.md` · `TLS_CUTOVER_2026-08-1
 the employee guide subset reads 1–3 without changing approved words, the own profile carries
 identity/scope/tasks/self score, and D-0820-17 remains sealed.
 
-Latest: **`EVALUATION_FORM_READABILITY_2026-08-27.md`** — evaluator and
+Latest: **`ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL_2026-08-27.md`** — C-level
+modal no longer prefills 5 (BUG-078 / D-0827-3); `/admin/users` names
+registration and both campaign directions against explicit populations;
+`c_level_direct` is in neither counter. Frontend `20260827T075704Z`.
+Read-payload only. Previous:
+**`EVALUATION_FORM_READABILITY_2026-08-27.md`** — evaluator and
 self-review forms show the full criterion description; an untouched criterion
 is a dash, not a 1 (D-0827-2); submit stays blocked until every applicable
 criterion is touched; scale opens on demand. Frontend `20260827T065624Z`.
@@ -437,7 +442,7 @@ real-browser walkthrough as c_level (7 pages non-empty, no edit affordance) and
 HR (roster, read-only), zero compensation keys, campaign invariants
 byte-identical. BUG-013/BUG-042 closed, BUG-077 filed.
 
-Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**31 open / 47 closed** after EVALUATION_FORM_READABILITY filed BUG-078; ROLE_ACCESS before it was 30/47). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…017` (015 employment termination, 016 append-only period-scope log, 017 append-only employee-card log plus two-direction manual scope precedence).
+Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**30 open / 48 closed** after ADMIN_USERS_SUMMARY closed BUG-078). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…017` (015 employment termination, 016 append-only period-scope log, 017 append-only employee-card log plus two-direction manual scope precedence).
 
 **`docs/EVALUATION_METHODOLOGY.md` does not exist.** `AGENTS.md` calls it the business contract Alexander owns — role groups, criteria, weights, scale, aggregation, calibration — and says code conforms to it, never the reverse. There is no such file anywhere in the repo, and there never has been. A draft v1.0 exists outside the repository (chat-side architect, 2026-08-24) and is pending the owner's approval of four wording points; on approval it is committed verbatim as docs/EVALUATION_METHODOLOGY.md with a DECISIONS.md row. Until then the de facto contract remains HANDOVER §3–§4. Do not create the file.
 

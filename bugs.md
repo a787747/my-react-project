@@ -3,9 +3,9 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 31 |
+| 🔴 Open | 30 |
 | 🟡 In Progress | 0 |
-| 🟢 Closed | 47 |
+| 🟢 Closed | 48 |
 
 ---
 
@@ -841,10 +841,11 @@
 - Source: `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §4.4.
 
 ### BUG-078: C-level evaluation modal prefills 5 and can be submitted without a touch
-- Status: 🔴 OPEN
+- Status: 🟢 CLOSED (2026-08-27, ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL)
 - Severity: 🟠 High (money UX — a 5 can reach the database without an explicit choice)
 - Location: `src/components/admin/CLevelEvaluationModal.jsx` (`actor_c_level_score || 5`; submit sends `grades` as initialised).
 - Description: opening the C-level score modal writes 5 into every empty C-level criterion. The slider, the corner number and the level text all show 5 before anyone moves them. Submit is not blocked on a touch. This is a **5, not a 1**, so it is outside EVALUATION_FORM_READABILITY's stop condition (untouched → stored 1).
 - Why it matters: a C-level person who opens the modal and confirms can store a mid-scale score that nobody chose. That score enters the C-level channel and the bonus index.
 - How to fix: start empty like the other forms (dash, no zone, submit blocked until every applicable C-level criterion is touched); do not invent 5. Owner decides — this brief did not change the default.
 - Source: `docs/EVALUATION_FORM_READABILITY_2026-08-27.md` §1.4.
+- Fix (2026-08-27, D-0827-3): same rule as the ordinary forms. Badge `—`, no zone, submit disabled until every applicable C-level criterion is touched; existing actor scores stay shown and editable; payload never invents a 5. Demonstrated in Chrome on the throwaway stand (untouched 1309 refused, then accepted after touch; existing 1303 still editable). Frontend `20260827T075704Z`.

@@ -851,4 +851,31 @@ missing (additive path included). That write-route behaviour is unchanged.
 The C-level modal still prefills 5 (BUG-078) — out of this decision.
 
 **Implementation:** `docs/EVALUATION_FORM_READABILITY_2026-08-27.md`; frontend
-`20260827T065624Z`.
+`20260827T065624Z`. The C-level exception (BUG-078) is closed by D-0827-3.
+
+### D-0827-3 — C-level modal follows the untouched-criterion rule; /admin/users names every campaign population (2026-08-27)
+
+**Decision:** the C-level evaluation modal obeys the same rule as D-0827-2:
+the slider may rest, an untouched criterion shows a dash and no zone, and
+submit is blocked until every applicable C-level criterion has been touched.
+The payload never invents a 5. An existing actor score remains shown and
+editable.
+
+On `/admin/users`, the campaign summary names each population and never mixes
+them: everyone; employed; in-scope of the current period; evaluated-by-someone
+(in-scope and `can_be_evaluated` — the six the owner declared evaluated by
+nobody are in scope and excluded here). Registration is counted against
+employed people (the invitation list). Campaign progress is two directions:
+tasks assigned TO a person (Welcome: self / upward / evaluate in-scope
+evaluable subordinates) and whether that person has been fully evaluated BY
+everyone who owes them a 1:1 evaluation (complete manager-path, plus owed
+upward). `c_level_direct` is a shared channel and is in neither counter.
+
+**Consequence:** opening the C-level modal and confirming without a touch can
+no longer store a mid-scale 5 on criteria 1 and 10. The owner steers H1 from
+labelled numerators and denominators, not from an unlabelled mix. BUG-070
+(HR card) is a different screen and is unchanged.
+
+**Implementation:** `docs/ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL_2026-08-27.md`;
+frontend `20260827T075704Z`; `API: Admin Get Users Data` read-payload
+extension.

@@ -113,7 +113,7 @@ OPTIONS: several workflows also expose OPTIONS on the same path (clear-test-eval
 
 ### AdminUser (from `/api/admin-users-data`)
 
-`id`, `full_name`, `email`, `role`, `work_category`, `job_title`, `manager_id`, `department_id`, `grade_id`, `has_subordinates`, `department_name`, `grade_name`, `manager_name`, `self_review_done`, plus manager-evaluation status column from that SQL (name **unverified** beyond the SELECT fragment `status` of the manager evaluation).
+`id`, `full_name`, `email`, `role`, `work_category`, `job_title`, `manager_id`, `department_id`, `grade_id`, `has_subordinates`, `can_evaluate`, `can_be_evaluated`, `department_name`, `grade_name`, `manager_name`, `manager_role`, `manager_can_evaluate`, `period_name`, `self_review_done`, `has_evaluated_manager`, `assigned_subordinate_count`, `completed_subordinate_count`, `received_manager_eval_complete`, `expected_upward_count`, `received_upward_count`, plus the legacy `manager_review_status` column (LIMIT 1 on any non-self row — not used by the campaign summary).
 
 ### Criterion (GET `/api/criteria` and POST `/manage-criteria` save)
 
