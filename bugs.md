@@ -3,7 +3,7 @@
 ## Statistics
 | Status | Count |
 |--------|-------|
-| 🔴 Open | 30 |
+| 🔴 Open | 31 |
 | 🟡 In Progress | 0 |
 | 🟢 Closed | 47 |
 
@@ -839,3 +839,12 @@
 - Why it matters: a snapshot that silently lags its generator is the BUG-045 trap one directory deeper — anyone diffing the tracked JSON to answer "what does this route require" reads yesterday's guard.
 - How to fix: regenerate both directories in a hygiene commit of their own (canonical ids `VNbfkY8IKbEzn88B` / `L0Zr7nVa8O5YWXd3`), add the two missing files, and decide whether a test should pin snapshots == generators (the deferred/h1 test suites already regenerate to a temp dir, so the tracked copies may instead be deleted as redundant — owner's call).
 - Source: `docs/ROLE_ACCESS_HR_CLEVEL_2026-08-26.md` §4.4.
+
+### BUG-078: C-level evaluation modal prefills 5 and can be submitted without a touch
+- Status: 🔴 OPEN
+- Severity: 🟠 High (money UX — a 5 can reach the database without an explicit choice)
+- Location: `src/components/admin/CLevelEvaluationModal.jsx` (`actor_c_level_score || 5`; submit sends `grades` as initialised).
+- Description: opening the C-level score modal writes 5 into every empty C-level criterion. The slider, the corner number and the level text all show 5 before anyone moves them. Submit is not blocked on a touch. This is a **5, not a 1**, so it is outside EVALUATION_FORM_READABILITY's stop condition (untouched → stored 1).
+- Why it matters: a C-level person who opens the modal and confirms can store a mid-scale score that nobody chose. That score enters the C-level channel and the bonus index.
+- How to fix: start empty like the other forms (dash, no zone, submit blocked until every applicable C-level criterion is touched); do not invent 5. Owner decides — this brief did not change the default.
+- Source: `docs/EVALUATION_FORM_READABILITY_2026-08-27.md` §1.4.

@@ -15,6 +15,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Loader2 } from 'lucide-react';
 import { groupCriteria } from '../../utils/matrixUtils';
+import CriterionScaleToggle from '../CriterionScaleToggle';
 
 const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit }) => {
   const [grades, setGrades] = useState({});
@@ -81,7 +82,9 @@ const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit
                   <div className="flex-1 pr-3">
                     <h3 className="text-base font-bold text-gray-900">{criterion.criteria_title}</h3>
                     {criterion.criteria_description && (
-                      <p className="text-xs text-gray-500 mt-0.5">{criterion.criteria_description}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed whitespace-pre-wrap">
+                        {criterion.criteria_description}
+                      </p>
                     )}
                   </div>
                   <span className="text-2xl font-bold text-orange-600">{currentScore}</span>
@@ -112,6 +115,12 @@ const CLevelEvaluationModal = ({ isOpen, employee, submitting, onClose, onSubmit
                     </p>
                   </div>
                 )}
+                <CriterionScaleToggle
+                  criterion={{
+                    ...criterion,
+                    description: criterion.criteria_description,
+                  }}
+                />
               </div>
             );
           })}

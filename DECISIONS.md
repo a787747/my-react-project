@@ -834,3 +834,21 @@ remain on the money screens, not newly promoted onto this page.
 
 **Implementation:** `docs/CRITERIA_READONLY_DETAILS_2026-08-27.md`; frontend
 `20260827T060913Z`.
+
+### D-0827-2 — An untouched criterion is not a score of 1 (2026-08-27)
+
+**Decision:** on the evaluator forms (self-review, manager→subject, upward)
+the slider thumb may rest at the left end of the track, but until the
+evaluator touches it the criterion shows no number and no zone label — a dash
+in the corner, nothing under the scale. Both appear on first interaction.
+Submission stays blocked until every applicable criterion has been touched.
+The submit payload omits untouched keys; it never invents a 1.
+
+**Consequence:** the owner's screenshot («1/10», «Зона риска» on an untouched
+card) is a visual lie, not a stored 1. A crafted API call can still store a
+partial set; the server writes only the keys sent and treats the rest as
+missing (additive path included). That write-route behaviour is unchanged.
+The C-level modal still prefills 5 (BUG-078) — out of this decision.
+
+**Implementation:** `docs/EVALUATION_FORM_READABILITY_2026-08-27.md`; frontend
+`20260827T065624Z`.

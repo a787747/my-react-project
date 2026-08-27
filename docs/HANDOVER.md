@@ -40,7 +40,7 @@ Since 2026-08-21 periods form a **hierarchy**: a half-year period may hang under
 | Live DB | `epe_2026`, schema `performance_db`, own credential `EPE 2026 Postgres` |
 | Archived DB | `postgres.performance_db` — 2025 data, **read-only forever**. This session by SELECT: **73 users, 234 evaluations, 644 scores, 3 corrections**. Fingerprint not re-hashed today (no dump taken); last computed `21d323b0…` in `docs/DRAFTS_UX_2026-08-2x.md` |
 | Databases on `postgres_n8n` | **`epe_2026` and `postgres` only** — every throwaway stand DB is gone |
-| Frontend | This host. Current release **`20260826T134725Z`** (ROLE_ACCESS_DEPLOY); rollback target `20260826T110433Z`. Deploy: `./scripts/deploy_epe_frontend.sh` — it holds an exclusive lock locally and on the host and refuses a flip that started from a stale `current` (BUG-062), and its safety gates use `grep -r`, not `rg` (BUG-040). |
+| Frontend | This host. Current release **`20260827T065624Z`** (EVALUATION_FORM_READABILITY); rollback target `20260827T060913Z`. Deploy: `./scripts/deploy_epe_frontend.sh` — it holds an exclusive lock locally and on the host and refuses a flip that started from a stale `current` (BUG-062), and its safety gates use `grep -r`, not `rg` (BUG-040). |
 | Azure VM | `135.232.120.40`, untouched fallback, still serves the old build on :8080. **Not re-probed this session** (last measured `docs/TLS_CUTOVER_2026-08-19.md`: TCP 3389 RDP open). September queue. |
 | Firewall | `DOCKER-USER` → `EPE-DOCKER-USER` (ufw does not filter Docker ports). 80/443 open; 5432/5431/8000/9000/2377/7946/4789 restricted to one allowlisted IP; 5678 DROP on `eth0`. **The allowlisted source is a single home IP (`188.137.254.191`) that changes — use the SSH tunnel, not the allowlist** |
 | Portainer | Reachable only via SSH tunnel `127.0.0.1:29000` |
@@ -418,7 +418,12 @@ Reports, in order: `AUTHENTICATION_CORE_2026-08-18.md` · `TLS_CUTOVER_2026-08-1
 the employee guide subset reads 1–3 without changing approved words, the own profile carries
 identity/scope/tasks/self score, and D-0820-17 remains sealed.
 
-Latest: **`CRITERIA_READONLY_DETAILS_2026-08-27.md`** — C-level on `/admin` can open a
+Latest: **`EVALUATION_FORM_READABILITY_2026-08-27.md`** — evaluator and
+self-review forms show the full criterion description; an untouched criterion
+is a dash, not a 1 (D-0827-2); submit stays blocked until every applicable
+criterion is touched; scale opens on demand. Frontend `20260827T065624Z`.
+Not money — the route never receives an invented 1. BUG-078 filed. Previous:
+**`CRITERIA_READONLY_DETAILS_2026-08-27.md`** — C-level on `/admin` can open a
 criterion and read its description and all ten level texts without any edit
 affordance (D-0827-1). The texts were already on `manage-criteria` GET; no
 backend change. Frontend `20260827T060913Z`. Admin editing unchanged. H1
@@ -432,7 +437,7 @@ real-browser walkthrough as c_level (7 pages non-empty, no edit affordance) and
 HR (roster, read-only), zero compensation keys, campaign invariants
 byte-identical. BUG-013/BUG-042 closed, BUG-077 filed.
 
-Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**30 open / 47 closed** after ROLE_ACCESS closed BUG-013/BUG-042 and filed BUG-077, the stale generator-snapshot debt; HIRE_DATE_AND_SCOPE_TOGGLE before it was 31/45). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…017` (015 employment termination, 016 append-only period-scope log, 017 append-only employee-card log plus two-direction manual scope precedence).
+Operational: `LAUNCH_RUNBOOK_H1.md` (Alexander's one page), `INVITATION_WAVES.md` (now "single send"). Maps: `SERVER_MAP.md`, `FRONTEND_MAP.md`, `API_CONTRACT.md`, `CALCULATION_MAP.md`. Briefs: `docs/briefs/`. Decisions: `DECISIONS.md` (single register; `PROJECT_DECISIONS.md` is a pointer). Bugs: `bugs.md` (**31 open / 47 closed** after EVALUATION_FORM_READABILITY filed BUG-078; ROLE_ACCESS before it was 30/47). Progress: `PROGRESS.md`. Ports, names, the throwaway-stand pattern and the one-session rule: `PROJECT_RULES.md`. Migrations: `migrations/001…017` (015 employment termination, 016 append-only period-scope log, 017 append-only employee-card log plus two-direction manual scope precedence).
 
 **`docs/EVALUATION_METHODOLOGY.md` does not exist.** `AGENTS.md` calls it the business contract Alexander owns — role groups, criteria, weights, scale, aggregation, calibration — and says code conforms to it, never the reverse. There is no such file anywhere in the repo, and there never has been. A draft v1.0 exists outside the repository (chat-side architect, 2026-08-24) and is pending the owner's approval of four wording points; on approval it is committed verbatim as docs/EVALUATION_METHODOLOGY.md with a DECISIONS.md row. Until then the de facto contract remains HANDOVER §3–§4. Do not create the file.
 

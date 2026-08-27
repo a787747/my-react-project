@@ -20,6 +20,7 @@ import apiClient from '../api/client';
 import { X, Loader2, CheckCircle, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 import { API_ENDPOINTS } from '../config/api';
 import { calculateFinalScore, filterCriteriaByEmployee, getScoreZone } from '../utils/evaluationUtils';
+import { gradesPayloadFromState, isCriterionTouched, untouchedCriterionIds } from '../utils/evaluationGrades';
 import RatingGuide from './RatingGuide';
 import { groupCriteria } from '../utils/matrixUtils';
 import { USER_ROLES, ADMIN_ROLES, getWorkCategoryLabel } from '../config/constants';
@@ -109,13 +110,13 @@ const EvaluationModal = ({
 
   // Проверяем, все ли ОТОБРАЖАЕМЫЕ критерии оценены
   const evaluatedCount = useMemo(() => {
-    return visibleCriteria.filter(c => evaluations[c.id] !== undefined && evaluations[c.id] !== null).length;
+    return visibleCriteria.filter(c => isCriterionTouched(evaluations[c.id])).length;
   }, [visibleCriteria, evaluations]);
   
   const allCriteriaEvaluated = evaluatedCount === visibleCriteria.length && visibleCriteria.length > 0;
   
   const unevaluatedCriteria = useMemo(() => {
-    return visibleCriteria.filter(c => evaluations[c.id] === undefined || evaluations[c.id] === null);
+    return visibleCriteria.filter(c => !isCriterionTouched(evaluations[c.id]));
   }, [visibleCriteria, evaluations]);
 
   // Конфигурация групп для отображения
@@ -338,7 +339,7 @@ const EvaluationModal = ({
       return;
     }
 
-    if (!allCriteriaEvaluated) {
+    if (!allCriteriaEvaluated || untouchedCriterionIds(evaluations, visibleCriteria).length > 0) {
       logger.error('Ошибка: не все критерии оценены');
       return;
     }
@@ -350,14 +351,10 @@ const EvaluationModal = ({
       // исключённым текущей классификацией (проектные у general): их строки
       // сервер сохраняет как есть, а в payload им не место — сервер ответит
       // 422 CRITERIA_NOT_APPLICABLE.
-      const visibleIds = new Set(visibleCriteria.map(c => Number(c.id)));
-      const submittedGrades = {};
+      // Untouched keys are omitted — the route never receives a default 1.
+      const submittedGrades = gradesPayloadFromState(evaluations, visibleCriteria);
       const submittedComments = {};
-      Object.entries(evaluations).forEach(([cId, value]) => {
-        if (visibleIds.has(Number(cId)) && value !== undefined && value !== null) {
-          submittedGrades[cId] = value;
-        }
-      });
+      const visibleIds = new Set(visibleCriteria.map(c => Number(c.id)));
       Object.entries(comments).forEach(([cId, value]) => {
         if (visibleIds.has(Number(cId)) && value) {
           submittedComments[cId] = value;
@@ -689,7 +686,7 @@ const EvaluationModal = ({
                       {calculateFinalScore(
                         Object.fromEntries(
                           visibleCriteria
-                            .filter(c => evaluations[c.id] !== undefined && evaluations[c.id] !== null)
+                            .filter(c => isCriterionTouched(evaluations[c.id]))
                             .map(c => [c.id, evaluations[c.id]])
                         ),
                         1.0

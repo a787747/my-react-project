@@ -18,6 +18,8 @@
 import React, { useState } from 'react';
 import { Star, MessageSquare, AlertCircle } from 'lucide-react';
 import { getScoreZone, getLevelDescription } from '../utils/evaluationUtils';
+import { isCriterionTouched } from '../utils/evaluationGrades';
+import CriterionScaleToggle from './CriterionScaleToggle';
 
 // Значения слайдера
 const SCORE_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -32,8 +34,9 @@ const CriterionSlider = ({
   onCommentChange,
   showCommentField = true
 }) => {
-  // Состояние undefined означает "не выбрано"
-  const isSelected = value !== undefined && value !== null;
+  // Состояние undefined означает "не выбрано". The range thumb may sit at 1
+  // while this is still false — that is not a submitted score.
+  const isSelected = isCriterionTouched(value);
   const currentScore = isSelected ? parseInt(value, 10) : null;
   
   // Состояние для анимации при изменении
@@ -70,7 +73,9 @@ const CriterionSlider = ({
         <div className="flex-1 min-w-0 pr-4">
           <h3 className="text-base font-bold text-slate-900 mb-1">{criterion.title}</h3>
           {criterion.description && (
-            <p className="text-sm text-slate-500 line-clamp-2">{criterion.description}</p>
+            <p className="text-sm text-slate-500 leading-relaxed whitespace-pre-wrap">
+              {criterion.description}
+            </p>
           )}
         </div>
         <div className={`
@@ -154,6 +159,8 @@ const CriterionSlider = ({
           </div>
         </div>
       )}
+
+      <CriterionScaleToggle criterion={criterion} />
       
       {/* Блок самооценки сотрудника (если есть) */}
       {selfReviewScore !== undefined && selfReviewScore !== null && (

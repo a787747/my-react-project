@@ -1,5 +1,27 @@
 # Evaluation Portal Progress
 
+## 2026-08-27 — EVALUATION_FORM_READABILITY: full criterion text, untouched is a dash
+
+**Status:** ✅ Done and on live. Frontend `20260827T065624Z`.
+
+The evaluator form (and the self-review form) truncated criterion 3 mid-sentence
+(`line-clamp-2`). Descriptions now render in full on every form that shows them.
+An untouched criterion is a dash and no zone — the slider thumb may sit at 1,
+but that 1 is not a choice and is not submitted. Submit stays blocked until
+every applicable criterion is touched (demonstrated on the stand). The
+ten-level scale opens on demand from yesterday's readout.
+
+Item 2 diagnosis before the visual change: the route receives no key for an
+untouched criterion (`grades: {}` → 422 `NO_GRADES`; a subset stores only the
+keys sent). Not money. D-0827-2. BUG-078 filed (C-level modal still prefills 5).
+
+`npm test` 453/453. Throwaway stand proved and dropped. Deploy via locked CAS.
+H1 still `2026-08-26 10:08:54.340312Z`; tables 0/0/0/0; 89/3/78; coefficient
+md5s identical to the 2026-08-26 snapshot. Live campaign tables were not
+written.
+
+**Report:** `docs/EVALUATION_FORM_READABILITY_2026-08-27.md`.
+
 ## 2026-08-27 — CRITERIA_READONLY_DETAILS: C-level can read the ten level texts
 
 **Status:** ✅ Done and on live. Frontend `20260827T060913Z`.

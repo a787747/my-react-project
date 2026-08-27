@@ -28,6 +28,7 @@ import {
   loadEvaluationDraft,
   saveEvaluationDraft
 } from '../utils/evaluationDrafts';
+import { gradesPayloadFromState, untouchedCriterionIds } from '../utils/evaluationGrades';
 
 export const useSelfReview = () => {
   const { user } = useUser();
@@ -150,7 +151,15 @@ export const useSelfReview = () => {
   const submitReview = useCallback(async () => {
     try {
       setSubmitting(true);
-      const scores = Object.values(grades);
+      const targetCriteria = hasReview ? newCriteria : criteria;
+      if (untouchedCriterionIds(grades, targetCriteria).length > 0) {
+        setSubmitting(false);
+        return { success: false, error: 'Оцените все критерии' };
+      }
+
+      // Untouched keys are omitted. The route never receives a default 1.
+      const submittedGrades = gradesPayloadFromState(grades, targetCriteria);
+      const scores = Object.values(submittedGrades);
       
       if (scores.length === 0) {
         setSubmitting(false);
@@ -166,7 +175,7 @@ export const useSelfReview = () => {
       const payload = {
         user_id: user.id,
         final_score: parseFloat(simpleAverage),      // Простое среднее для сотрудников
-        grades: grades,
+        grades: submittedGrades,
         comments: comments,                          // Комментарии к каждому критерию
         is_update: hasReview
       };
@@ -188,7 +197,7 @@ export const useSelfReview = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [grades, comments, hasReview, user, loadData, draftStorageKey]);
+  }, [grades, comments, hasReview, user, loadData, draftStorageKey, criteria, newCriteria]);
 
   // Изменение оценки
   const handleGradeChange = useCallback((criteriaId, value) => {

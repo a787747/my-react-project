@@ -28,6 +28,7 @@ import { useTaskStatus } from '../context/TaskStatusContext';
 import { OutOfScopeNotice, CampaignNotStartedNotice, RatingGuide } from '../components/common';
 import CriterionSlider from '../components/CriterionSlider';
 import { getScoreZone } from '../utils/evaluationUtils';
+import { gradesPayloadFromState, isCriterionTouched, untouchedCriterionIds } from '../utils/evaluationGrades';
 import { ADMIN_ROLES } from '../config/constants';
 import {
   clearEvaluationDraft,
@@ -112,7 +113,9 @@ const ManagerEvaluation = ({ user }) => {
 
   // Отправка оценки
   const handleSubmit = async () => {
-    const result = await submitEvaluation(evaluations, comments);
+    if (untouchedCriterionIds(evaluations, criteria).length > 0) return;
+    const submittedGrades = gradesPayloadFromState(evaluations, criteria);
+    const result = await submitEvaluation(submittedGrades, comments);
     setSubmitResult(result);
     
     if (result.success) {
@@ -128,8 +131,8 @@ const ManagerEvaluation = ({ user }) => {
   };
 
   // Проверка заполненности формы
-  const isFormValid = criteria.length > 0 && 
-    criteria.every(c => evaluations[c.id] !== undefined);
+  const isFormValid = criteria.length > 0 &&
+    criteria.every(c => isCriterionTouched(evaluations[c.id]));
 
   // Состояние загрузки
   if (loading || loadingTaskStatus) {

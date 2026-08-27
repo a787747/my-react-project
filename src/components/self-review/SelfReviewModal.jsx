@@ -22,7 +22,9 @@
 import React, { useState, useMemo } from 'react';
 import { Loader2, MessageSquare, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { getScoreZone, getLevelDescription } from '../../utils/evaluationUtils';
+import { isCriterionTouched } from '../../utils/evaluationGrades';
 import RatingGuide from '../RatingGuide';
+import CriterionScaleToggle from '../CriterionScaleToggle';
 
 const SelfReviewModal = ({ 
   isOpen, 
@@ -42,12 +44,12 @@ const SelfReviewModal = ({
   
   // Проверяем, все ли критерии оценены
   const evaluatedCount = useMemo(() => {
-    return criteria.filter(c => grades[c.id] !== undefined && grades[c.id] !== null).length;
+    return criteria.filter(c => isCriterionTouched(grades[c.id])).length;
   }, [criteria, grades]);
   
-  const allCriteriaEvaluated = evaluatedCount === criteria.length;
+  const allCriteriaEvaluated = evaluatedCount === criteria.length && criteria.length > 0;
   const unevaluatedCriteria = useMemo(() => {
-    return criteria.filter(c => grades[c.id] === undefined || grades[c.id] === null);
+    return criteria.filter(c => !isCriterionTouched(grades[c.id]));
   }, [criteria, grades]);
 
   if (!isOpen) return null;
@@ -94,7 +96,7 @@ const SelfReviewModal = ({
         <div className="p-6 space-y-8 overflow-y-auto">
             <RatingGuide variant="employee" />
             {criteria.map((criterion) => {
-            const isSelected = grades[criterion.id] !== undefined && grades[criterion.id] !== null;
+            const isSelected = isCriterionTouched(grades[criterion.id]);
             const currentScore = isSelected ? parseInt(grades[criterion.id], 10) : null;
             const zone = isSelected ? getScoreZone(currentScore, criterion) : null;
             const desc = isSelected ? getLevelDescription(criterion, currentScore) : null;
@@ -106,7 +108,9 @@ const SelfReviewModal = ({
                   <div>
                     <h3 className="text-lg font-bold text-gray-900">{criterion.title}</h3>
                     {criterion.description && (
-                      <p className="text-sm text-gray-500 mt-1">{criterion.description}</p>
+                      <p className="text-sm text-gray-500 mt-1 leading-relaxed whitespace-pre-wrap">
+                        {criterion.description}
+                      </p>
                     )}
                   </div>
                   <div className={`flex flex-col items-center ml-4 px-3 py-2 rounded-lg ${
@@ -169,6 +173,8 @@ const SelfReviewModal = ({
                     </div>
                   </div>
                 )}
+
+                <CriterionScaleToggle criterion={criterion} />
 
                 {/* Комментарий к критерию */}
                 <div className="mt-4">

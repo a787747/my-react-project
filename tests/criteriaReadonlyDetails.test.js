@@ -30,6 +30,7 @@ test("manage-criteria GET already selects every catalogue column, including the 
 
 test("the readout renders description and levels 1–10 from the payload, with no write control", () => {
   assert.match(readout, /criterion\?\.description/);
+  assert.match(readout, /showDescription = true/);
   assert.match(readout, /LEVELS = \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10\]/);
   assert.match(readout, /level_\$\{level\}_desc/);
   assert.doesNotMatch(readout, /<input|<textarea|<select|onSave|onDelete|Сохранить|Удалить|Добавить|Редактировать/);

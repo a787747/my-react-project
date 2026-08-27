@@ -20,12 +20,13 @@ export const criterionLevelTexts = (criterion) =>
     };
   });
 
-const CriteriaReadout = ({ criterion }) => {
+const CriteriaReadout = ({ criterion, showDescription = true }) => {
   const levels = criterionLevelTexts(criterion);
   const description = criterion?.description == null ? '' : String(criterion.description);
 
   return (
     <div data-testid="criteria-readout" className="space-y-3">
+      {showDescription && (
       <div>
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">
           Описание
@@ -34,6 +35,7 @@ const CriteriaReadout = ({ criterion }) => {
           {description || '—'}
         </p>
       </div>
+      )}
       <div>
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
           Описания уровней (1–10)
