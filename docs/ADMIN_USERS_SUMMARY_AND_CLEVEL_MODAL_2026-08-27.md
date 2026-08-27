@@ -199,6 +199,8 @@ After deploy (SSH `SELECT` / `readlink`):
 
 `npm test` **463/463**.
 
+**Commit:** `fd9c5ef0a3c9e5d95852cf8151bfe287ef057c76`.
+
 ---
 
 ## 5. What was not done

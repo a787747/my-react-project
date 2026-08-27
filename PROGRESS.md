@@ -22,7 +22,7 @@ plus one workflow PUT. H1 still `2026-08-26 10:08:54.340312Z`; tables 0/0/0/0;
 tables were not written.
 
 **Report:** `docs/ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL_2026-08-27.md`.
-**Commit:** (recorded in the follow-up hash commit).
+**Commit:** `fd9c5ef0a3c9e5d95852cf8151bfe287ef057c76`.
 
 ## 2026-08-27 — EVALUATION_FORM_READABILITY: full criterion text, untouched is a dash
 
