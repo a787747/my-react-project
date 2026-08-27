@@ -1,10 +1,11 @@
 # EPE — Handover
 
-**As of:** 2026-08-26 (ROLE_ACCESS_DEPLOY) · **H1: active and started**
+**As of:** 2026-08-27 (CLEAR_TEST_EVALUATIONS) · **H1: active and started**
 H1 (id 2) has been **active** since **2026-08-24 19:07:36Z** (`POST /webhook/api/periods/activate`, Caddy 200,
 from `/admin/periods`) and Alexander started the campaign at **2026-08-26 10:08:54.340312Z**. Employee
-tasks are open and submit routes accept writes. The four campaign tables were still 0/0/0/0 at 11:04Z;
-whether the invitation had been sent was not verified. §7 is the remaining order of work.
+tasks are open and submit routes accept writes. The four campaign tables are **0/0/0/0** again
+after the 2026-08-27 pre-invite clear (`docs/CLEAR_TEST_EVALUATIONS_2026-08-27.md`); the invitation
+has not been sent. An earlier 11:04Z empty reading is historical. §7 is the remaining order of work.
 
 Every number in §§1–3 and §§5–10 was re-measured against the live system on 2026-08-24 17:14–17:16 UTC,
 read-only (SELECT / GET / `readlink` / `openssl` / `crontab -l`). **§4 is copied verbatim and was not
@@ -19,7 +20,8 @@ docs-vs-docs differences this pass found.
 Employees Performance Evaluation for SEDA Medical Turkmenistan. 89 people. React SPA + n8n as the entire backend + PostgreSQL.
 
 **Live now:** H1-2026 is the current period (`status=active`, `is_active=true`) and the campaign has
-been running since **2026-08-26 10:08:54.340312Z**. Four data tables were still empty at 11:04Z.
+been running since **2026-08-26 10:08:54.340312Z**. Four campaign tables are **0/0/0/0**
+(re-cleared 2026-08-27 09:59Z before the invitation).
 
 It ran exactly one cycle: a single annual period, "Annual Review 2025", 234 evaluations all dated December 2025. It has never run a half-year cycle. The season goal — H1 → H2 → annual aggregation — is new capability, not a repeat.
 
@@ -149,7 +151,7 @@ Unauthenticated `GET /webhook/api/periods` and `GET …/annual-rollup` → **401
 - **`detail_type` is a real filter** (`all` / `self` / `received_from_manager` / `from_subordinates` / `gave_to_manager` / `gave_to_subordinates`; unknown → 422).
 - **Company-wide reporting audience = admin + c_level.** `ReportingRoute` on `/analytics`, `/admin/all-evaluations`, `/admin/evaluations-matrix`, `/admin/annual-rollup`. HR keeps `/hr/dashboard` and the employee table. Typed `/admin` (criteria) is still `AdminRoute` (BUG-013); its API is admin-only (403).
 - **Analytics** is period-bound. Company avg is still `AVG(calculated_score)` over **all sources mixed**.
-- **scrypt** (N=16384, r=8, p=1) in registration and login. No plaintext passwords anywhere. **87 of 89 users have `password_hash = NULL`; two are registered:** Alexander (id 2, admin) and Jemal Gulberdiyeva (id 47, c_level). Session rows exist for those two accounts; the count moves with ordinary login and is **not an invariant**. Everyone else registers via the shared invite.
+- **scrypt** (N=16384, r=8, p=1) in registration and login. No plaintext passwords anywhere. **85 of 89 users have `password_hash = NULL`; four are registered** (measured 2026-08-27): Alexander (id 2, admin), Jemal Gulberdiyeva (id 47, c_level), Liya Dmitriyeva (id 52, hr), Oksana Borisenkova (id 70, employee). Session rows move with ordinary login and are **not an invariant**. Everyone else registers via the shared invite.
 - **One-time password reset** with `token_version` invalidating prior JWTs. Fails closed unless `EPE_FRONTEND_URL` is HTTPS — configured.
 - **Login throttling**: 5 failures / 15 min → 15 min lock, generic 401, dummy scrypt for unknown emails. `GET /api/verify-invite` is 600 / 5 min / IP.
 - **Shared invite id=4** is reusable (`is_used` stays false), unexpired until **2026-09-18**. Register validator `[A-Za-z0-9_-]{16,128}`; the live token is 43-char base64url.
@@ -178,10 +180,11 @@ Unauthenticated `GET /webhook/api/periods` and `GET …/annual-rollup` → **401
   `evaluation_periods_id_seq` is at 5 with ids 3 and 4 absent — a rejected INSERT still consumes a
   `nextval`; there is no delete route. Harmless.
   **Annual 2025 has zero participant rows**, so it can never obtain `period_results`; feeding it to close returns 409. An «Annual 2025» container would render «нет сохранённых результатов» for every person — which is exactly what that cell label was written for.
-- **Live data tables were still empty at 2026-08-26 11:04Z:** `evaluations` 0,
+- **Live campaign tables are empty again as of 2026-08-27 09:59Z:** `evaluations` 0,
   `evaluation_scores` 0, `score_corrections` 0, `period_results` 0. The gate is open, so this is a
-  measurement, not a continuing invariant.
-- **Org imported**: 89 users, real hire dates, hierarchy by `Manager's ID`, 0 cycles, 0 people without an evaluator. `can_evaluate` / `can_be_evaluated` as separate columns — the org tree and the evaluation graph are not the same graph. Live roles re-measured 2026-08-26 13:37Z: 1 admin, 5 c_level, **13 manager, 68 employee**, 2 hr (one employee→manager move by the owner since 24 Aug, predates the card-events log). Registered accounts now **3**: Alexander (2), Jemal (47), **Liya Dmitriyeva (52, hr)**.
+  measurement, not a continuing invariant. One pre-invite upward test row (eval 39) was removed
+  by id — `docs/CLEAR_TEST_EVALUATIONS_2026-08-27.md`.
+- **Org imported**: 89 users, real hire dates, hierarchy by `Manager's ID`, 0 cycles, 0 people without an evaluator. `can_evaluate` / `can_be_evaluated` as separate columns — the org tree and the evaluation graph are not the same graph. Live roles re-measured 2026-08-26 13:37Z: 1 admin, 5 c_level, **13 manager, 68 employee**, 2 hr (one employee→manager move by the owner since 24 Aug, predates the card-events log). Registered accounts now **4**: Alexander (2), Jemal (47), Liya Dmitriyeva (52, hr), **Oksana Borisenkova (70, employee)** — measured 2026-08-27; she stays registered after the clear.
 - Read-only (evaluate nobody, evaluated by nobody): Cem Durukan (21), Mekan Yusupov (61), Hemra Ashyrov (40). All three are **in H1 scope with `grade_id IS NULL` and `manager_id IS NULL`** — decided and left that way, D-0821-4. `API: Submit Evaluation` carries `AND subj.can_be_evaluated = true` in all three relation filters plus an e-mail denylist on the `c_level_direct` branch, so they can never acquire a `manager_score`; `final_rating` and `bonus_index` would persist as NULL, never a coefficient-1.00 money row. That guard has no static test (BUG-039).
 - **Classification is Alexander's, and he is editing it.** Live `work_category`: **48 general / 41 project** (`is_project_participant` agrees on every row; zero `tender`). On 2026-08-20 it was 46 / 43 — two people moved to general since. «Тендер» is a leftover UI option and an unused Postgres enum label; `API: Admin Save User` allows only `general` / `project` and answers 422 otherwise. Report: `docs/TENDER_CATEGORY_2026-08-2x.md`.
 - **Criteria catalogue: 9 active rows**, all with a positive weight, and 90 `score_coefficients`
@@ -418,7 +421,13 @@ Reports, in order: `AUTHENTICATION_CORE_2026-08-18.md` · `TLS_CUTOVER_2026-08-1
 the employee guide subset reads 1–3 without changing approved words, the own profile carries
 identity/scope/tasks/self score, and D-0820-17 remains sealed.
 
-Latest: **`ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL_2026-08-27.md`** — C-level
+Latest: **`CLEAR_TEST_EVALUATIONS_2026-08-27.md`** — one pre-invite upward
+test evaluation (id 39, Oksana 70 → Aysha 15) deleted by recorded id;
+campaign tables **0/0/0/0**; no `c_level_direct`; registered **4** untouched;
+coefficients still `079177fb…`. Previous:
+**`CLEVEL_COVERAGE_CHECK_2026-08-27.md`** — read-only coverage vs the owner's
+model; admin can evaluate its six reports; BUG-079 filed. Previous:
+**`ADMIN_USERS_SUMMARY_AND_CLEVEL_MODAL_2026-08-27.md`** — C-level
 modal no longer prefills 5 (BUG-078 / D-0827-3); `/admin/users` names
 registration and both campaign directions against explicit populations;
 `c_level_direct` is in neither counter. Frontend `20260827T075704Z`.

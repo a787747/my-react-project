@@ -1,5 +1,17 @@
 # Evaluation Portal Progress
 
+## 2026-08-27 — CLEAR_TEST_EVALUATIONS: pre-invite H1 test row removed
+
+**Status:** ✅ Done. Campaign tables **0/0/0/0**. One upward test evaluation
+deleted by id (eval **39**, score **108** cascaded). No `c_level_direct` row
+existed. Registered accounts still **4** (2, 47, 52, 70) with `password_hash`
+md5 unchanged. Coefficients md5-identical to the 2026-08-26 snapshot
+(`079177fb…`). `evaluation_started_at` still `2026-08-26 10:08:54.340312Z`.
+Sequence gaps 39 / 108 accepted. Dump
+`9c1f873f861bd6517e55556a7998931c` kept on the Mac outside the repo.
+
+**Report:** `docs/CLEAR_TEST_EVALUATIONS_2026-08-27.md`.
+
 ## 2026-08-27 — CLEVEL_COVERAGE_CHECK: live coverage vs the owner's model (read-only)
 
 **Status:** ✅ Done. **Zero writes** — SELECT/GET only; live measured 08:24–08:29Z, campaign
