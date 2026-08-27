@@ -27,7 +27,7 @@ H1 **78/89** in scope, roles 1/5/13/68/2, coefficients **`079177fb…`**.
 §4 of HANDOVER not edited.
 
 **Report:** `docs/PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW_2026-08-27.md`.
-**Decision:** D-0827-5.
+**Decision:** D-0827-5. **Commit:** `c3a60bf41604f7af894be4ba3ee9be1aed2b6c51`.
 
 ## 2026-08-27 — PEER_RECOGNITION: «Отметить коллегу» live
 

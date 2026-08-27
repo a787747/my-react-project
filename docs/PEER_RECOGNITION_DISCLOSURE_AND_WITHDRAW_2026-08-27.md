@@ -296,4 +296,4 @@ Filed as **BUG-080** so it does not vanish into a closed brief.
 - No extension created on live. No container restarted outside the stand.
 - `git status` clean at the end.
 
-**Commit:** recorded in the follow-up hash commit.
+**Commit:** `c3a60bf41604f7af894be4ba3ee9be1aed2b6c51`.
