@@ -235,4 +235,4 @@ their money cells are NULL. Under the owner's model those two criteria are manda
 - `git status` clean before this report; this report + `PROGRESS.md` + `bugs.md` are the only
   repo changes; committed and pushed.
 
-**Commit:** recorded in the follow-up commit (the pattern of every prior report).
+**Commit:** `1e5b0da` (this report, the PROGRESS entry and BUG-079), pushed to `main`.
