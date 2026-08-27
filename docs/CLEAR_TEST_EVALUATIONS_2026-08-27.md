@@ -155,3 +155,6 @@ A deleted `INSERT` still consumes `nextval`. Left as they are:
   cascaded). Zero correction deletes. Nothing else.
 - `git status` clean at start. This report, the `PROGRESS.md` entry and the
   HANDOVER measurement update are the only repo changes.
+
+**Commit:** `d7951fa729de0f89a93c537e21c548df558abfc0` (this report, the
+PROGRESS entry and the HANDOVER measurement update).
