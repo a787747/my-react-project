@@ -1,5 +1,29 @@
 # Evaluation Portal Progress
 
+## 2026-09-07 — TALK management listening channel, wave 1
+
+**Status:** ✅ Live and proven. Owner authorised opening on 2026-09-06.
+
+- Migration 019: one open wave, twelve fixed topics, structured responses and
+  named counterpart FKs; no `period_id`, score-like column or campaign-table FK.
+- Workflow `API: Management Talk` (`pALSY08dYjNmHB64`) active with four guarded
+  webhooks. Reader is admin alone. Auth Guard remained frozen.
+- Approved counterpart allowlist: 2, 18, 21, 40, 47, 61. Topic-10 own-manager
+  refusal is server-side and applies only to topic 10.
+- Employee/admin pages plus sidebar, Welcome/team banner and all evaluation
+  success prompts. Deadline is derived from `closes_at`.
+- Final stand **23/23**; static suite **473/473**; production build passed.
+- Live admin smoke: **0 → 1 → read `all_good` → 0**. Role matrix matched
+  admin 200 / all other roles 403 / unauthenticated 401.
+- Campaign read **177/572/0/0 → 177/572/0/0**; no movement was observed.
+  `evaluation_started_at` stayed `2026-08-26 10:08:54.340312Z`.
+- Frontend CAS:
+  `20260827T124349Z → 20260906T134020Z`. Stand/staging removed; live TALK
+  responses returned to zero after the authorised smoke.
+
+**Report:** `docs/TALK_CHANNEL_2026-09-07.md`. **Decisions:** D-TALK-1…13.
+**Implementation commits:** `f1472b9`, `dddc32e`. **Open:** BUG-081.
+
 ## 2026-08-27 — PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW
 
 **Status:** ✅ Done and on live. Workflow `API: Peer Recognition`

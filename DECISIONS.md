@@ -1012,3 +1012,10 @@ Alexander Petrosov (2), Bayram Urayev (18), Cem Durukan (21), Hemra Ashyrov
 mutually exclusive with named people.
 **Consequence:** gaining `admin` or `c_level` role alone does not approve a
 person for this selector; current role and employment are still rechecked.
+
+### D-TALK-13 — Open wave 1 on 6 September (owner, 2026-09-06)
+**Decision:** deploy and open TALK immediately on 2026-09-06, one day before
+the concept timetable's 7–8 September deployment window.
+**Consequence:** `opens_at` is the migration time
+`2026-09-06 13:38:48.758904Z`; the closing deadline remains unchanged at the
+end of 10 September Asia/Ashgabat.

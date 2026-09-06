@@ -867,3 +867,21 @@
 - Why it matters: every extra year is another set of named remarks sitting in the database and on the c_level list, with no rule for how long they stay or who may erase them after close.
 - How to fix: owner's call — keep forever / drop on close / retain N years / anonymise after close / drop children when the annual container closes / allow a grace-period withdraw after close. Reported, not built, in `docs/PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW_2026-08-27.md` §6.
 - Source: brief PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW (2026-08-27); also surfaced this morning in `docs/PEER_RECOGNITION_2026-08-27.md` §9.4.
+
+### BUG-081: TALK has no decided admin scheduling-state model
+- Status: 🔴 OPEN
+- Severity: 🟢 Low (operations; wave 1 can be routed manually)
+- Location: `src/pages/AdminTalkChannel.jsx`; `performance_db.management_talk_responses`.
+- Description: D-TALK-5 says employee-visible scheduling states are deferred and
+  the brief requires only «Ответ получен» on that side. The concept also says
+  scheduling states live in the admin screen, but defines no state names,
+  transitions, ownership, timestamps or actions. The wave-1 admin page therefore
+  reads structured requests and does not invent a status machine.
+- Why it matters: the owner must track whom he contacted outside EPE during wave
+  1. Adding an ad-hoc checkbox would create an unaudited workflow whose meaning
+  changes by operator.
+- How to fix: before a later wave, decide the minimal admin lifecycle and audit
+  requirements, then add it as a separate migration/API/UI brief. Do not expose
+  those states to employees unless D-TALK-5 is explicitly superseded.
+- Source: `CONVERSATION_CHANNEL_CONCEPT.md` §6 D-TALK-5; brief TALK wave 1
+  boundary «anything not decided: surface, do not resolve».
