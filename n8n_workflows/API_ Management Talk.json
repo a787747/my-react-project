@@ -1,0 +1,842 @@
+{
+  "updatedAt": "2026-09-06T13:40:13.535Z",
+  "createdAt": "2026-09-06T13:40:12.692Z",
+  "id": "pALSY08dYjNmHB64",
+  "name": "API: Management Talk",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/talk/form",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "talk-webhook-form",
+      "name": "Webhook FORM",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "epe-talk-form"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn { json: {\n  authorization: request.headers?.authorization || '',\n  required_roles: [],\n  required_capability: '',\n  request,\n}};"
+      },
+      "id": "talk-guard-form",
+      "name": "Prepare Guard Input FORM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "talk-run-form",
+      "name": "Run Auth Guard FORM",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard FORM').first().json;\nif (!guard.ok) return { json: { http_status: guard.status,\n  body: { success: false, error: guard.code, message: guard.message },\n  sql: 'SELECT NULL::integer AS actor_id WHERE false' } };\nconst actorId = Number(guard.identity.id);\nreturn { json: { sql: `\nWITH wave AS (\n  SELECT w.id, w.wave_key, w.opens_at, w.closes_at,\n         clock_timestamp() BETWEEN w.opens_at AND w.closes_at AS is_open,\n         to_char(w.opens_at AT TIME ZONE 'Asia/Ashgabat', 'YYYY-MM-DD\"T\"HH24:MI:SS') AS opens_local,\n         to_char(w.closes_at AT TIME ZONE 'Asia/Ashgabat', 'YYYY-MM-DD\"T\"HH24:MI:SS') AS closes_local,\n         extract(day FROM w.closes_at AT TIME ZONE 'Asia/Ashgabat')::integer::text ||\n           CASE extract(month FROM w.closes_at AT TIME ZONE 'Asia/Ashgabat')::integer\n             WHEN 1 THEN ' января' WHEN 2 THEN ' февраля' WHEN 3 THEN ' марта'\n             WHEN 4 THEN ' апреля' WHEN 5 THEN ' мая' WHEN 6 THEN ' июня'\n             WHEN 7 THEN ' июля' WHEN 8 THEN ' августа' WHEN 9 THEN ' сентября'\n             WHEN 10 THEN ' октября' WHEN 11 THEN ' ноября' WHEN 12 THEN ' декабря'\n           END AS deadline_text\n  FROM (SELECT * FROM performance_db.management_talk_waves ORDER BY id DESC LIMIT 1) w\n), actor AS (\n  SELECT u.id, u.manager_id, (u.terminated_at IS NOT NULL) AS is_terminated\n  FROM performance_db.users u WHERE u.id = ${actorId}\n), mine AS (\n  SELECT r.answer_key, r.topic_key, r.counterpart_mode, r.urgency_key,\n         r.group_readiness_key,\n         to_char(r.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS updated_at,\n         COALESCE(json_agg(c.counterpart_id ORDER BY c.counterpart_id)\n           FILTER (WHERE c.counterpart_id IS NOT NULL), '[]'::json) AS counterpart_ids\n  FROM wave w\n  JOIN performance_db.management_talk_responses r ON r.wave_id = w.id\n  LEFT JOIN performance_db.management_talk_counterparts c\n    ON c.wave_id = r.wave_id AND c.responder_id = r.responder_id\n  WHERE r.responder_id = ${actorId}\n  GROUP BY r.answer_key, r.topic_key, r.counterpart_mode, r.urgency_key,\n           r.group_readiness_key, r.updated_at\n)\nSELECT a.id AS actor_id, a.manager_id, a.is_terminated,\n  w.id AS wave_id, w.wave_key, w.is_open, w.opens_local, w.closes_local, w.deadline_text,\n  COALESCE((SELECT json_agg(json_build_object(\n    'key', t.topic_key, 'label', t.label,\n    'sensitive', t.topic_key IN ('t09_team','t10_manager','t11_unfair','t12_personal')\n  ) ORDER BY t.topic_key) FROM performance_db.management_talk_topics t), '[]'::json) AS topics,\n  COALESCE((SELECT json_agg(json_build_object(\n    'id', u.id, 'full_name', u.full_name,\n    'is_own_manager', u.id = a.manager_id\n  ) ORDER BY CASE u.role WHEN 'admin' THEN 0 ELSE 1 END, u.full_name, u.id)\n  FROM performance_db.users u\n  WHERE u.terminated_at IS NULL AND u.role IN ('admin','c_level')\n    AND u.id IN (2,18,21,40,47,61)), '[]'::json) AS leadership,\n  (SELECT row_to_json(m) FROM mine m) AS my_response\nFROM actor a CROSS JOIN wave w\n` } };"
+      },
+      "id": "talk-form-build",
+      "name": "Build Form Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql || 'SELECT NULL::integer AS actor_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "talk-form-load",
+      "name": "Load Form",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Form Query').first().json;\nif (prev.http_status) return { json: prev };\nconst row = $input.all().map(i => i.json).find(r => r.actor_id !== undefined);\nif (!row) return { json: { http_status: 404,\n  body: { success: false, error: 'TALK_WAVE_OR_ACTOR_NOT_FOUND', message: 'Окно ответа недоступно' } } };\nconst truthy = v => v === true || v === 't';\nif (truthy(row.is_terminated)) return { json: { http_status: 403,\n  body: { success: false, error: 'ACTOR_TERMINATED', message: 'Учётная запись неактивна' } } };\nconst parse = (v, fallback) => {\n  if (v === null || v === undefined) return fallback;\n  if (typeof v !== 'string') return v;\n  try { return JSON.parse(v); } catch { return fallback; }\n};\nconst mine = parse(row.my_response, null);\nreturn { json: { http_status: 200, body: {\n  success: true,\n  wave: {\n    id: Number(row.wave_id), key: row.wave_key, is_open: truthy(row.is_open),\n    opens_at: row.opens_local ? `${row.opens_local}+05:00` : null,\n    closes_at: row.closes_local ? `${row.closes_local}+05:00` : null,\n    deadline_text: row.deadline_text,\n  },\n  topics: parse(row.topics, []),\n  counterparts: parse(row.leadership, []),\n  my_response: mine ? {\n    answer_key: mine.answer_key, topic_key: mine.topic_key,\n    counterpart_mode: mine.counterpart_mode,\n    counterpart_ids: parse(mine.counterpart_ids, []).map(Number),\n    urgency_key: mine.urgency_key,\n    group_readiness_key: mine.group_readiness_key,\n    updated_at: mine.updated_at,\n  } : null,\n} } };"
+      },
+      "id": "talk-form-format",
+      "name": "Format Form Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "talk-form-respond",
+      "name": "Respond FORM",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/talk/save",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "talk-webhook-save",
+      "name": "Webhook SAVE",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        300
+      ],
+      "webhookId": "epe-talk-save"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn { json: {\n  authorization: request.headers?.authorization || '',\n  required_roles: [],\n  required_capability: '',\n  request,\n}};"
+      },
+      "id": "talk-guard-save",
+      "name": "Prepare Guard Input SAVE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "talk-run-save",
+      "name": "Run Auth Guard SAVE",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard SAVE').first().json;\nif (!guard.ok) return { json: { http_status: guard.status,\n  body: { success: false, error: guard.code, message: guard.message },\n  sql: 'SELECT NULL::integer AS actor_id WHERE false' } };\nconst actorId = Number(guard.identity.id);\nconst body = guard.request.body || guard.request || {};\nconst answerKey = String(body.answer_key || '');\nconst topicKey = body.topic_key == null ? null : String(body.topic_key);\nconst mode = String(body.counterpart_mode || 'none');\nconst urgencyKey = body.urgency_key == null ? null : String(body.urgency_key);\nconst groupKey = body.group_readiness_key == null ? null : String(body.group_readiness_key);\nconst rawIds = Array.isArray(body.counterpart_ids) ? body.counterpart_ids : [];\nconst counterpartIds = [...new Set(rawIds.map(v => parseInt(v, 10)))];\nconst shapeOk =\n  (answerKey === 'all_good' && topicKey === null && mode === 'none'\n    && urgencyKey === null && groupKey === null && counterpartIds.length === 0)\n  || (answerKey === 'topic_only' && /^t(0[1-9]|1[0-2])_[a-z_]+$/.test(topicKey || '')\n    && mode === 'none' && urgencyKey === null && groupKey === null && counterpartIds.length === 0)\n  || (answerKey === 'conversation' && /^t(0[1-9]|1[0-2])_[a-z_]+$/.test(topicKey || '')\n    && ['people','help_choose','all_leadership'].includes(mode)\n    && ['this_cycle','soon'].includes(urgencyKey)\n    && ['yes','individual_only'].includes(groupKey)\n    && ((mode === 'people' && counterpartIds.length > 0)\n      || (mode !== 'people' && counterpartIds.length === 0)));\nif (!shapeOk || counterpartIds.some(v => !Number.isFinite(v) || v < 1)) {\n  return { json: { http_status: 422,\n    body: { success: false, error: 'TALK_INVALID_RESPONSE', message: 'Проверьте выбранные варианты ответа' },\n    sql: 'SELECT NULL::integer AS actor_id WHERE false' } };\n}\nreturn { json: {\n  actor_id: actorId, answer_key: answerKey, topic_key: topicKey,\n  counterpart_mode: mode, counterpart_ids: counterpartIds,\n  urgency_key: urgencyKey, group_readiness_key: groupKey,\n  sql: `\nWITH wave AS (\n  SELECT w.id, clock_timestamp() BETWEEN w.opens_at AND w.closes_at AS is_open\n  FROM (SELECT * FROM performance_db.management_talk_waves ORDER BY id DESC LIMIT 1) w\n), actor AS (\n  SELECT u.id, u.manager_id, (u.terminated_at IS NOT NULL) AS is_terminated\n  FROM performance_db.users u WHERE u.id = ${actorId}\n), requested(counterpart_id) AS (\n  SELECT unnest(ARRAY[${counterpartIds.join(',') || 'NULL'}]::integer[])\n), eligible AS (\n  SELECT u.id FROM performance_db.users u\n  WHERE u.terminated_at IS NULL AND u.role IN ('admin','c_level')\n    AND u.id IN (2,18,21,40,47,61)\n)\nSELECT a.id AS actor_id, a.manager_id, a.is_terminated, w.id AS wave_id, w.is_open,\n  ${topicKey === null ? 'true' : `EXISTS (\n    SELECT 1 FROM performance_db.management_talk_topics t WHERE t.topic_key = '${topicKey}'\n  )`} AS topic_exists,\n  (SELECT count(*)::integer FROM requested WHERE counterpart_id IS NOT NULL) AS requested_count,\n  (SELECT count(*)::integer FROM requested r JOIN eligible e ON e.id = r.counterpart_id) AS eligible_count,\n  (SELECT count(*)::integer FROM requested r WHERE r.counterpart_id = a.manager_id) AS own_manager_count\nFROM actor a CROSS JOIN wave w\n` } };"
+      },
+      "id": "talk-save-validate",
+      "name": "Validate Save",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql || 'SELECT NULL::integer AS actor_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "talk-save-check",
+      "name": "Load Save Target",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validate Save').first().json;\nif (prev.http_status) return { json: prev };\nconst check = $input.all().map(i => i.json).find(r => r.actor_id !== undefined);\nconst truthy = v => v === true || v === 't';\nif (!check) return { json: { http_status: 404,\n  body: { success: false, error: 'TALK_WAVE_OR_ACTOR_NOT_FOUND', message: 'Окно ответа недоступно' } } };\nif (truthy(check.is_terminated)) return { json: { http_status: 403,\n  body: { success: false, error: 'ACTOR_TERMINATED', message: 'Учётная запись неактивна' } } };\nif (!truthy(check.is_open)) return { json: { http_status: 409,\n  body: { success: false, error: 'TALK_WAVE_CLOSED', message: 'Срок ответа завершён' } } };\nif (!truthy(check.topic_exists)) return { json: { http_status: 422,\n  body: { success: false, error: 'TALK_TOPIC_INVALID', message: 'Выберите тему из списка' } } };\nif (prev.counterpart_mode === 'people'\n    && Number(check.requested_count) !== Number(check.eligible_count)) {\n  return { json: { http_status: 422,\n    body: { success: false, error: 'TALK_COUNTERPART_INVALID', message: 'Выберите собеседника из списка' } } };\n}\n// Topic 10 only: topics 9, 11 and 12 deliberately may concern anyone.\nif (prev.topic_key === 't10_manager' && prev.counterpart_mode === 'people'\n    && Number(check.own_manager_count) > 0) {\n  return { json: { http_status: 422,\n    body: { success: false, error: 'TALK_OWN_MANAGER_FORBIDDEN',\n            message: 'Для этой темы выберите другого собеседника' } } };\n}\nconst ids = prev.counterpart_ids.join(',') || 'NULL';\nconst lit = v => v === null ? 'NULL' : `'${String(v).replace(/'/g, \"''\")}'`;\nconst actorId = Number(prev.actor_id);\nreturn { json: { sql: `\nWITH wave AS (\n  SELECT w.id\n  FROM (SELECT * FROM performance_db.management_talk_waves ORDER BY id DESC LIMIT 1) w\n  WHERE clock_timestamp() BETWEEN w.opens_at AND w.closes_at\n), actor AS (\n  SELECT u.id, u.manager_id FROM performance_db.users u\n  WHERE u.id = ${actorId} AND u.terminated_at IS NULL\n), requested(counterpart_id) AS (\n  SELECT unnest(ARRAY[${ids}]::integer[])\n), eligible AS (\n  SELECT u.id FROM performance_db.users u\n  WHERE u.terminated_at IS NULL AND u.role IN ('admin','c_level')\n    AND u.id IN (2,18,21,40,47,61)\n), valid AS (\n  SELECT w.id AS wave_id, a.id AS responder_id, a.manager_id\n  FROM wave w CROSS JOIN actor a\n  WHERE ${prev.topic_key === null ? 'true' : `EXISTS (\n      SELECT 1 FROM performance_db.management_talk_topics t\n      WHERE t.topic_key = ${lit(prev.topic_key)}\n    )`}\n    AND (${lit(prev.counterpart_mode)} <> 'people' OR (\n      (SELECT count(*) FROM requested WHERE counterpart_id IS NOT NULL) > 0\n      AND (SELECT count(*) FROM requested WHERE counterpart_id IS NOT NULL)\n        = (SELECT count(*) FROM requested r JOIN eligible e ON e.id = r.counterpart_id)\n      AND (${lit(prev.topic_key)} <> 't10_manager'\n        OR NOT EXISTS (SELECT 1 FROM requested r WHERE r.counterpart_id = a.manager_id))\n    ))\n), cleared AS (\n  DELETE FROM performance_db.management_talk_counterparts c USING valid v\n  WHERE c.wave_id = v.wave_id AND c.responder_id = v.responder_id\n  RETURNING c.counterpart_id\n), saved AS (\n  INSERT INTO performance_db.management_talk_responses\n    (wave_id, responder_id, answer_key, topic_key, counterpart_mode,\n     urgency_key, group_readiness_key)\n  SELECT v.wave_id, v.responder_id, ${lit(prev.answer_key)}, ${lit(prev.topic_key)},\n         ${lit(prev.counterpart_mode)}, ${lit(prev.urgency_key)}, ${lit(prev.group_readiness_key)}\n  FROM valid v LEFT JOIN (SELECT count(*) FROM cleared) force_order ON true\n  ON CONFLICT (wave_id, responder_id) DO UPDATE SET\n    answer_key = EXCLUDED.answer_key, topic_key = EXCLUDED.topic_key,\n    counterpart_mode = EXCLUDED.counterpart_mode, urgency_key = EXCLUDED.urgency_key,\n    group_readiness_key = EXCLUDED.group_readiness_key, updated_at = now()\n  RETURNING wave_id, responder_id\n), named AS (\n  INSERT INTO performance_db.management_talk_counterparts\n    (wave_id, responder_id, counterpart_id)\n  SELECT s.wave_id, s.responder_id, e.id\n  FROM saved s JOIN valid v USING (wave_id, responder_id)\n  JOIN eligible e ON (\n    (${lit(prev.counterpart_mode)} = 'people'\n      AND e.id IN (SELECT counterpart_id FROM requested WHERE counterpart_id IS NOT NULL))\n    OR ${lit(prev.counterpart_mode)} = 'all_leadership'\n  )\n  WHERE ${lit(prev.topic_key)} <> 't10_manager' OR e.id <> v.manager_id\n  ON CONFLICT DO NOTHING RETURNING counterpart_id\n)\nSELECT (SELECT count(*)::integer FROM saved) AS written,\n       (SELECT count(*)::integer FROM named) AS counterpart_rows\n` } };"
+      },
+      "id": "talk-save-build",
+      "name": "Build Save SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql || 'SELECT NULL::integer AS written WHERE false' }}",
+        "options": {}
+      },
+      "id": "talk-save-execute",
+      "name": "Execute Save",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        750,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Save SQL').first().json;\nif (prev.http_status) return { json: prev };\nconst row = $input.all().map(i => i.json).find(r => r.written !== undefined);\nif (!row || Number(row.written) !== 1) return { json: { http_status: 409,\n  body: { success: false, error: 'TALK_WRITE_CONFLICT', message: 'Состояние изменилось — обновите страницу' } } };\nreturn { json: { http_status: 200,\n  body: { success: true, message: 'Ответ получен' } } };"
+      },
+      "id": "talk-save-format",
+      "name": "Format Save Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "talk-save-respond",
+      "name": "Respond SAVE",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/talk/withdraw",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "talk-webhook-withdraw",
+      "name": "Webhook WITHDRAW",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        600
+      ],
+      "webhookId": "epe-talk-withdraw"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn { json: {\n  authorization: request.headers?.authorization || '',\n  required_roles: [],\n  required_capability: '',\n  request,\n}};"
+      },
+      "id": "talk-guard-withdraw",
+      "name": "Prepare Guard Input WITHDRAW",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "talk-run-withdraw",
+      "name": "Run Auth Guard WITHDRAW",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard WITHDRAW').first().json;\nif (!guard.ok) return { json: { http_status: guard.status,\n  body: { success: false, error: guard.code, message: guard.message },\n  sql: 'SELECT NULL::integer AS written WHERE false' } };\nconst actorId = Number(guard.identity.id);\nreturn { json: { sql: `\nWITH wave AS (\n  SELECT w.id\n  FROM (SELECT * FROM performance_db.management_talk_waves ORDER BY id DESC LIMIT 1) w\n  WHERE clock_timestamp() BETWEEN w.opens_at AND w.closes_at\n), actor AS (\n  SELECT u.id FROM performance_db.users u\n  WHERE u.id = ${actorId} AND u.terminated_at IS NULL\n), deleted AS (\n  DELETE FROM performance_db.management_talk_responses r USING wave w, actor a\n  WHERE r.wave_id = w.id AND r.responder_id = a.id RETURNING r.responder_id\n)\nSELECT (SELECT count(*)::integer FROM deleted) AS written,\n       EXISTS(SELECT 1 FROM wave) AS wave_open,\n       EXISTS(SELECT 1 FROM actor) AS actor_employed\n` } };"
+      },
+      "id": "talk-withdraw-build",
+      "name": "Build Withdraw Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql || 'SELECT NULL::integer AS written WHERE false' }}",
+        "options": {}
+      },
+      "id": "talk-withdraw-execute",
+      "name": "Execute Withdraw",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Withdraw Query').first().json;\nif (prev.http_status) return { json: prev };\nconst row = $input.all().map(i => i.json).find(r => r.written !== undefined);\nconst truthy = v => v === true || v === 't';\nif (!row || !truthy(row.actor_employed)) return { json: { http_status: 403,\n  body: { success: false, error: 'ACTOR_TERMINATED', message: 'Учётная запись неактивна' } } };\nif (!truthy(row.wave_open)) return { json: { http_status: 409,\n  body: { success: false, error: 'TALK_WAVE_CLOSED', message: 'Срок ответа завершён' } } };\nif (Number(row.written) !== 1) return { json: { http_status: 404,\n  body: { success: false, error: 'TALK_RESPONSE_NOT_FOUND', message: 'Ответа нет' } } };\nreturn { json: { http_status: 200,\n  body: { success: true, withdrawn: true, message: 'Ответ снят' } } };"
+      },
+      "id": "talk-withdraw-format",
+      "name": "Format Withdraw Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "talk-withdraw-respond",
+      "name": "Respond WITHDRAW",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/talk/list",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "talk-webhook-list",
+      "name": "Webhook LIST",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        900
+      ],
+      "webhookId": "epe-talk-list"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nreturn { json: {\n  authorization: request.headers?.authorization || '',\n  required_roles: [\"admin\"],\n  required_capability: '',\n  request,\n}};"
+      },
+      "id": "talk-guard-list",
+      "name": "Prepare Guard Input LIST",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "L0Zr7nVa8O5YWXd3",
+        "options": {}
+      },
+      "id": "talk-run-list",
+      "name": "Run Auth Guard LIST",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const guard = $('Run Auth Guard LIST').first().json;\nif (!guard.ok) return { json: { http_status: guard.status,\n  body: { success: false, error: guard.code, message: guard.message },\n  sql: 'SELECT NULL::integer AS wave_id WHERE false' } };\nreturn { json: { sql: `\nWITH wave AS (\n  SELECT w.id, w.wave_key, w.opens_at, w.closes_at,\n         clock_timestamp() BETWEEN w.opens_at AND w.closes_at AS is_open\n  FROM (SELECT * FROM performance_db.management_talk_waves ORDER BY id DESC LIMIT 1) w\n), employed AS (\n  SELECT u.id, (u.password_hash IS NOT NULL) AS is_registered\n  FROM performance_db.users u WHERE u.terminated_at IS NULL\n), responses AS (\n  SELECT r.* FROM performance_db.management_talk_responses r JOIN wave w ON w.id = r.wave_id\n), topic_counts AS (\n  SELECT t.topic_key, t.label, count(r.responder_id)::integer AS response_count\n  FROM performance_db.management_talk_topics t LEFT JOIN responses r ON r.topic_key = t.topic_key\n  GROUP BY t.topic_key, t.label\n), response_rows AS (\n  SELECT r.responder_id, u.full_name AS responder_name, u.role,\n         r.answer_key, r.topic_key, t.label AS topic_label, r.counterpart_mode,\n         r.urgency_key, r.group_readiness_key,\n         to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,\n         to_char(r.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS updated_at,\n         COALESCE(json_agg(json_build_object('id', cp.counterpart_id, 'full_name', cu.full_name)\n           ORDER BY cu.full_name, cp.counterpart_id)\n           FILTER (WHERE cp.counterpart_id IS NOT NULL), '[]'::json) AS counterparts\n  FROM responses r JOIN performance_db.users u ON u.id = r.responder_id\n  LEFT JOIN performance_db.management_talk_topics t ON t.topic_key = r.topic_key\n  LEFT JOIN performance_db.management_talk_counterparts cp\n    ON cp.wave_id = r.wave_id AND cp.responder_id = r.responder_id\n  LEFT JOIN performance_db.users cu ON cu.id = cp.counterpart_id\n  GROUP BY r.responder_id, u.full_name, u.role, r.answer_key, r.topic_key, t.label,\n           r.counterpart_mode, r.urgency_key, r.group_readiness_key, r.created_at, r.updated_at\n)\nSELECT w.id AS wave_id, w.wave_key, w.is_open,\n  to_char(w.opens_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS opens_at,\n  to_char(w.closes_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS closes_at,\n  (SELECT count(*)::integer FROM employed) AS employed,\n  (SELECT count(*)::integer FROM responses WHERE answer_key = 'all_good') AS all_good,\n  (SELECT count(*)::integer FROM responses WHERE answer_key = 'topic_only') AS topic_only,\n  (SELECT count(*)::integer FROM responses WHERE answer_key = 'conversation') AS conversation,\n  (SELECT count(*)::integer FROM employed e WHERE e.is_registered\n    AND NOT EXISTS (SELECT 1 FROM responses r WHERE r.responder_id = e.id)) AS registered_unanswered,\n  (SELECT count(*)::integer FROM employed e WHERE NOT e.is_registered) AS never_registered,\n  COALESCE((SELECT json_agg(row_to_json(tc) ORDER BY tc.topic_key) FROM topic_counts tc), '[]'::json) AS topics,\n  COALESCE((SELECT json_agg(row_to_json(rr) ORDER BY rr.updated_at DESC, rr.responder_id)\n            FROM response_rows rr), '[]'::json) AS responses\nFROM wave w\n` } };"
+      },
+      "id": "talk-list-build",
+      "name": "Build Admin Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql || 'SELECT NULL::integer AS wave_id WHERE false' }}",
+        "options": {}
+      },
+      "id": "talk-list-load",
+      "name": "Load Admin Results",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        250,
+        900
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "VNbfkY8IKbEzn88B",
+          "name": "EPE 2026 Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Admin Query').first().json;\nif (prev.http_status) return { json: prev };\nconst row = $input.all().map(i => i.json).find(r => r.wave_id !== undefined);\nif (!row) return { json: { http_status: 404,\n  body: { success: false, error: 'TALK_WAVE_NOT_FOUND', message: 'Волна не найдена' } } };\nconst parse = (v, fallback) => {\n  if (v === null || v === undefined) return fallback;\n  if (typeof v !== 'string') return v;\n  try { return JSON.parse(v); } catch { return fallback; }\n};\nconst truthy = v => v === true || v === 't';\nconst answers = {\"all_good\": \"У меня всё в порядке, срочных тем для обсуждения нет\", \"topic_only\": \"Есть тема, но отдельная встреча сейчас не нужна\", \"conversation\": \"Да, мне нужен разговор\"};\nconst urgencies = {\"this_cycle\": \"Хочу обсудить в рамках этого цикла\", \"soon\": \"Желательно поговорить в ближайшее время — ситуация уже влияет на мою работу\"};\nconst groups = {\"yes\": \"Да\", \"individual_only\": \"Только индивидуально\"};\nconst responses = parse(row.responses, []).map(r => ({\n  ...r, responder_id: Number(r.responder_id), answer_label: answers[r.answer_key],\n  urgency_label: r.urgency_key ? urgencies[r.urgency_key] : null,\n  group_readiness_label: r.group_readiness_key ? groups[r.group_readiness_key] : null,\n  counterparts: parse(r.counterparts, []).map(c => ({ ...c, id: Number(c.id) })),\n}));\nreturn { json: { http_status: 200, body: {\n  success: true,\n  wave: { id: Number(row.wave_id), key: row.wave_key, is_open: truthy(row.is_open),\n          opens_at: row.opens_at, closes_at: row.closes_at },\n  counts: { employed: Number(row.employed), all_good: Number(row.all_good),\n    topic_only: Number(row.topic_only), conversation: Number(row.conversation),\n    registered_unanswered: Number(row.registered_unanswered),\n    never_registered: Number(row.never_registered) },\n  topics: parse(row.topics, []).map(t => ({ ...t, response_count: Number(t.response_count) })),\n  responses,\n} } };"
+      },
+      "id": "talk-list-format",
+      "name": "Format Admin Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "talk-list-respond",
+      "name": "Respond LIST",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        740,
+        900
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook FORM": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input FORM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input FORM": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard FORM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard FORM": {
+      "main": [
+        [
+          {
+            "node": "Build Form Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Form Query": {
+      "main": [
+        [
+          {
+            "node": "Load Form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Form": {
+      "main": [
+        [
+          {
+            "node": "Format Form Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Form Response": {
+      "main": [
+        [
+          {
+            "node": "Respond FORM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook SAVE": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input SAVE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input SAVE": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard SAVE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard SAVE": {
+      "main": [
+        [
+          {
+            "node": "Validate Save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Save": {
+      "main": [
+        [
+          {
+            "node": "Load Save Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Save Target": {
+      "main": [
+        [
+          {
+            "node": "Build Save SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Save SQL": {
+      "main": [
+        [
+          {
+            "node": "Execute Save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Save": {
+      "main": [
+        [
+          {
+            "node": "Format Save Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Save Response": {
+      "main": [
+        [
+          {
+            "node": "Respond SAVE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook WITHDRAW": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input WITHDRAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input WITHDRAW": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard WITHDRAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard WITHDRAW": {
+      "main": [
+        [
+          {
+            "node": "Build Withdraw Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Withdraw Query": {
+      "main": [
+        [
+          {
+            "node": "Execute Withdraw",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Withdraw": {
+      "main": [
+        [
+          {
+            "node": "Format Withdraw Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Withdraw Response": {
+      "main": [
+        [
+          {
+            "node": "Respond WITHDRAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook LIST": {
+      "main": [
+        [
+          {
+            "node": "Prepare Guard Input LIST",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Guard Input LIST": {
+      "main": [
+        [
+          {
+            "node": "Run Auth Guard LIST",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Auth Guard LIST": {
+      "main": [
+        [
+          {
+            "node": "Build Admin Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Admin Query": {
+      "main": [
+        [
+          {
+            "node": "Load Admin Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Admin Results": {
+      "main": [
+        [
+          {
+            "node": "Format Admin Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Admin Response": {
+      "main": [
+        [
+          {
+            "node": "Respond LIST",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "48e5a28c-3fb1-4a5a-9669-6b99e32d4a8c",
+  "versionCounter": 3,
+  "triggerCount": 4,
+  "shared": [
+    {
+      "updatedAt": "2026-09-06T13:40:12.692Z",
+      "createdAt": "2026-09-06T13:40:12.692Z",
+      "role": "workflow:owner",
+      "workflowId": "pALSY08dYjNmHB64",
+      "projectId": "etgqxHLuSapoTyiP",
+      "project": {
+        "updatedAt": "2025-06-21T12:16:10.334Z",
+        "createdAt": "2025-06-21T12:14:12.509Z",
+        "id": "etgqxHLuSapoTyiP",
+        "name": "Aleksandr admin\\ <admin@admin.ru>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "projectRelations": [
+          {
+            "updatedAt": "2025-06-21T12:14:12.509Z",
+            "createdAt": "2025-06-21T12:14:12.509Z",
+            "userId": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+            "projectId": "etgqxHLuSapoTyiP",
+            "user": {
+              "updatedAt": "2026-09-06T13:40:00.825Z",
+              "createdAt": "2025-06-21T12:14:11.974Z",
+              "id": "30fb4110-3e17-486d-8374-e261d4b5bb3a",
+              "email": "admin@admin.ru",
+              "firstName": "Aleksandr",
+              "lastName": "admin\\",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2025-06-21T12:16:14.744Z",
+                "personalization_survey_n8n_version": "1.98.2"
+              },
+              "settings": {
+                "userActivated": true,
+                "easyAIWorkflowOnboarded": true,
+                "firstSuccessfulWorkflowId": "VZkADNbuEeJgTBQk",
+                "userActivatedAt": 1754208251036,
+                "dismissedCallouts": {
+                  "aiAgentStarterCallout": true
+                },
+                "npsSurvey": {
+                  "waitingForResponse": true,
+                  "ignoredCount": 1,
+                  "lastShownAt": 1786569530276
+                }
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-09-06",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": []
+}

@@ -60,8 +60,13 @@ def generate(builder: Path, output: Path) -> None:
 def assert_additive() -> int:
     root = Path(tempfile.mkdtemp(prefix="epe-talk-drift-"))
     old_builder = root / "build_route_guard_workflows.py"
+    addition_commit = subprocess.run(
+        ["git", "log", "--diff-filter=A", "-1", "--format=%H", "--", "scripts/talk_workflow.py"],
+        cwd=REPO, check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    base_ref = f"{addition_commit}^" if addition_commit else "HEAD"
     old_builder.write_bytes(subprocess.run(
-        ["git", "show", "HEAD:scripts/build_route_guard_workflows.py"],
+        ["git", "show", f"{base_ref}:scripts/build_route_guard_workflows.py"],
         cwd=REPO, check=True, capture_output=True,
     ).stdout)
     old, new = root / "old", root / "new"
@@ -73,9 +78,10 @@ def assert_additive() -> int:
     new_files = {path.name for path in new.iterdir()}
     changed = sorted(name for name in old_files & new_files
                      if (old / name).read_bytes() != (new / name).read_bytes())
-    if new_files - old_files != {SOURCE} or old_files - new_files or changed:
+    added = new_files - old_files
+    if added != {SOURCE} or old_files - new_files or changed:
         raise SystemExit(
-            f"Refusing non-additive workflow deploy: added={sorted(new_files-old_files)} "
+            f"Refusing non-additive workflow deploy: added={sorted(added)} "
             f"removed={sorted(old_files-new_files)} changed={changed}"
         )
     return len(old_files)
