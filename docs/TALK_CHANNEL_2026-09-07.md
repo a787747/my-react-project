@@ -6,7 +6,8 @@ campaign entry points. It has no period binding and no path into evaluation
 scores or period close.
 
 The owner explicitly authorised opening on 2026-09-06, one day before the
-concept timetable. Live frontend: **`20260906T134020Z`**. Workflow:
+concept timetable. Live frontend after the copy revision:
+**`20260906T135041Z`**. Workflow:
 **`API: Management Talk`**, id **`pALSY08dYjNmHB64`**, active, updated
 **`2026-09-06T13:40:13.535Z`**.
 
@@ -127,7 +128,7 @@ rows always render in contract order, including zeroes.
 
 ## 7. Validation and deployment evidence
 
-- Static suite: **473/473 passed** (7 TALK tests).
+- Static suite after the copy revision: **474/474 passed** (8 TALK tests).
 - Production build passed; live deploy build passed again.
 - New-file lint: zero errors. Existing changed files retain six pre-existing
   lint findings in `Sidebar.jsx` and `ManagerEvaluation.jsx`; this brief did not
@@ -141,7 +142,9 @@ rows always render in contract order, including zeroes.
 - Existing generated workflows unchanged: **20**.
 - Workflow totals after activation: **62 total / 37 active**.
 - Frontend CAS:
-  `releases/20260827T124349Z → releases/20260906T134020Z`.
+  `releases/20260827T124349Z → releases/20260906T134020Z`;
+  copy-only follow-up:
+  `releases/20260906T134020Z → releases/20260906T135041Z`.
 - Public `/talk` and `/admin/talk` both returned HTTP 200 (SPA entry).
   Deployed assets contain the TALK title; the literal
   `Ответить можно до 10 сентября` is absent, while `deadline_text` is present.
@@ -187,5 +190,21 @@ container was restarted.
 - Implementation: `f1472b9` — TALK surface, migration, workflow source,
   frontend, tests and proof tooling.
 - Live export/deploy guard: `dddc32e`.
+- Employee copy revision: `a6291ef`.
 
-Both are followed by the documentation record commit that contains this report.
+They are followed by documentation record commits containing this report.
+
+## 11. Copy revision (D-TALK-14, 2026-09-06)
+
+The employee explanation was replaced verbatim with the owner's new six
+paragraphs. The old acute-project introduction and four dash-prefixed assurance
+paragraphs are absent from source and the deployed bundle. The gate question,
+answer choices, topics, API and stored data did not change.
+
+The deadline still renders from `wave.deadline_text`; the deployed bundle
+contains the new first paragraph and does not contain either the old first
+paragraph or the hard-coded string `Ответить можно до 10 сентября`.
+
+Validation: focused TALK **8/8**, full suite **474/474**, lint zero, production
+build passed. Campaign tables stayed **177/572/0/0**, TALK responses stayed
+**0**, and `evaluation_started_at` was unchanged. Copy commit: `a6291ef`.

@@ -12,17 +12,19 @@
   refusal is server-side and applies only to topic 10.
 - Employee/admin pages plus sidebar, Welcome/team banner and all evaluation
   success prompts. Deadline is derived from `closes_at`.
-- Final stand **23/23**; static suite **473/473**; production build passed.
+- Final stand **23/23**; static suite after copy revision **474/474**;
+  production build passed.
 - Live admin smoke: **0 → 1 → read `all_good` → 0**. Role matrix matched
   admin 200 / all other roles 403 / unauthenticated 401.
 - Campaign read **177/572/0/0 → 177/572/0/0**; no movement was observed.
   `evaluation_started_at` stayed `2026-08-26 10:08:54.340312Z`.
 - Frontend CAS:
-  `20260827T124349Z → 20260906T134020Z`. Stand/staging removed; live TALK
-  responses returned to zero after the authorised smoke.
+  `20260827T124349Z → 20260906T134020Z → 20260906T135041Z`. The second flip
+  replaces only the employee explanation with D-TALK-14's text. Stand/staging
+  removed; live TALK responses returned to zero after the authorised smoke.
 
-**Report:** `docs/TALK_CHANNEL_2026-09-07.md`. **Decisions:** D-TALK-1…13.
-**Implementation commits:** `f1472b9`, `dddc32e`. **Open:** BUG-081.
+**Report:** `docs/TALK_CHANNEL_2026-09-07.md`. **Decisions:** D-TALK-1…14.
+**Implementation commits:** `f1472b9`, `dddc32e`, `a6291ef`. **Open:** BUG-081.
 
 ## 2026-08-27 — PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW
 
