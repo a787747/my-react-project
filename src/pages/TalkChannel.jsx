@@ -146,9 +146,6 @@ const TalkChannel = ({ user }) => {
 
         <section className="card p-6 mb-6 space-y-4 text-sm text-slate-700 leading-relaxed">
           {TALK_COPY.intro.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-          <ul className="space-y-2">
-            {TALK_COPY.promises.map((promise) => <li key={promise}>— {promise}</li>)}
-          </ul>
           {wave?.deadline_text && (
             <p className="font-semibold">Ответить можно до {wave.deadline_text}.</p>
           )}

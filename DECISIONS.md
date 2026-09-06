@@ -1019,3 +1019,14 @@ the concept timetable's 7–8 September deployment window.
 **Consequence:** `opens_at` is the migration time
 `2026-09-06 13:38:48.758904Z`; the closing deadline remains unchanged at the
 end of 10 September Asia/Ashgabat.
+
+### D-TALK-14 — Replace the employee explanation copy (owner, 2026-09-06)
+**Decision:** replace the six introductory/explanatory paragraphs on `/talk`
+with the owner's revised text beginning «Сейчас во многих направлениях
+компании сохраняется высокая рабочая нагрузка…» and ending «…требует
+обсуждения.» The previous acute-project and four dash-prefixed assurance
+paragraphs are removed.
+**Consequence:** the visible deadline remains «Ответить можно до 10 сентября.»
+but is still rendered from the wave's `closes_at`, never hard-coded in frontend
+copy. The gate question, answer choices, topics and all route behaviour are
+unchanged.

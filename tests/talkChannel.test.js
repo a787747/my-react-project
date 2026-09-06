@@ -93,6 +93,19 @@ test('deadline is rendered from closes_at and agrees with approved copy', () => 
   assert.match(js, /deadline_text/);
 });
 
+test('employee explanation uses the revised owner copy verbatim', () => {
+  assert.match(
+    copy,
+    /Сейчас во многих направлениях компании сохраняется высокая рабочая нагрузка: продолжаются проекты оснащения клиник, поставки расходных материалов, установка оборудования, обучение конечных пользователей и другие текущие задачи\./,
+  );
+  assert.match(
+    copy,
+    /Этот раздел не является частью процедуры оценки сотрудников и рассматривается отдельно от неё\./,
+  );
+  assert.doesNotMatch(copy, /Сейчас у многих высокая нагрузка: проекты оснащения клиник в самых острых фазах/);
+  assert.doesNotMatch(copy, /Открытый и добросовестный разговор сам по себе/);
+});
+
 test('admin denominator separates registered unanswered from never registered', () => {
   assert.match(js, /registered_unanswered/);
   assert.match(js, /never_registered/);
