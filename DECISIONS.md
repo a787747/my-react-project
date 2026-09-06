@@ -940,3 +940,75 @@ are in `docs/PEER_RECOGNITION_DISCLOSURE_AND_WITHDRAW_2026-08-27.md` §6
 
 **Implementation:** same workflow, fourth webhook; frontend
 `20260827T124349Z`; no migration; no foreign key into evaluations.
+
+### D-TALK-1 — Waves, not periods (owner, 2026-09-06)
+**Decision:** the record is attached to a wave, never to `period_id`. Wave 1
+closes 2026-09-10. «Один ответ на человека» is a property of a wave, so the
+surface can be reopened without touching the period model.
+**Consequence:** TALK cannot enter the period-close path.
+
+### D-TALK-2 — Record «all good» and split non-response (owner, 2026-09-06)
+**Decision:** all three answers are stored. Silence is not «всё в порядке».
+Non-response is shown as two separate numbers: registered-but-unanswered and
+never registered.
+**Consequence:** the owner gets a real denominator and can act differently on
+the two missing populations.
+
+### D-TALK-3 — Sole reader is admin (owner, 2026-09-06)
+**Decision:** only `admin` reads company results. `c_level`, `hr`, `manager`
+and `employee` receive 403; unauthenticated callers receive 401.
+**Consequence:** the owner personally routes requested conversations.
+
+### D-TALK-4 — Entry inside the campaign flow (owner, 2026-09-06)
+**Decision:** entry points are the sidebar, dashboard banner and a prompt after
+an evaluation is submitted. The banner clears only after any recorded answer,
+including «всё в порядке».
+**Consequence:** TALK needs no separate email campaign.
+
+### D-TALK-5 — Minimal employee status in wave 1 (owner, 2026-09-06)
+**Decision:** the employee sees «Ответ получен» and no scheduling state
+machine. Scheduling states are deferred until their model is explicitly
+decided.
+**Consequence:** wave 1 promises no workflow the product does not have.
+
+### D-TALK-6 — Editable and withdrawable while open (owner, 2026-09-06)
+**Decision:** a response can be changed by upsert onto the same wave/person key
+or withdrawn until the wave closes.
+**Consequence:** one physical response remains per person per wave.
+
+### D-TALK-7 — All employed people, independent of evaluation scope (owner, 2026-09-06)
+**Decision:** any employed authenticated person may answer; a terminated person
+may not. Evaluation-period scope is irrelevant.
+**Consequence:** recent hires and people outside H1 scope retain the channel.
+
+### D-TALK-8 — Total isolation from the money path (owner, 2026-09-06)
+**Decision:** separate wave/response tables; no `period_id`, no score-like
+column, and no foreign key into `evaluations`, `evaluation_scores`,
+`score_corrections` or `period_results`.
+**Consequence:** TALK is absent from matrices, close, exports, completion
+counters and analytics.
+
+### D-TALK-9 — Closing communication is a management action (owner, 2026-09-06)
+**Decision:** after the wave, leadership sends a short no-names letter about
+themes and its response.
+**Consequence:** this is not code and remains an owner action before H1 close.
+
+### D-TALK-10 — Russian only for wave 1 (owner, 2026-09-06)
+**Decision:** no Turkmen version is built for wave 1.
+**Consequence:** every employee-facing string follows the approved Russian
+contract in `CONVERSATION_CHANNEL_CONCEPT.md`.
+
+### D-TALK-11 — Own-manager exclusion is topic 10 only (owner, 2026-09-06)
+**Decision:** the author's current manager is neither offered nor accepted as a
+counterpart only for topic 10 «Действия моего непосредственного руководителя».
+Topics 9, 11 and 12 may concern anyone and must not inherit that exclusion.
+**Consequence:** later sessions must not broaden a sensitive-topic default into
+a server-side relationship ban.
+
+### D-TALK-12 — Named counterpart allowlist for wave 1 (owner, 2026-09-06)
+**Decision:** the selector is limited to the six signed-off employed leaders:
+Alexander Petrosov (2), Bayram Urayev (18), Cem Durukan (21), Hemra Ashyrov
+(40), Jemal Gulberdiyeva (47), Mekan Yusupov (61). Special choices are
+mutually exclusive with named people.
+**Consequence:** gaining `admin` or `c_level` role alone does not approve a
+person for this selector; current role and employment are still rechecked.

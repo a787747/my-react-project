@@ -17,6 +17,7 @@ import { useTaskStatus } from '../context/TaskStatusContext';
 import EmployeeCard from '../components/EmployeeCard';
 import OutOfScopeTeamSection from '../components/common/OutOfScopeTeamSection';
 import EvaluationModal from '../components/EvaluationModal';
+import TalkEntryPrompt from '../components/TalkEntryPrompt';
 import { Skeleton } from '../components/common';
 import { ADMIN_ROLES } from '../config/constants';
 import logger from '../utils/logger';
@@ -172,6 +173,8 @@ const Dashboard = ({ user }) => {
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Моя команда</h1>
           <p className="text-slate-600">Сотрудники в вашем подчинении</p>
         </div>
+
+        <TalkEntryPrompt user={user} className="mb-6" />
 
         {processedSubordinates.length === 0 ? (
           <div className="card p-12 text-center">

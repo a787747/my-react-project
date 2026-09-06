@@ -20,6 +20,7 @@ import {
 import { LoadingSpinner, OutOfScopeNotice, PeriodNotice, RatingGuide } from '../components/common';
 import { CriteriaOverview } from '../components/profile';
 import TaskSummary from '../components/TaskSummary';
+import TalkEntryPrompt from '../components/TalkEntryPrompt';
 import { useProfile } from '../hooks/useProfile';
 import { useUser } from '../context/UserContext';
 import { useTaskStatus } from '../context/TaskStatusContext';
@@ -66,6 +67,7 @@ const Welcome = () => {
       <div className="min-h-screen bg-surface-raised p-4 lg:p-6">
         <div className="max-w-5xl mx-auto space-y-5">
           <PeriodNotice notice={periodNotice} />
+          <TalkEntryPrompt user={user} />
           <OutOfScopeNotice
             embedded
             reason={outOfScopeReason}
@@ -117,6 +119,7 @@ const Welcome = () => {
         </div>
 
         <PeriodNotice notice={periodNotice} />
+        <TalkEntryPrompt user={user} />
 
         <TaskSummary
           campaignActive={campaignActive}

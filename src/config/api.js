@@ -126,6 +126,14 @@ export const API_ENDPOINTS = {
   RECOGNITION_LIST: `${API_BASE_URL}/api/recognition/list`,
 
   // ============================================
+  // ПОГОВОРИТЬ С РУКОВОДСТВОМ — TALK WAVE
+  // ============================================
+  TALK_FORM: `${API_BASE_URL}/api/talk/form`,
+  TALK_SAVE: `${API_BASE_URL}/api/talk/save`,
+  TALK_WITHDRAW: `${API_BASE_URL}/api/talk/withdraw`,
+  TALK_LIST: `${API_BASE_URL}/api/talk/list`,
+
+  // ============================================
   // АДМИН: ОЧИСТКА ТЕСТОВЫХ ДАННЫХ
   // ============================================
   ADMIN_CLEAR_TEST_EVALUATIONS: `${API_BASE_URL}/api/admin/clear-test-evaluations`

@@ -31,6 +31,7 @@ import {
   saveEvaluationDraft
 } from '../utils/evaluationDrafts';
 import CriterionSlider from './CriterionSlider';
+import TalkEntryPrompt from './TalkEntryPrompt';
 import logger from '../utils/logger';
 
 const EvaluationModal = ({
@@ -556,9 +557,12 @@ const EvaluationModal = ({
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">{submitResult.message}</h3>
               {submitResult.success && (
-                <p className="text-gray-600">
-                  Итоговый балл: <span className="text-2xl font-bold text-indigo-600">{submitResult.score}</span>
-                </p>
+                <>
+                  <p className="text-gray-600">
+                    Итоговый балл: <span className="text-2xl font-bold text-indigo-600">{submitResult.score}</span>
+                  </p>
+                  <TalkEntryPrompt user={user} compact className="mt-6 text-left" />
+                </>
               )}
             </div>
           )}

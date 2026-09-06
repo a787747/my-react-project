@@ -31,6 +31,7 @@ import EvaluationsMatrixTable from '../components/admin/EvaluationsMatrixTable';
 import CLevelEvaluationModal from '../components/admin/CLevelEvaluationModal';
 import EmployeeScoresModal from '../components/admin/EmployeeScoresModal';
 import ScoreDetailModal from '../components/admin/ScoreDetailModal';
+import TalkEntryPrompt from '../components/TalkEntryPrompt';
 
 // Хуки
 import { useEvaluationsMatrix } from '../hooks/useEvaluationsMatrix';
@@ -60,6 +61,7 @@ const AdminEvaluationsMatrix = ({ user }) => {
   } = useEvaluationsMatrix();
 
   const [periodCatalog, setPeriodCatalog] = useState([]);
+  const [showTalkPrompt, setShowTalkPrompt] = useState(false);
 
   useEffect(() => {
     apiClient.get(API_ENDPOINTS.PERIODS)
@@ -147,6 +149,7 @@ const AdminEvaluationsMatrix = ({ user }) => {
     if (result.success) {
       alert('C-level оценка сохранена!');
       handleCloseCLevelModal();
+      setShowTalkPrompt(true);
     } else {
       alert(result.error || 'Ошибка при сохранении оценки');
     }
@@ -232,6 +235,8 @@ const AdminEvaluationsMatrix = ({ user }) => {
           )}
         </button>
       </div>
+
+      {showTalkPrompt && <TalkEntryPrompt user={user} className="mb-6" />}
       
       {period ? (
         <div className={`mb-4 p-3 rounded-lg border text-sm ${

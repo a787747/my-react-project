@@ -19,6 +19,7 @@ import { AlertCircle } from 'lucide-react';
 // Компоненты
 import { LoadingSpinner, OutOfScopeNotice, CampaignNotStartedNotice, RatingGuide } from '../components/common';
 import { SelfReviewStatusCard, SelfReviewModal } from '../components/self-review';
+import TalkEntryPrompt from '../components/TalkEntryPrompt';
 
 // Хуки
 import { useSelfReview } from '../hooks/useSelfReview';
@@ -56,6 +57,7 @@ const SelfReview = () => {
 
   // Состояние модального окна
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showTalkPrompt, setShowTalkPrompt] = useState(false);
 
   // Admin и C-level не делают самооценку
   const isExemptFromReview = user?.role === 'c_level' || user?.role === 'admin';
@@ -82,6 +84,7 @@ const SelfReview = () => {
       // Обновляем статусы задач в сайдбаре
       refreshTaskStatus();
       setIsModalOpen(false);
+      setShowTalkPrompt(true);
     } else {
       alert(result.error || 'Ошибка при сохранении');
     }
@@ -152,6 +155,8 @@ const SelfReview = () => {
         <div className="mb-6">
           <RatingGuide variant="employee" />
         </div>
+
+        {showTalkPrompt && <TalkEntryPrompt user={user} className="mb-6" />}
 
         {/* Предупреждение */}
         <div className="bg-amber-50 border-l-4 border-amber-400 p-6 mb-6 rounded-r-xl shadow-sm">

@@ -27,6 +27,7 @@ import { useManagerEvaluation } from '../hooks/useManagerEvaluation';
 import { useTaskStatus } from '../context/TaskStatusContext';
 import { OutOfScopeNotice, CampaignNotStartedNotice, RatingGuide } from '../components/common';
 import CriterionSlider from '../components/CriterionSlider';
+import TalkEntryPrompt from '../components/TalkEntryPrompt';
 import { getScoreZone } from '../utils/evaluationUtils';
 import { gradesPayloadFromState, isCriterionTouched, untouchedCriterionIds } from '../utils/evaluationGrades';
 import { ADMIN_ROLES } from '../config/constants';
@@ -324,15 +325,18 @@ const ManagerEvaluation = ({ user }) => {
 
         {/* Результат отправки */}
         {submitResult?.success && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-6 mb-6 text-center">
-            <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
-            <h3 className="text-xl font-bold text-green-900 mb-2">
-              Оценка успешно сохранена!
-            </h3>
-            <p className="text-green-700">
-              Итоговый балл: <span className="font-bold text-2xl">{submitResult.score}</span>
-            </p>
-          </div>
+          <>
+            <div className="bg-green-50 border border-green-200 rounded-xl p-6 mb-4 text-center">
+              <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
+              <h3 className="text-xl font-bold text-green-900 mb-2">
+                Оценка успешно сохранена!
+              </h3>
+              <p className="text-green-700">
+                Итоговый балл: <span className="font-bold text-2xl">{submitResult.score}</span>
+              </p>
+            </div>
+            <TalkEntryPrompt user={user} className="mb-6" />
+          </>
         )}
 
         {/* Форма оценки */}

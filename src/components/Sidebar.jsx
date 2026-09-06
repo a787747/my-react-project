@@ -21,7 +21,7 @@ import {
   LayoutDashboard, Settings, LogOut, Users, ClipboardList, Calendar, 
   Star, User, BarChart3, TrendingUp, Grid3x3, Calculator, Award, 
   UserCheck, BookOpen, ClipboardCheck, CheckCircle2, Shield, Info, 
-  Coins, Menu, X, ChevronDown, CalendarRange, HeartHandshake
+  Coins, Menu, X, ChevronDown, CalendarRange, HeartHandshake, MessageCircle
 } from 'lucide-react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
@@ -215,6 +215,7 @@ const Sidebar = ({ user }) => {
                 отделами видят как раз они. Поэтому пункт не завёрнут в
                 !isOutOfScope и не зависит от campaignActive. */}
             <NavItem to="/recognition" icon={HeartHandshake} label="Отметить коллегу" onClick={closeMobileMenu} />
+            <NavItem to="/talk" icon={MessageCircle} label="Поговорить с руководством" onClick={closeMobileMenu} />
           </NavGroup>
         )}
 
@@ -264,7 +265,10 @@ const Sidebar = ({ user }) => {
           <NavGroup title="Администрирование" icon={Settings} groupId="admin" openGroupId={openGroupId} onToggle={setOpenGroupId}>
             <NavItem to="/admin/users" icon={Users} label="Сотрудники" onClick={closeMobileMenu} />
             {safeUser.role === 'admin' && (
-              <NavItem to="/admin/periods" icon={Calendar} label="Периоды" onClick={closeMobileMenu} />
+              <>
+                <NavItem to="/admin/periods" icon={Calendar} label="Периоды" onClick={closeMobileMenu} />
+                <NavItem to="/admin/talk" icon={MessageCircle} label="Ответы: поговорить" onClick={closeMobileMenu} />
+              </>
             )}
             {/* Критерии: admin edits, c_level reads (ROLE_ACCESS_HR_CLEVEL) */}
             <NavItem to="/admin" icon={Settings} label="Критерии" onClick={closeMobileMenu} end />

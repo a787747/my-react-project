@@ -22,6 +22,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from talk_workflow import build_talk_channel
+
 
 POSTGRES_CREDENTIAL_PLACEHOLDER = "__EPE_POSTGRES_CREDENTIAL_ID__"
 GUARD_WORKFLOW_PLACEHOLDER = "__EPE_AUTH_GUARD_WORKFLOW_ID__"
@@ -7968,6 +7970,7 @@ def main() -> None:
         "manage-employment.json": build_manage_employment(cred, guard),
         "manage-period-scope.json": build_manage_period_scope(cred, guard),
         "peer-recognition.json": build_peer_recognition(cred, guard),
+        "talk-channel.json": build_talk_channel(cred, guard),
     }
 
     for filename, payload in workflows.items():

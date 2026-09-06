@@ -61,6 +61,8 @@ const AdminScoreCalculator = lazy(() => import('./pages/AdminScoreCalculator'));
 // трогать форму во время идущей кампании нельзя.
 const PeerRecognition = lazy(() => import('./pages/PeerRecognition'));
 const AdminPeerRecognition = lazy(() => import('./pages/AdminPeerRecognition'));
+const TalkChannel = lazy(() => import('./pages/TalkChannel'));
+const AdminTalkChannel = lazy(() => import('./pages/AdminTalkChannel'));
 
 const ProtectedRoute = ({ children, user }) => {
   if (!user) {
@@ -117,6 +119,16 @@ const HRRoute = ({ children, user }) => {
  * for non-admin either way.
  */
 const CoefficientRoute = ({ children, user }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!isAdmin(user.role)) {
+    return <Navigate to={isHR(user.role) ? '/hr/dashboard' : '/welcome'} replace />;
+  }
+  return children;
+};
+
+const AdminOnlyRoute = ({ children, user }) => {
   if (!user) {
     return <Navigate to="/login" replace />;
   }
@@ -234,6 +246,14 @@ function AppContent() {
             element={
               <ProtectedRoute user={user}>
                 <PeerRecognition user={user} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/talk"
+            element={
+              <ProtectedRoute user={user}>
+                <TalkChannel user={user} />
               </ProtectedRoute>
             }
           />
@@ -361,6 +381,14 @@ function AppContent() {
               <ReportingRoute user={user}>
                 <AdminPeerRecognition />
               </ReportingRoute>
+            }
+          />
+          <Route
+            path="/admin/talk"
+            element={
+              <AdminOnlyRoute user={user}>
+                <AdminTalkChannel />
+              </AdminOnlyRoute>
             }
           />
           <Route
